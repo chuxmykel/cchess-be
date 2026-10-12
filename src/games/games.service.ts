@@ -344,6 +344,7 @@ export class GamesService implements OnModuleDestroy {
       .leftJoinAndSelect('g.white', 'white')
       .leftJoinAndSelect('g.black', 'black')
       .where('(g.whiteId = :userId OR g.blackId = :userId)', { userId })
+      .andWhere('g.deletedAt IS NULL')
       .orderBy('g.createdAt', 'DESC')
       .take(limit);
 

@@ -1,12 +1,14 @@
 import {
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   JoinColumn,
   ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
   type Relation,
+  UpdateDateColumn,
 } from 'typeorm';
 
 import type { GameType } from '../../chess/time-control.js';
@@ -99,6 +101,12 @@ export class Game {
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
+  @UpdateDateColumn({ type: 'timestamptz' })
+  updatedAt!: Date;
+
   @Column({ type: 'timestamptz', nullable: true })
   endedAt!: Date | null;
+
+  @DeleteDateColumn({ type: 'timestamptz' })
+  deletedAt!: Date | null;
 }

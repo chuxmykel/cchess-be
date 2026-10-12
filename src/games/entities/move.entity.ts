@@ -1,12 +1,14 @@
 import {
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   Index,
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
   type Relation,
+  UpdateDateColumn,
 } from 'typeorm';
 
 import { Game } from './game.entity.js';
@@ -58,4 +60,10 @@ export class Move {
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
+
+  @UpdateDateColumn({ type: 'timestamptz' })
+  updatedAt!: Date;
+
+  @DeleteDateColumn({ type: 'timestamptz' })
+  deletedAt!: Date | null;
 }

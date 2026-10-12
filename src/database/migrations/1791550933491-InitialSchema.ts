@@ -30,6 +30,7 @@ export class InitialSchema1791550933491 implements MigrationInterface {
           { name: 'lastSeenAt', type: 'timestamptz', isNullable: true },
           { name: 'createdAt', type: 'timestamptz', default: 'now()' },
           { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
+          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
         ],
       }),
     );
@@ -64,7 +65,9 @@ export class InitialSchema1791550933491 implements MigrationInterface {
           { name: 'category', type: 'varchar', length: '16' },
           { name: 'rating', type: 'int', default: 1200 },
           { name: 'gamesPlayed', type: 'int', default: 0 },
+          { name: 'createdAt', type: 'timestamptz', default: 'now()' },
           { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
+          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
         ],
       }),
     );
@@ -92,6 +95,8 @@ export class InitialSchema1791550933491 implements MigrationInterface {
           { name: 'expiresAt', type: 'timestamptz' },
           { name: 'revoked', type: 'boolean', default: false },
           { name: 'createdAt', type: 'timestamptz', default: 'now()' },
+          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
+          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
         ],
       }),
     );
@@ -124,7 +129,9 @@ export class InitialSchema1791550933491 implements MigrationInterface {
           },
           { name: 'gameId', type: 'varchar', isNullable: true },
           { name: 'createdAt', type: 'timestamptz', default: 'now()' },
+          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
           { name: 'respondedAt', type: 'timestamptz', isNullable: true },
+          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
         ],
       }),
     );
@@ -148,7 +155,9 @@ export class InitialSchema1791550933491 implements MigrationInterface {
             default: "'pending'",
           },
           { name: 'createdAt', type: 'timestamptz', default: 'now()' },
+          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
           { name: 'respondedAt', type: 'timestamptz', isNullable: true },
+          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
         ],
       }),
     );
@@ -195,7 +204,9 @@ export class InitialSchema1791550933491 implements MigrationInterface {
             isNullable: true,
           },
           { name: 'createdAt', type: 'timestamptz', default: 'now()' },
+          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
           { name: 'endedAt', type: 'timestamptz', isNullable: true },
+          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
         ],
       }),
     );
@@ -222,6 +233,8 @@ export class InitialSchema1791550933491 implements MigrationInterface {
           { name: 'fenAfter', type: 'varchar' },
           { name: 'clockAfterMs', type: 'int' },
           { name: 'createdAt', type: 'timestamptz', default: 'now()' },
+          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
+          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
         ],
       }),
     );

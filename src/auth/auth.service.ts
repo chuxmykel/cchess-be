@@ -72,9 +72,10 @@ export class AuthService {
     await this.refreshTokens.update({ tokenHash }, { revoked: true });
   }
 
-  /** Housekeeping: drop expired/revoked refresh tokens. Safe to run on an interval. */
+  /** Housekeeping: soft-delete expired refresh tokens. Safe to run on an
+   * interval - rows are marked deletedAt, never hard-deleted. */
   async pruneExpiredTokens(): Promise<void> {
-    await this.refreshTokens.delete({ expiresAt: LessThan(new Date()) });
+    await this.refreshTokens.softDelete({ expiresAt: LessThan(new Date()) });
   }
 
   private async issueSession(user: User): Promise<AuthResponseDto> {

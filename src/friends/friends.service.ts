@@ -25,6 +25,10 @@ export class FriendsService {
         '(f.requesterId = :a AND f.addresseeId = :b) OR (f.requesterId = :b AND f.addresseeId = :a)',
         { a: userAId, b: userBId },
       )
+      // Explicit, not relied on implicitly - a soft-removed friendship
+      // (cancelOutgoing/removeFriend) must not surface here as still
+      // pending/accepted when the pair tries to friend each other again.
+      .andWhere('f.deletedAt IS NULL')
       .getOne();
   }
 
@@ -88,7 +92,7 @@ export class FriendsService {
     if (!request || request.requesterId !== userId || request.status !== 'pending') {
       throw new NotFoundException('Friend request not found');
     }
-    await this.friendships.remove(request);
+    await this.friendships.softRemove(request);
   }
 
   async removeFriend(userId: string, friendUsername: string): Promise<void> {
@@ -98,7 +102,7 @@ export class FriendsService {
     if (!existing || existing.status !== 'accepted') {
       throw new NotFoundException('Not friends with this user');
     }
-    await this.friendships.remove(existing);
+    await this.friendships.softRemove(existing);
   }
 
   async listFriends(userId: string) {

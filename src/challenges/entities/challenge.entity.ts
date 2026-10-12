@@ -1,11 +1,13 @@
 import {
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
   type Relation,
+  UpdateDateColumn,
 } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity.js';
@@ -51,6 +53,12 @@ export class Challenge {
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
+  @UpdateDateColumn({ type: 'timestamptz' })
+  updatedAt!: Date;
+
   @Column({ type: 'timestamptz', nullable: true })
   respondedAt!: Date | null;
+
+  @DeleteDateColumn({ type: 'timestamptz' })
+  deletedAt!: Date | null;
 }

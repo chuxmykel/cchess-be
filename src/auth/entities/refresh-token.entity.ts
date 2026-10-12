@@ -1,11 +1,13 @@
 import {
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
   type Relation,
+  UpdateDateColumn,
 } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity.js';
@@ -35,4 +37,10 @@ export class RefreshToken {
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
+
+  @UpdateDateColumn({ type: 'timestamptz' })
+  updatedAt!: Date;
+
+  @DeleteDateColumn({ type: 'timestamptz' })
+  deletedAt!: Date | null;
 }
