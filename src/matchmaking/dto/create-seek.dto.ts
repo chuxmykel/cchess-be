@@ -1,11 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsInt, Max, Min } from 'class-validator';
+import { IsInt, IsNumber, Max, Min } from 'class-validator';
 
 import { MAX_INCREMENT, MAX_MINUTES, MIN_INCREMENT, MIN_MINUTES } from '../../chess/time-control.js';
 
 export class CreateSeekDto {
   @ApiProperty({ minimum: MIN_MINUTES, maximum: MAX_MINUTES })
-  @IsInt()
+  @IsNumber()
   @Min(MIN_MINUTES)
   @Max(MAX_MINUTES)
   minutes!: number;
