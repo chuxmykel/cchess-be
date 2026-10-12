@@ -1,5 +1,4 @@
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { classifyTimeControl, isValidTimeControl, type GameType, type TimeControl } from '../chess/time-control.js';
 import { ClusterBus } from '../cluster/cluster-bus.js';
@@ -36,10 +35,6 @@ interface Seek {
   createdAt: number;
 }
 
-export interface MatchmakingMatchedEvent {
-  game: Game;
-}
-
 export type SeekResult = { status: 'queued' } | { status: 'matched'; game: Game };
 
 /**
@@ -61,7 +56,6 @@ export class MatchmakingService {
   constructor(
     private readonly gamesService: GamesService,
     private readonly usersService: UsersService,
-    private readonly events: EventEmitter2,
     private readonly cluster: ClusterBus,
   ) {
     this.cluster.onRequest('mm:seek', async (payload: { user: WireSeekUser; tc: TimeControl }) => {
@@ -132,7 +126,6 @@ export class MatchmakingService {
     // createGame handles its own ownership routing (see games.service.ts) -
     // the new game need not be owned by this (the matchmaker) worker.
     const game = await this.gamesService.createGame(white, black, tc, true);
-    this.events.emit('matchmaking.matched', { game } satisfies MatchmakingMatchedEvent);
     return { status: 'matched', game };
   }
 

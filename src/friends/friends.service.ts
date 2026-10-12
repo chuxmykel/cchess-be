@@ -3,6 +3,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { DOMAIN_EVENTS } from '../common/events.js';
 import { UsersService } from '../users/users.service.js';
 import { Friendship } from './entities/friendship.entity.js';
 
@@ -25,9 +26,6 @@ export class FriendsService {
         '(f.requesterId = :a AND f.addresseeId = :b) OR (f.requesterId = :b AND f.addresseeId = :a)',
         { a: userAId, b: userBId },
       )
-      // Explicit, not relied on implicitly - a soft-removed friendship
-      // (cancelOutgoing/removeFriend) must not surface here as still
-      // pending/accepted when the pair tries to friend each other again.
       .andWhere('f.deletedAt IS NULL')
       .getOne();
   }
@@ -52,7 +50,9 @@ export class FriendsService {
       existing.status = 'accepted';
       existing.respondedAt = new Date();
       const saved = await this.friendships.save(existing);
-      this.events.emit('friend.requestAccepted', { friendship: saved } satisfies FriendRequestEvent);
+      this.events.emit(DOMAIN_EVENTS.FRIEND_REQUEST_ACCEPTED, {
+        friendship: saved,
+      } satisfies FriendRequestEvent);
       return saved;
     }
     if (existing?.status === 'declined') {
@@ -61,14 +61,18 @@ export class FriendsService {
       existing.status = 'pending';
       existing.respondedAt = null;
       const saved = await this.friendships.save(existing);
-      this.events.emit('friend.requestCreated', { friendship: saved } satisfies FriendRequestEvent);
+      this.events.emit(DOMAIN_EVENTS.FRIEND_REQUEST_CREATED, {
+        friendship: saved,
+      } satisfies FriendRequestEvent);
       return saved;
     }
 
     const saved = await this.friendships.save(
       this.friendships.create({ requesterId, addresseeId: target.id, status: 'pending' }),
     );
-    this.events.emit('friend.requestCreated', { friendship: saved } satisfies FriendRequestEvent);
+    this.events.emit(DOMAIN_EVENTS.FRIEND_REQUEST_CREATED, {
+      friendship: saved,
+    } satisfies FriendRequestEvent);
     return saved;
   }
 
@@ -83,7 +87,10 @@ export class FriendsService {
     request.status = accept ? 'accepted' : 'declined';
     request.respondedAt = new Date();
     const saved = await this.friendships.save(request);
-    if (accept) this.events.emit('friend.requestAccepted', { friendship: saved } satisfies FriendRequestEvent);
+    if (accept)
+      this.events.emit(DOMAIN_EVENTS.FRIEND_REQUEST_ACCEPTED, {
+        friendship: saved,
+      } satisfies FriendRequestEvent);
     return saved;
   }
 

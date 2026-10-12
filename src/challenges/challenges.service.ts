@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { isValidTimeControl, type TimeControl } from '../chess/time-control.js';
+import { DOMAIN_EVENTS } from '../common/events.js';
 import { Game } from '../games/entities/game.entity.js';
 import { GamesService } from '../games/games.service.js';
 import { UsersService } from '../users/users.service.js';
@@ -58,7 +59,7 @@ export class ChallengesService {
       }),
     );
 
-    this.events.emit('challenge.created', { challenge } satisfies ChallengeCreatedEvent);
+    this.events.emit(DOMAIN_EVENTS.CHALLENGE_CREATED, { challenge } satisfies ChallengeCreatedEvent);
     return challenge;
   }
 
@@ -85,7 +86,7 @@ export class ChallengesService {
     challenge.respondedAt = new Date();
     await this.challenges.save(challenge);
 
-    this.events.emit('challenge.accepted', { challenge, game } satisfies ChallengeAcceptedEvent);
+    this.events.emit(DOMAIN_EVENTS.CHALLENGE_ACCEPTED, { challenge, game } satisfies ChallengeAcceptedEvent);
     return { challenge, game };
   }
 
@@ -97,7 +98,7 @@ export class ChallengesService {
     challenge.status = 'declined';
     challenge.respondedAt = new Date();
     await this.challenges.save(challenge);
-    this.events.emit('challenge.declined', { challenge } satisfies ChallengeResolvedEvent);
+    this.events.emit(DOMAIN_EVENTS.CHALLENGE_DECLINED, { challenge } satisfies ChallengeResolvedEvent);
     return challenge;
   }
 
@@ -109,7 +110,7 @@ export class ChallengesService {
     challenge.status = 'cancelled';
     challenge.respondedAt = new Date();
     await this.challenges.save(challenge);
-    this.events.emit('challenge.cancelled', { challenge } satisfies ChallengeResolvedEvent);
+    this.events.emit(DOMAIN_EVENTS.CHALLENGE_CANCELLED, { challenge } satisfies ChallengeResolvedEvent);
     return challenge;
   }
 

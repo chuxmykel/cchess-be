@@ -32,6 +32,7 @@ import {
   toClockMs,
   type TimeControl,
 } from '../chess/time-control.js';
+import { DOMAIN_EVENTS } from '../common/events.js';
 import { UsersService } from '../users/users.service.js';
 import type { User } from '../users/entities/user.entity.js';
 import { computeGameEloDeltas } from './elo.js';
@@ -45,15 +46,12 @@ import {
 import { Move } from './entities/move.entity.js';
 import { buildPgnText } from './pgn.util.js';
 
-export interface GameEndedEvent {
+export interface GameEvent {
   game: Game;
 }
 export interface GameMoveEvent {
   game: Game;
   move: Move;
-}
-export interface GameDrawOfferEvent {
-  game: Game;
 }
 
 const GAME_RELATIONS = { white: true, black: true } as const;
@@ -256,7 +254,7 @@ export class GamesService implements OnModuleDestroy {
     this.logger.debug(
       `game ${saved.id} created: ${white.id} vs ${black.id}, ${tc.minutes}+${tc.incrementSeconds} (${gameType}), rated=${saved.rated}`,
     );
-    this.events.emit('game.created', { game: saved } satisfies GameEndedEvent);
+    this.events.emit(DOMAIN_EVENTS.GAME_CREATED, { game: saved } satisfies GameEvent);
     return saved;
   }
 
@@ -413,7 +411,7 @@ export class GamesService implements OnModuleDestroy {
       // applyMove() itself still doesn't resolve until the write completes
       // (same guarantee every caller already had), so there's no read-
       // after-write gap and no detached-write error handling to add.
-      this.events.emit('game.move', { game, move } satisfies GameMoveEvent);
+      this.events.emit(DOMAIN_EVENTS.GAME_MOVE, { game, move } satisfies GameMoveEvent);
 
       await this.persistMoveAndGame(move, game);
       await this.finalizeIfGameOver(game, outcome, color);
@@ -644,9 +642,9 @@ export class GamesService implements OnModuleDestroy {
 
       game.drawOfferedBy = color === 'w' ? 'white' : 'black';
       await this.games.save(game);
-      this.events.emit('game.drawOffered', {
+      this.events.emit(DOMAIN_EVENTS.GAME_DRAW_OFFERED, {
         game,
-      } satisfies GameDrawOfferEvent);
+      } satisfies GameEvent);
       return game;
     });
   }
@@ -681,9 +679,9 @@ export class GamesService implements OnModuleDestroy {
       } else {
         game.drawOfferedBy = null;
         await this.games.save(game);
-        this.events.emit('game.drawDeclined', {
+        this.events.emit(DOMAIN_EVENTS.GAME_DRAW_DECLINED, {
           game,
-        } satisfies GameDrawOfferEvent);
+        } satisfies GameEvent);
       }
       return game;
     });
@@ -886,7 +884,7 @@ export class GamesService implements OnModuleDestroy {
       await this.applyRatingUpdates(game, result);
     }
 
-    this.events.emit('game.ended', { game } satisfies GameEndedEvent);
+    this.events.emit(DOMAIN_EVENTS.GAME_ENDED, { game } satisfies GameEvent);
   }
 
   private async applyRatingUpdates(
