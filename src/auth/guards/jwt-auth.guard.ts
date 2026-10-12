@@ -18,7 +18,13 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     // connection, in RealtimeGateway.handleConnection (see ws-auth.util.ts) -
     // an unauthenticated socket is disconnected before any message handler
     // can run, so it's safe to just let every WS context through here.
-    if (context.getType() !== 'http') return true;
+    // Deliberately checked as === 'ws', not !== 'http': a future microservice
+    // handler (gRPC, etc.) would get its own 'rpc' context here, and unlike a
+    // socket - authenticated once for its whole connection - each such call
+    // is its own independent request with no equivalent up-front check, so
+    // it must still go through the auth logic below rather than being
+    // silently waved through by a catch-all.
+    if (context.getType() === 'ws') return true;
 
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
