@@ -9,7 +9,7 @@
 //
 // Shared simulation logic lives in load-test-lib.mjs, reused by
 // load-test.mjs (which spawns and owns its own server process).
-import { createLogger, runSimulation, SCRIPT } from './load-test-lib.mjs';
+import { createLogger, printResults, runSimulation, SCRIPT } from './load-test-lib.mjs';
 
 const GAMES = Number(process.argv[2] ?? 10);
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:4100';
@@ -31,8 +31,7 @@ async function main() {
     concurrency: CONCURRENCY,
   });
 
-  console.log(`\n=== RESULTS (${BASE_URL}) ===`);
-  console.log(JSON.stringify(metrics, null, 2));
+  printResults(metrics, BASE_URL);
 }
 
 await main();

@@ -11,7 +11,7 @@
 // in load-test-lib.mjs, reused by load-test-remote.mjs for an
 // already-running server; spawning/tearing down the server process lives in
 // load-test-server.mjs - this file is just the two wired together.
-import { createGuest, createLogger, runSimulation } from './load-test-lib.mjs';
+import { createGuest, createLogger, printResults, runSimulation } from './load-test-lib.mjs';
 import { spawnLoadTestServer } from './load-test-server.mjs';
 
 const GAMES = Number(process.argv[2] ?? 10);
@@ -30,27 +30,43 @@ const CONCURRENCY = 100; // cap on simultaneous in-flight HTTP requests while pr
 
 const log = createLogger('[load-test]');
 
-/** On failure, fetches the first few games the harness never saw finish, so
- * the console output shows what state they were actually stuck in (whose
- * turn, how many moves landed) rather than just "timed out". */
-async function reportStuckGames(error) {
-  const token = (await createGuest(BASE_URL)).accessToken;
+/** Game ids the harness notified a player about but never saw finish -
+ * capped to `limit` since this is for a human to eyeball, not a full dump. */
+function getStuckGameIds(error, limit = 5) {
   const notified = error.notifiedGameIds ?? new Set();
   const finished = error.finishedGameIds ?? new Set();
-  const stuckIds = [...notified].filter((id) => !finished.has(id)).slice(0, 5);
+  return [...notified].filter((id) => !finished.has(id)).slice(0, limit);
+}
+
+/** Fetches one stuck game via REST and logs just the fields useful for
+ * seeing what state it was actually stuck in (whose turn, how many moves
+ * landed) rather than just "timed out". */
+async function logStuckGame(id, token) {
+  const res = await fetch(`${BASE_URL}/games/${id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const body = await res.json();
+  log.error(id, {
+    status: body.status,
+    turn: body.turn,
+    movesPlayed: body.moves?.length,
+    lastMoveAt: body.lastMoveAt,
+  });
+}
+
+async function reportStuckGames(error) {
+  const token = (await createGuest(BASE_URL)).accessToken;
+  const stuckIds = getStuckGameIds(error);
   log.error(`--- inspecting ${stuckIds.length} stuck games via REST ---`);
   for (const id of stuckIds) {
-    const res = await fetch(`${BASE_URL}/games/${id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const body = await res.json();
-    log.error(id, {
-      status: body.status,
-      turn: body.turn,
-      movesPlayed: body.moves?.length,
-      lastMoveAt: body.lastMoveAt,
-    });
+    await logStuckGame(id, token);
   }
+}
+
+async function sampleRss(server, label) {
+  const kb = await server.getRss();
+  log.info(`server RSS ${label}=${kb}KB`);
+  return kb;
 }
 
 /** Runs the simulation against `server`, sampling its RSS at both the
@@ -65,16 +81,45 @@ async function runLoadTest(server) {
     tcIncrementSeconds: TC_INCREMENT_SECONDS,
     concurrency: CONCURRENCY,
     onSocketsConnected: async () => {
-      rssAfterConnectKb = await server.getRss();
-      log.info(`server RSS after connect=${rssAfterConnectKb}KB`);
+      rssAfterConnectKb = await sampleRss(server, 'after connect');
     },
   });
   metrics.rssAfterConnectKb = rssAfterConnectKb;
-  metrics.rssAfterGamesKb = await server.getRss();
-  log.info(`server RSS after games=${metrics.rssAfterGamesKb}KB`);
+  metrics.rssAfterGamesKb = await sampleRss(server, 'after games');
 
-  console.log('\n=== RESULTS ===');
-  console.log(JSON.stringify(metrics, null, 2));
+  printResults(metrics);
+}
+
+function logFailureSummary(error) {
+  log.error('LOAD TEST FAILED:', error);
+  log.error(
+    `${error.unexpectedDisconnectCount ?? 0} games had a socket disconnect before finishing, reasons=${JSON.stringify(error.disconnectReasons ?? {})}`,
+  );
+}
+
+/** Prints the spawned server's own last WARN/ERROR log lines - the likely
+ * signal buried in megabytes of per-move debug output. */
+function logServerWarnings(server, limit = 60) {
+  const warnings = server
+    .getLog()
+    .split('\n')
+    .filter((l) => /ERROR|WARN/.test(l))
+    .slice(-limit);
+  log.error(`--- last ${warnings.length} WARN/ERROR server log lines ---`);
+  log.error(warnings.join('\n'));
+}
+
+async function handleLoadTestFailure(error, server) {
+  logFailureSummary(error);
+  logServerWarnings(server);
+
+  try {
+    await reportStuckGames(error);
+  } catch (diagErr) {
+    log.error('diagnostic fetch failed:', diagErr);
+  }
+
+  process.exitCode = 1;
 }
 
 async function main() {
@@ -86,25 +131,7 @@ async function main() {
   try {
     await runLoadTest(server);
   } catch (error) {
-    log.error('LOAD TEST FAILED:', error);
-    log.error(
-      `${error.unexpectedDisconnectCount ?? 0} games had a socket disconnect before finishing, reasons=${JSON.stringify(error.disconnectReasons ?? {})}`,
-    );
-    const warnings = server
-      .getLog()
-      .split('\n')
-      .filter((l) => /ERROR|WARN/.test(l))
-      .slice(-60);
-    log.error(`--- last ${warnings.length} WARN/ERROR server log lines ---`);
-    log.error(warnings.join('\n'));
-
-    try {
-      await reportStuckGames(error);
-    } catch (diagErr) {
-      log.error('diagnostic fetch failed:', diagErr);
-    }
-
-    process.exitCode = 1;
+    await handleLoadTestFailure(error, server);
   } finally {
     await server.teardown();
   }

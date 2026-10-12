@@ -43,6 +43,14 @@ export function createLogger(prefix) {
   };
 }
 
+/** Prints a run's metrics as the final stdout output both scripts share -
+ * `label` (e.g. a remote BASE_URL) is optional since load-test.mjs only
+ * ever runs against the one server it just spawned. */
+export function printResults(metrics, label) {
+  console.log(`\n=== RESULTS${label ? ` (${label})` : ''} ===`);
+  console.log(JSON.stringify(metrics, null, 2));
+}
+
 export async function waitForHealth(baseUrl, timeoutMs = 20_000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
