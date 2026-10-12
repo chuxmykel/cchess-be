@@ -1,9 +1,9 @@
-// Pure latency-statistics helpers - no socket/HTTP dependency, so these are
-// split out from load-test-lib.mjs's game-simulation logic.
-
 export function percentile(sortedArr, p) {
   if (sortedArr.length === 0) return 0;
-  const idx = Math.min(sortedArr.length - 1, Math.floor((p / 100) * sortedArr.length));
+  const idx = Math.min(
+    sortedArr.length - 1,
+    Math.floor((p / 100) * sortedArr.length),
+  );
   return sortedArr[idx];
 }
 
@@ -50,7 +50,12 @@ function summarizeQuarters(buckets) {
     const sorted = [...bucket].sort((a, b) => a - b);
     return sorted.length === 0
       ? { quarter: i + 1, count: 0 }
-      : { quarter: i + 1, count: sorted.length, p50: percentile(sorted, 50), p95: percentile(sorted, 95) };
+      : {
+          quarter: i + 1,
+          count: sorted.length,
+          p50: percentile(sorted, 50),
+          p95: percentile(sorted, 95),
+        };
   });
 }
 
