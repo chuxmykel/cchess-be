@@ -5,10 +5,11 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { io } from 'socket.io-client';
 
+import { summarizeLatencies } from './latency.mjs';
+
 // A real, fully legal 40-ply opening - identical for every game, so every
 // pair of sockets can play it blind without any chess logic on the client
-// side. Extended past the original 10-ply Ruy Lopez to exercise longer-lived
-// games (more sustained concurrent load per run, not just a burst).
+// side.
 export const SCRIPT = [
   ['e2', 'e4'], ['e7', 'e5'],
   ['g1', 'f3'], ['b8', 'c6'],
@@ -40,59 +41,6 @@ export function createLogger(prefix) {
     info: (...args) => console.log(prefix, ...args),
     error: (...args) => console.error(prefix, ...args),
   };
-}
-
-export function percentile(sortedArr, p) {
-  if (sortedArr.length === 0) return 0;
-  const idx = Math.min(sortedArr.length - 1, Math.floor((p / 100) * sortedArr.length));
-  return sortedArr[idx];
-}
-
-/** Summarizes a set of {atMs, latencyMs} samples: overall percentiles, plus
- * the same percentiles split into quarters of the run's wall-clock duration,
- * so a degrading-under-sustained-load pattern is visible even when the
- * overall numbers look fine. */
-export function summarizeLatencies(samples) {
-  if (samples.length === 0) return null;
-  const sorted = [...samples].sort((a, b) => a.latencyMs - b.latencyMs);
-  const values = sorted.map((s) => s.latencyMs);
-  const overall = {
-    count: values.length,
-    meanMs: Math.round(values.reduce((a, b) => a + b, 0) / values.length),
-    p50: percentile(values, 50),
-    p90: percentile(values, 90),
-    p95: percentile(values, 95),
-    p99: percentile(values, 99),
-    maxMs: values[values.length - 1],
-  };
-
-  // Bucketed by position within the samples' OWN time span (not from script
-  // start) - otherwise setup/connect time that isn't part of move-play
-  // dilutes the span and skews every sample into the last bucket.
-  // Min/max via a plain loop, not Math.min/max(...ats) - spreading a large
-  // array as call arguments blows V8's argument-count limit (hit this for
-  // real at 20,000 games: 200,000 samples raised "Maximum call stack size
-  // exceeded" here, after a multi-minute run had already completed).
-  let minAt = Infinity;
-  let maxAt = -Infinity;
-  for (const s of samples) {
-    if (s.atMs < minAt) minAt = s.atMs;
-    if (s.atMs > maxAt) maxAt = s.atMs;
-  }
-  const span = maxAt - minAt || 1;
-  const byQuarter = [[], [], [], []];
-  for (const s of samples) {
-    const q = Math.min(3, Math.floor(((s.atMs - minAt) / span) * 4));
-    byQuarter[q].push(s.latencyMs);
-  }
-  const quarters = byQuarter.map((q, i) => {
-    const qs = [...q].sort((a, b) => a - b);
-    return qs.length === 0
-      ? { quarter: i + 1, count: 0 }
-      : { quarter: i + 1, count: qs.length, p50: percentile(qs, 50), p95: percentile(qs, 95) };
-  });
-
-  return { overall, byQuarterOfRun: quarters };
 }
 
 export async function waitForHealth(baseUrl, timeoutMs = 20_000) {
