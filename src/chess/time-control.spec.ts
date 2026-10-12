@@ -5,6 +5,7 @@ import { classifyTimeControl, isValidTimeControl, toClockMs } from './time-contr
 describe('classifyTimeControl', () => {
   const cases: Array<[number, number, string]> = [
     [0, 1, 'bullet'],
+    [5 / 60, 1, 'bullet'], // 5 seconds - sub-minute, fractional base time
     [1, 0, 'bullet'],
     [1, 1, 'bullet'],
     [2, 1, 'bullet'],
@@ -22,7 +23,7 @@ describe('classifyTimeControl', () => {
     [60, 0, 'classical'],
   ];
 
-  it.each(cases)('classifies %i+%i as %s', (minutes, incrementSeconds, expected) => {
+  it.each(cases)('classifies %s+%s as %s', (minutes, incrementSeconds, expected) => {
     expect(classifyTimeControl({ minutes, incrementSeconds })).toBe(expected);
   });
 });
