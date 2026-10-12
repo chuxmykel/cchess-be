@@ -23,6 +23,7 @@ import {
   toWireGame,
   toWireMove,
 } from '../cluster/cluster-wire.js';
+import { GAMES_RPC } from '../cluster/rpc-channels.js';
 import { KeyedMutex } from '../common/keyed-mutex.js';
 import type { AppConfig } from '../config/configuration.js';
 import { ServerChessEngine, type MoveOutcome } from '../chess/chess-engine.js';
@@ -104,92 +105,85 @@ export class GamesService implements OnModuleDestroy {
    * rather than forwarding again.
    */
   private registerClusterHandlers(): void {
+    this.cluster.onRequest(GAMES_RPC.CREATE, this.handleCreateRequest.bind(this));
+    this.cluster.onRequest(GAMES_RPC.APPLY_MOVE, this.handleApplyMoveRequest.bind(this));
+    this.cluster.onRequest(GAMES_RPC.RESIGN, this.handleResignRequest.bind(this));
+    this.cluster.onRequest(GAMES_RPC.ABORT, this.handleAbortRequest.bind(this));
+    this.cluster.onRequest(GAMES_RPC.OFFER_DRAW, this.handleOfferDrawRequest.bind(this));
+    this.cluster.onRequest(GAMES_RPC.RESPOND_DRAW, this.handleRespondDrawRequest.bind(this));
     this.cluster.onRequest(
-      'games:create',
-      async (payload: {
-        gameId: string;
-        whiteId: string;
-        blackId: string;
-        tc: TimeControl;
-        rated: boolean;
-      }) => {
-        const [white, black] = await Promise.all([
-          this.usersService.findByIdOrThrow(payload.whiteId),
-          this.usersService.findByIdOrThrow(payload.blackId),
-        ]);
-        const game = await this.createGameLocal(
-          payload.gameId,
-          white,
-          black,
-          payload.tc,
-          payload.rated,
-        );
-        return toWireGame(game);
-      },
+      GAMES_RPC.FORFEIT_BY_ABANDONMENT,
+      this.handleForfeitByAbandonmentRequest.bind(this),
     );
-    this.cluster.onRequest(
-      'games:applyMove',
-      async (payload: {
-        gameId: string;
-        userId: string;
-        from: string;
-        to: string;
-        promotion?: string;
-      }) => {
-        const { game, move } = await this.applyMove(
-          payload.gameId,
-          payload.userId,
-          payload.from,
-          payload.to,
-          payload.promotion,
-        );
-        return { game: toWireGame(game), move: toWireMove(move) };
-      },
+    this.cluster.onRequest(GAMES_RPC.GET_WITH_MOVES, this.handleGetWithMovesRequest.bind(this));
+  }
+
+  private async handleCreateRequest(payload: {
+    gameId: string;
+    whiteId: string;
+    blackId: string;
+    tc: TimeControl;
+    rated: boolean;
+  }) {
+    const [white, black] = await Promise.all([
+      this.usersService.findByIdOrThrow(payload.whiteId),
+      this.usersService.findByIdOrThrow(payload.blackId),
+    ]);
+    const game = await this.createGameLocal(
+      payload.gameId,
+      white,
+      black,
+      payload.tc,
+      payload.rated,
     );
-    this.cluster.onRequest(
-      'games:resign',
-      async (payload: { gameId: string; userId: string }) => {
-        return toWireGame(await this.resign(payload.gameId, payload.userId));
-      },
+    return toWireGame(game);
+  }
+
+  private async handleApplyMoveRequest(payload: {
+    gameId: string;
+    userId: string;
+    from: string;
+    to: string;
+    promotion?: string;
+  }) {
+    const { game, move } = await this.applyMove(
+      payload.gameId,
+      payload.userId,
+      payload.from,
+      payload.to,
+      payload.promotion,
     );
-    this.cluster.onRequest(
-      'games:abort',
-      async (payload: { gameId: string; userId: string }) => {
-        return toWireGame(await this.abort(payload.gameId, payload.userId));
-      },
-    );
-    this.cluster.onRequest(
-      'games:offerDraw',
-      async (payload: { gameId: string; userId: string }) => {
-        return toWireGame(await this.offerDraw(payload.gameId, payload.userId));
-      },
-    );
-    this.cluster.onRequest(
-      'games:respondDraw',
-      async (payload: { gameId: string; userId: string; accept: boolean }) => {
-        return toWireGame(
-          await this.respondDraw(
-            payload.gameId,
-            payload.userId,
-            payload.accept,
-          ),
-        );
-      },
-    );
-    this.cluster.onRequest(
-      'games:forfeitByAbandonment',
-      async (payload: { gameId: string; userId: string }) => {
-        await this.forfeitByAbandonment(payload.gameId, payload.userId);
-        return null;
-      },
-    );
-    this.cluster.onRequest(
-      'games:getWithMoves',
-      async (payload: { gameId: string }) => {
-        const game = await this.getGameWithMoves(payload.gameId);
-        return { game: toWireGame(game), moves: game.moves.map(toWireMove) };
-      },
-    );
+    return { game: toWireGame(game), move: toWireMove(move) };
+  }
+
+  private async handleResignRequest(payload: { gameId: string; userId: string }) {
+    return toWireGame(await this.resign(payload.gameId, payload.userId));
+  }
+
+  private async handleAbortRequest(payload: { gameId: string; userId: string }) {
+    return toWireGame(await this.abort(payload.gameId, payload.userId));
+  }
+
+  private async handleOfferDrawRequest(payload: { gameId: string; userId: string }) {
+    return toWireGame(await this.offerDraw(payload.gameId, payload.userId));
+  }
+
+  private async handleRespondDrawRequest(payload: {
+    gameId: string;
+    userId: string;
+    accept: boolean;
+  }) {
+    return toWireGame(await this.respondDraw(payload.gameId, payload.userId, payload.accept));
+  }
+
+  private async handleForfeitByAbandonmentRequest(payload: { gameId: string; userId: string }) {
+    await this.forfeitByAbandonment(payload.gameId, payload.userId);
+    return null;
+  }
+
+  private async handleGetWithMovesRequest(payload: { gameId: string }) {
+    const game = await this.getGameWithMoves(payload.gameId);
+    return { game: toWireGame(game), moves: game.moves.map(toWireMove) };
   }
 
   async createGame(
@@ -202,7 +196,7 @@ export class GamesService implements OnModuleDestroy {
     if (!isMine(gameId)) {
       const wire = await this.cluster.request<Record<string, unknown>>(
         ownerIndex(gameId),
-        'games:create',
+        GAMES_RPC.CREATE,
         {
           gameId,
           whiteId: white.id,
@@ -291,7 +285,7 @@ export class GamesService implements OnModuleDestroy {
       const wire = await this.cluster.request<{
         game: Record<string, unknown>;
         moves: Record<string, unknown>[];
-      }>(ownerIndex(gameId), 'games:getWithMoves', { gameId });
+      }>(ownerIndex(gameId), GAMES_RPC.GET_WITH_MOVES, { gameId });
       const game = fromWireGame(wire.game);
       game.moves = wire.moves.map(fromWireMove);
       return game;
@@ -366,7 +360,7 @@ export class GamesService implements OnModuleDestroy {
       const wire = await this.cluster.request<{
         game: Record<string, unknown>;
         move: Record<string, unknown>;
-      }>(ownerIndex(gameId), 'games:applyMove', {
+      }>(ownerIndex(gameId), GAMES_RPC.APPLY_MOVE, {
         gameId,
         userId,
         from,
@@ -600,7 +594,7 @@ export class GamesService implements OnModuleDestroy {
   async resign(gameId: string, userId: string): Promise<Game> {
     if (!isMine(gameId)) {
       return fromWireGame(
-        await this.cluster.request(ownerIndex(gameId), 'games:resign', {
+        await this.cluster.request(ownerIndex(gameId), GAMES_RPC.RESIGN, {
           gameId,
           userId,
         }),
@@ -623,7 +617,7 @@ export class GamesService implements OnModuleDestroy {
   async offerDraw(gameId: string, userId: string): Promise<Game> {
     if (!isMine(gameId)) {
       return fromWireGame(
-        await this.cluster.request(ownerIndex(gameId), 'games:offerDraw', {
+        await this.cluster.request(ownerIndex(gameId), GAMES_RPC.OFFER_DRAW, {
           gameId,
           userId,
         }),
@@ -657,7 +651,7 @@ export class GamesService implements OnModuleDestroy {
   ): Promise<Game> {
     if (!isMine(gameId)) {
       return fromWireGame(
-        await this.cluster.request(ownerIndex(gameId), 'games:respondDraw', {
+        await this.cluster.request(ownerIndex(gameId), GAMES_RPC.RESPOND_DRAW, {
           gameId,
           userId,
           accept,
@@ -691,7 +685,7 @@ export class GamesService implements OnModuleDestroy {
   async abort(gameId: string, userId: string): Promise<Game> {
     if (!isMine(gameId)) {
       return fromWireGame(
-        await this.cluster.request(ownerIndex(gameId), 'games:abort', {
+        await this.cluster.request(ownerIndex(gameId), GAMES_RPC.ABORT, {
           gameId,
           userId,
         }),
@@ -728,7 +722,7 @@ export class GamesService implements OnModuleDestroy {
     if (!isMine(gameId)) {
       await this.cluster.request(
         ownerIndex(gameId),
-        'games:forfeitByAbandonment',
+        GAMES_RPC.FORFEIT_BY_ABANDONMENT,
         { gameId, userId },
       );
       return;

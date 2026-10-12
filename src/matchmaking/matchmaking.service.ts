@@ -4,6 +4,7 @@ import { classifyTimeControl, isValidTimeControl, type GameType, type TimeContro
 import { ClusterBus } from '../cluster/cluster-bus.js';
 import { CLUSTERING_ENABLED, WORKER_INDEX } from '../cluster/cluster.util.js';
 import { fromWireGame, toWireGame } from '../cluster/cluster-wire.js';
+import { MM_RPC } from '../cluster/rpc-channels.js';
 import { Game } from '../games/entities/game.entity.js';
 import { GamesService } from '../games/games.service.js';
 import { UsersService } from '../users/users.service.js';
@@ -58,17 +59,23 @@ export class MatchmakingService {
     private readonly usersService: UsersService,
     private readonly cluster: ClusterBus,
   ) {
-    this.cluster.onRequest('mm:seek', async (payload: { user: WireSeekUser; tc: TimeControl }) => {
-      const result = await this.seekLocal(payload.user as unknown as User, payload.tc);
-      return result.status === 'matched' ? { status: 'matched', game: toWireGame(result.game) } : result;
-    });
-    this.cluster.onRequest('mm:cancel', async (payload: { userId: string }) => {
-      this.seeksByUser.delete(payload.userId);
-      return null;
-    });
-    this.cluster.onRequest('mm:status', async (payload: { userId: string }) => {
-      return this.getStatusLocal(payload.userId);
-    });
+    this.cluster.onRequest(MM_RPC.SEEK, this.handleSeekRequest.bind(this));
+    this.cluster.onRequest(MM_RPC.CANCEL, this.handleCancelRequest.bind(this));
+    this.cluster.onRequest(MM_RPC.STATUS, this.handleStatusRequest.bind(this));
+  }
+
+  private async handleSeekRequest(payload: { user: WireSeekUser; tc: TimeControl }) {
+    const result = await this.seekLocal(payload.user as unknown as User, payload.tc);
+    return result.status === 'matched' ? { status: 'matched', game: toWireGame(result.game) } : result;
+  }
+
+  private async handleCancelRequest(payload: { userId: string }) {
+    this.seeksByUser.delete(payload.userId);
+    return null;
+  }
+
+  private async handleStatusRequest(payload: { userId: string }) {
+    return this.getStatusLocal(payload.userId);
   }
 
   private get isMatchmaker(): boolean {
@@ -79,7 +86,7 @@ export class MatchmakingService {
     if (!this.isMatchmaker) {
       const wire = await this.cluster.request<{ status: 'queued' } | { status: 'matched'; game: Record<string, unknown> }>(
         MatchmakingService.MATCHMAKER_WORKER,
-        'mm:seek',
+        MM_RPC.SEEK,
         { user: toWireSeekUser(user), tc },
       );
       return wire.status === 'matched' ? { status: 'matched', game: fromWireGame(wire.game) } : wire;
@@ -134,7 +141,7 @@ export class MatchmakingService {
       // Best-effort cleanup (seek cancellation, disconnect, etc.) - nothing
       // downstream awaits this, so a dropped/delayed forward just means a
       // stale seek lingers briefly rather than breaking a user-facing flow.
-      void this.cluster.request(MatchmakingService.MATCHMAKER_WORKER, 'mm:cancel', { userId }).catch(() => {});
+      void this.cluster.request(MatchmakingService.MATCHMAKER_WORKER, MM_RPC.CANCEL, { userId }).catch(() => {});
       return;
     }
     this.seeksByUser.delete(userId);
@@ -142,7 +149,7 @@ export class MatchmakingService {
 
   async getStatus(userId: string): Promise<{ seeking: boolean; minutes?: number; incrementSeconds?: number }> {
     if (!this.isMatchmaker) {
-      return this.cluster.request(MatchmakingService.MATCHMAKER_WORKER, 'mm:status', { userId });
+      return this.cluster.request(MatchmakingService.MATCHMAKER_WORKER, MM_RPC.STATUS, { userId });
     }
     return this.getStatusLocal(userId);
   }
