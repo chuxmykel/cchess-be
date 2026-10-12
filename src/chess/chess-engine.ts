@@ -92,23 +92,12 @@ export class ServerChessEngine {
     const hasLegalReplies = this.game.moves().length > 0;
     const isCheckmate = isCheck && !hasLegalReplies;
     const isStalemate = !isCheck && !hasLegalReplies;
-    const gameOverReason: GameOverReason = isCheckmate
-      ? 'checkmate'
-      : isStalemate
-        ? 'stalemate'
-        : this.isInsufficientMaterial()
-          ? 'insufficient-material'
-          : this.isThreefoldRepetition()
-            ? 'threefold-repetition'
-            : this.isFiftyMoveDraw()
-              ? 'fifty-move-rule'
-              : null;
 
     return {
       status: 'ok',
       move: toAppliedMove(appliedRaw, isCheck, isCheckmate),
       fen: this.game.fen(),
-      gameOverReason,
+      gameOverReason: this.resolveGameOverReason(isCheckmate, isStalemate),
     };
   }
 
@@ -165,8 +154,17 @@ export class ServerChessEngine {
   }
 
   getGameOverReason(): GameOverReason {
-    if (this.isCheckmate()) return 'checkmate';
-    if (this.isStalemate()) return 'stalemate';
+    return this.resolveGameOverReason(this.isCheckmate(), this.isStalemate());
+  }
+
+  // Shared priority order between getGameOverReason() (computes isCheckmate/
+  // isStalemate the expensive way, chess.js regenerating the legal-move list
+  // for each) and attemptMove (derives them for free from a check it already
+  // had to do) - only the cost of getting those two booleans differs, not
+  // the order the rest of the reasons should be checked in.
+  private resolveGameOverReason(isCheckmate: boolean, isStalemate: boolean): GameOverReason {
+    if (isCheckmate) return 'checkmate';
+    if (isStalemate) return 'stalemate';
     if (this.isInsufficientMaterial()) return 'insufficient-material';
     if (this.isThreefoldRepetition()) return 'threefold-repetition';
     if (this.isFiftyMoveDraw()) return 'fifty-move-rule';
