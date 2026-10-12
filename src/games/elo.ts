@@ -7,6 +7,11 @@
 const PROVISIONAL_GAMES_THRESHOLD = 30;
 const PROVISIONAL_K = 40;
 const ESTABLISHED_K = 20;
+// The standard Elo formula's rating-difference divisor - a 400-point gap
+// means the stronger player is "expected" to score 10x as often. Distinct
+// from matchmaking.service.ts's RATING_WINDOW, which is coincidentally also
+// 400 but is a pairing-tolerance figure, not part of this formula.
+const ELO_RATING_SCALE = 400;
 
 export type EloScore = 1 | 0.5 | 0;
 
@@ -15,7 +20,7 @@ function kFactor(gamesPlayed: number): number {
 }
 
 function expectedScore(ratingA: number, ratingB: number): number {
-  return 1 / (1 + 10 ** ((ratingB - ratingA) / 400));
+  return 1 / (1 + 10 ** ((ratingB - ratingA) / ELO_RATING_SCALE));
 }
 
 export function computeEloDelta(

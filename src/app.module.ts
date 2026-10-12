@@ -25,6 +25,18 @@ import { Rating } from './users/entities/rating.entity.js';
 import { User } from './users/entities/user.entity.js';
 import { UsersModule } from './users/users.module.js';
 
+// The 'pg' driver's own unconfigured default pool size - the ceiling each
+// worker's pool is scaled down from, never up past.
+const PG_DEFAULT_POOL_SIZE = 10;
+// Never scale a single worker's pool down below this, however many workers
+// are running - diminishing returns below this are worse than the
+// over-provisioning risk at high worker counts.
+const MIN_POOL_SIZE_PER_WORKER = 2;
+// Total connections budgeted across every worker's pool combined, chosen to
+// stay well under Postgres's own default max_connections=100 regardless of
+// CLUSTER_WORKERS (see the comment below for the incident this prevents).
+const TOTAL_POOL_BUDGET = 60;
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
@@ -59,7 +71,12 @@ import { UsersModule } from './users/users.module.js';
         ...(process.env.DB_POOL_SIZE
           ? { poolSize: Number(process.env.DB_POOL_SIZE) }
           : CLUSTERING_ENABLED
-            ? { poolSize: Math.max(2, Math.min(10, Math.floor(60 / CLUSTER_WORKERS))) }
+            ? {
+                poolSize: Math.max(
+                  MIN_POOL_SIZE_PER_WORKER,
+                  Math.min(PG_DEFAULT_POOL_SIZE, Math.floor(TOTAL_POOL_BUDGET / CLUSTER_WORKERS)),
+                ),
+              }
             : {}),
       }),
     }),

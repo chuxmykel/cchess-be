@@ -10,6 +10,10 @@ import { User } from './entities/user.entity.js';
 
 export const GAME_TYPES: readonly GameType[] = ['bullet', 'blitz', 'rapid', 'classical'];
 
+// Postgres's own SQLSTATE code for unique_violation - not an app-specific
+// value, it's part of the Postgres error-code standard.
+const POSTGRES_UNIQUE_VIOLATION = '23505';
+
 const AVATAR_PALETTE = [
   '#F5A623',
   '#E8601C',
@@ -21,10 +25,15 @@ const AVATAR_PALETTE = [
   '#D64545',
 ];
 
+// Classic Java String.hashCode()-style multiplier - not security-sensitive
+// (just picking a deterministic palette index), any odd multiplier with
+// good bit-mixing would do.
+const HASH_MULTIPLIER = 31;
+
 function pickAvatarColor(seed: string): string {
   let hash = 0;
   for (let i = 0; i < seed.length; i++) {
-    hash = (hash * 31 + seed.charCodeAt(i)) | 0;
+    hash = (hash * HASH_MULTIPLIER + seed.charCodeAt(i)) | 0;
   }
   return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length];
 }
@@ -121,7 +130,8 @@ export class UsersService {
         return await this.users.save(user);
       } catch (error) {
         const isUniqueViolation =
-          error instanceof QueryFailedError && (error as unknown as { code?: string }).code === '23505';
+          error instanceof QueryFailedError &&
+          (error as unknown as { code?: string }).code === POSTGRES_UNIQUE_VIOLATION;
         if (!isUniqueViolation || attempt === MAX_ATTEMPTS) throw error;
         // A real collision, not the theoretical edge case the comment above
         // describes - worth knowing if this starts firing often outside of

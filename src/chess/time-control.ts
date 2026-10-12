@@ -7,10 +7,13 @@ export interface TimeControl {
   incrementSeconds: number;
 }
 
-const MIN_MINUTES = 0;
-const MAX_MINUTES = 180;
-const MIN_INCREMENT = 0;
-const MAX_INCREMENT = 180;
+// Exported so the API boundary (CreateChallengeDto, CreateSeekDto) validates
+// against the same bounds this module itself enforces, instead of each DTO
+// keeping its own separately-maintained copy of "0 to 180".
+export const MIN_MINUTES = 0;
+export const MAX_MINUTES = 180;
+export const MIN_INCREMENT = 0;
+export const MAX_INCREMENT = 180;
 
 export function isValidTimeControl(tc: TimeControl): boolean {
   return (
@@ -24,6 +27,19 @@ export function isValidTimeControl(tc: TimeControl): boolean {
   );
 }
 
+// How many increments a typical game is assumed to use, for the "estimated
+// game duration" formula below - the same assumption Lichess's own
+// classifier makes, not a figure specific to this app.
+const ASSUMED_INCREMENTS_PER_GAME = 40;
+
+// Estimated-minutes cutoffs between game-type categories - chosen
+// specifically so they agree with every one of the cchess app's 16 presets
+// (see CLAUDE.md). Each constant is the upper bound of the category named
+// before it: below BULLET_MAX, it's bullet; below BLITZ_MAX, blitz; etc.
+const BULLET_MAX_ESTIMATED_MINUTES = 3;
+const BLITZ_MAX_ESTIMATED_MINUTES = 10;
+const RAPID_MAX_ESTIMATED_MINUTES = 25;
+
 /**
  * Classifies a time control the way Lichess does: by "estimated game
  * duration" (base + 40 increments, in minutes), not just the base time.
@@ -31,11 +47,11 @@ export function isValidTimeControl(tc: TimeControl): boolean {
  * presets) still bucket sensibly for matchmaking and rating categories.
  */
 export function classifyTimeControl(tc: TimeControl): GameType {
-  const estimatedMinutes = tc.minutes + (tc.incrementSeconds * 40) / 60;
+  const estimatedMinutes = tc.minutes + (tc.incrementSeconds * ASSUMED_INCREMENTS_PER_GAME) / 60;
 
-  if (estimatedMinutes < 3) return 'bullet';
-  if (estimatedMinutes < 10) return 'blitz';
-  if (estimatedMinutes < 25) return 'rapid';
+  if (estimatedMinutes < BULLET_MAX_ESTIMATED_MINUTES) return 'bullet';
+  if (estimatedMinutes < BLITZ_MAX_ESTIMATED_MINUTES) return 'blitz';
+  if (estimatedMinutes < RAPID_MAX_ESTIMATED_MINUTES) return 'rapid';
   return 'classical';
 }
 

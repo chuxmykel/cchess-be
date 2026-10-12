@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
+import { MAX_INCREMENT, MAX_MINUTES, MIN_INCREMENT, MIN_MINUTES } from '../../chess/time-control.js';
 import type { ColorPreference } from '../entities/challenge.entity.js';
 
 const COLOR_PREFERENCES: ColorPreference[] = ['white', 'black', 'random'];
@@ -10,16 +11,16 @@ export class CreateChallengeDto {
   @IsString()
   opponentUsername!: string;
 
-  @ApiProperty({ minimum: 0, maximum: 180 })
+  @ApiProperty({ minimum: MIN_MINUTES, maximum: MAX_MINUTES })
   @IsInt()
-  @Min(0)
-  @Max(180)
+  @Min(MIN_MINUTES)
+  @Max(MAX_MINUTES)
   minutes!: number;
 
-  @ApiProperty({ minimum: 0, maximum: 180 })
+  @ApiProperty({ minimum: MIN_INCREMENT, maximum: MAX_INCREMENT })
   @IsInt()
-  @Min(0)
-  @Max(180)
+  @Min(MIN_INCREMENT)
+  @Max(MAX_INCREMENT)
   incrementSeconds!: number;
 
   @ApiPropertyOptional({ enum: COLOR_PREFERENCES, default: 'random' })

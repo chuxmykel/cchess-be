@@ -34,6 +34,7 @@ import {
 } from '../chess/time-control.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
 import { UsersService } from '../users/users.service.js';
+import { DEFAULT_GAMES_LIST_LIMIT, MAX_GAMES_LIST_LIMIT } from './dto/list-games.query.js';
 import type { User } from '../users/entities/user.entity.js';
 import { computeGameEloDeltas } from './elo.js';
 import {
@@ -336,7 +337,7 @@ export class GamesService implements OnModuleDestroy {
     userId: string,
     options: { status?: GameStatus; limit?: number; before?: Date } = {},
   ): Promise<Game[]> {
-    const limit = Math.min(options.limit ?? 20, 50);
+    const limit = Math.min(options.limit ?? DEFAULT_GAMES_LIST_LIMIT, MAX_GAMES_LIST_LIMIT);
     const qb = this.games
       .createQueryBuilder('g')
       .leftJoinAndSelect('g.white', 'white')

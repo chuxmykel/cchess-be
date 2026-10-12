@@ -1,16 +1,18 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString, MaxLength } from 'class-validator';
 
+import { BIO_MAX_LENGTH, DISPLAY_NAME_MAX_LENGTH } from '../entities/user.entity.js';
+
 export class UpdateProfileDto {
-  @ApiPropertyOptional({ maxLength: 64 })
+  @ApiPropertyOptional({ maxLength: DISPLAY_NAME_MAX_LENGTH })
   @IsOptional()
   @IsString()
-  @MaxLength(64)
+  @MaxLength(DISPLAY_NAME_MAX_LENGTH)
   displayName?: string;
 
-  @ApiPropertyOptional({ maxLength: 280, nullable: true })
+  @ApiPropertyOptional({ maxLength: BIO_MAX_LENGTH, nullable: true })
   @IsOptional()
   @IsString()
-  @MaxLength(280)
+  @MaxLength(BIO_MAX_LENGTH)
   bio?: string | null;
 }
