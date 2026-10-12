@@ -1,0 +1,32 @@
+/**
+ * Sharding is opt-in and off by default - CLUSTER_WORKERS unset (or `1`)
+ * means every `ownerIndex`/`isMine` check is trivially true and this whole
+ * module is a no-op, so single-process dev/test behavior is unchanged.
+ */
+export const CLUSTER_WORKERS = Math.max(1, Number(process.env.CLUSTER_WORKERS ?? 1));
+
+/** Set by the primary on each forked worker's env before it boots - see cluster-primary.ts. */
+export const WORKER_INDEX = Number(process.env.CLUSTER_WORKER_INDEX ?? 0);
+
+export const CLUSTERING_ENABLED = CLUSTER_WORKERS > 1;
+
+/**
+ * The worker index (0-based, stable for the process's lifetime - not
+ * Node's own auto-incrementing `cluster.worker.id`, which changes on
+ * restart) that owns a given sharding key. Every worker computes this the
+ * same way independently, so there's no coordination needed to find out
+ * who owns what - just a pure function of the key.
+ */
+export function ownerIndex(key: string): number {
+  // djb2 - fast, good-enough distribution for UUIDs/opaque ids, not
+  // security-sensitive (ownership routing, not auth).
+  let hash = 5381;
+  for (let i = 0; i < key.length; i++) {
+    hash = (hash * 33) ^ key.charCodeAt(i);
+  }
+  return Math.abs(hash) % CLUSTER_WORKERS;
+}
+
+export function isMine(key: string): boolean {
+  return !CLUSTERING_ENABLED || ownerIndex(key) === WORKER_INDEX;
+}
