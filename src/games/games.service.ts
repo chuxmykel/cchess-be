@@ -25,7 +25,7 @@ import {
 } from '../cluster/cluster-wire.js';
 import { KeyedMutex } from '../common/keyed-mutex.js';
 import type { AppConfig } from '../config/configuration.js';
-import { ServerChessEngine } from '../chess/chess-engine.js';
+import { ServerChessEngine, type MoveOutcome } from '../chess/chess-engine.js';
 import {
   classifyTimeControl,
   incrementMs,
@@ -378,83 +378,32 @@ export class GamesService implements OnModuleDestroy {
     }
     return this.mutex.runExclusive(gameId, async () => {
       const game = await this.getGameOrThrow(gameId);
-      if (game.status !== 'active')
-        throw new ConflictException('Game is not active');
-
+      this.assertGameActive(game);
+      // colorOf is called between these two guards deliberately - it's
+      // what throws Forbidden for a non-player, and that should still lose
+      // to "game is not active" rather than to "it's not your turn" if
+      // someone who isn't even in this game somehow calls it on a finished
+      // one.
       const color = this.colorOf(game, userId);
-      if (game.turn !== color)
-        throw new ConflictException("It's not your turn");
+      this.assertPlayersTurn(game, color);
 
       const now = Date.now();
-      const sinceLastMove = game.lastMoveAt
-        ? now - game.lastMoveAt.getTime()
-        : now - game.createdAt.getTime();
-      const remainingBefore =
-        color === 'w' ? game.whiteTimeRemainingMs : game.blackTimeRemainingMs;
-      const remainingAfterElapsed =
-        remainingBefore - Math.max(sinceLastMove, 0);
-
-      if (remainingAfterElapsed <= 0) {
-        await this.finalize(game, color === 'w' ? 'black' : 'white', 'timeout');
-        throw new ConflictException('Flagged on time');
-      }
+      const remainingAfterElapsed = await this.enforceClock(game, color, now);
 
       const engine = await this.getOrBuildEngine(game);
-      const outcome = engine.attemptMove(
-        from as Square,
-        to as Square,
-        promotion as PieceSymbol | undefined,
-      );
+      const outcome = this.attemptMoveOrThrow(engine, from, to, promotion);
 
-      if (outcome.status === 'illegal')
-        throw new BadRequestException('Illegal move');
-      if (outcome.status === 'needs-promotion-choice') {
-        throw new BadRequestException('This move requires a promotion piece');
-      }
-
+      const ply = engine.history().length;
       const newRemaining =
         remainingAfterElapsed +
         incrementMs({
           minutes: game.minutes,
           incrementSeconds: game.incrementSeconds,
         });
-      const ply = engine.history().length;
 
-      game.fen = outcome.fen;
-      game.turn = color === 'w' ? 'b' : 'w';
-      game.lastMoveAt = new Date(now);
-      game.drawOfferedBy = null;
-      if (color === 'w') game.whiteTimeRemainingMs = newRemaining;
-      else game.blackTimeRemainingMs = newRemaining;
-
-      // id generated here (not left to the DB), same as createGameLocal
-      // already does for Game.id - nothing the broadcast below sends
-      // depends on this write having landed.
-      const move = this.moves.create({
-        id: randomUUID(),
-        gameId: game.id,
-        ply,
-        from: outcome.move.from,
-        to: outcome.move.to,
-        piece: outcome.move.piece,
-        color: outcome.move.color,
-        san: outcome.move.san,
-        captured: outcome.move.captured ?? null,
-        promotion: outcome.move.promotion ?? null,
-        fenAfter: outcome.fen,
-        clockAfterMs: newRemaining,
-        createdAt: new Date(now),
-      });
-      // See movesCache's own comment: this is what makes a REST read right
-      // after the broadcast (below) consistent instead of racing the DB
-      // write a few lines down. Cache miss here (an active, owned game
-      // with no entry) only happens after a cold restart losing all
-      // in-memory state - fall back to appending to an empty array so a
-      // move is never silently dropped from the cache.
-      this.movesCache.set(game.id, [
-        ...(this.movesCache.get(game.id) ?? []),
-        move,
-      ]);
+      this.applyMoveToGameState(game, outcome, color, newRemaining, now);
+      const move = this.buildMoveEntity(game, outcome, ply, newRemaining, now);
+      this.cacheMove(game.id, move);
 
       // Broadcast before persisting, not after - EventEmitter2 dispatches
       // this synchronously into RealtimeGateway's listener, whose
@@ -466,30 +415,146 @@ export class GamesService implements OnModuleDestroy {
       // after-write gap and no detached-write error handling to add.
       this.events.emit('game.move', { game, move } satisfies GameMoveEvent);
 
-      // One transaction (one commit) for both writes instead of two - under
-      // WAL this roughly halves the fsync-equivalent overhead per move.
-      //
-      // Raw parameterized SQL, not manager.save()/QueryBuilder - profiling
-      // under load found the query builder regex-templating the full SQL
-      // text on every call was the largest CPU cost on this path, bigger
-      // than chess.js's own move validation. Both statements are fixed
-      // shape, so there's nothing per-call for a query builder to buy us.
-      await this.games.manager.transaction(async (manager) => {
-        await this.insertMoveRaw(manager, move);
-        await this.updateGameRaw(manager, game);
-      });
-
-      const reason = outcome.gameOverReason;
-      if (reason) {
-        const result: GameResult =
-          reason === 'checkmate' ? (color === 'w' ? 'white' : 'black') : 'draw';
-        await this.finalize(game, result, reason);
-      } else {
-        this.scheduleFlagFall(game);
-      }
+      await this.persistMoveAndGame(move, game);
+      await this.finalizeIfGameOver(game, outcome, color);
 
       return { game, move };
     });
+  }
+
+  private assertGameActive(game: Game): void {
+    if (game.status !== 'active')
+      throw new ConflictException('Game is not active');
+  }
+
+  private assertPlayersTurn(game: Game, color: 'w' | 'b'): void {
+    if (game.turn !== color) throw new ConflictException("It's not your turn");
+  }
+
+  /** Deducts elapsed time from the mover's clock; if that leaves none,
+   * finalizes the game as a timeout loss and throws - never applies a move
+   * submitted after the flag already fell. Returns the mover's remaining
+   * time immediately before this move; the caller adds the incrementMs
+   * once the move itself is known to be legal. */
+  private async enforceClock(
+    game: Game,
+    color: 'w' | 'b',
+    now: number,
+  ): Promise<number> {
+    const sinceLastMove = game.lastMoveAt
+      ? now - game.lastMoveAt.getTime()
+      : now - game.createdAt.getTime();
+    const remainingBefore =
+      color === 'w' ? game.whiteTimeRemainingMs : game.blackTimeRemainingMs;
+    const remainingAfterElapsed =
+      remainingBefore - Math.max(sinceLastMove, 0);
+
+    if (remainingAfterElapsed <= 0) {
+      await this.finalize(game, color === 'w' ? 'black' : 'white', 'timeout');
+      throw new ConflictException('Flagged on time');
+    }
+    return remainingAfterElapsed;
+  }
+
+  private attemptMoveOrThrow(
+    engine: ServerChessEngine,
+    from: string,
+    to: string,
+    promotion?: string,
+  ): Extract<MoveOutcome, { status: 'ok' }> {
+    const outcome = engine.attemptMove(
+      from as Square,
+      to as Square,
+      promotion as PieceSymbol | undefined,
+    );
+    if (outcome.status === 'illegal')
+      throw new BadRequestException('Illegal move');
+    if (outcome.status === 'needs-promotion-choice') {
+      throw new BadRequestException('This move requires a promotion piece');
+    }
+    return outcome;
+  }
+
+  private applyMoveToGameState(
+    game: Game,
+    outcome: Extract<MoveOutcome, { status: 'ok' }>,
+    color: 'w' | 'b',
+    newRemaining: number,
+    now: number,
+  ): void {
+    game.fen = outcome.fen;
+    game.turn = color === 'w' ? 'b' : 'w';
+    game.lastMoveAt = new Date(now);
+    game.drawOfferedBy = null;
+    if (color === 'w') game.whiteTimeRemainingMs = newRemaining;
+    else game.blackTimeRemainingMs = newRemaining;
+  }
+
+  private buildMoveEntity(
+    game: Game,
+    outcome: Extract<MoveOutcome, { status: 'ok' }>,
+    ply: number,
+    newRemaining: number,
+    now: number,
+  ): Move {
+    // id generated here (not left to the DB), same as createGameLocal
+    // already does for Game.id - nothing the broadcast below sends
+    // depends on this write having landed.
+    return this.moves.create({
+      id: randomUUID(),
+      gameId: game.id,
+      ply,
+      from: outcome.move.from,
+      to: outcome.move.to,
+      piece: outcome.move.piece,
+      color: outcome.move.color,
+      san: outcome.move.san,
+      captured: outcome.move.captured ?? null,
+      promotion: outcome.move.promotion ?? null,
+      fenAfter: outcome.fen,
+      clockAfterMs: newRemaining,
+      createdAt: new Date(now),
+    });
+  }
+
+  private cacheMove(gameId: string, move: Move): void {
+    // See movesCache's own comment: this is what makes a REST read right
+    // after the broadcast consistent instead of racing the DB write in
+    // persistMoveAndGame below. Cache miss here (an active, owned game
+    // with no entry) only happens after a cold restart losing all
+    // in-memory state - fall back to appending to an empty array so a
+    // move is never silently dropped from the cache.
+    this.movesCache.set(gameId, [...(this.movesCache.get(gameId) ?? []), move]);
+  }
+
+  private async persistMoveAndGame(move: Move, game: Game): Promise<void> {
+    // One transaction (one commit) for both writes instead of two - under
+    // WAL this roughly halves the fsync-equivalent overhead per move.
+    //
+    // Raw parameterized SQL, not manager.save()/QueryBuilder - profiling
+    // under load found the query builder regex-templating the full SQL
+    // text on every call was the largest CPU cost on this path, bigger
+    // than chess.js's own move validation. Both statements are fixed
+    // shape, so there's nothing per-call for a query builder to buy us.
+    await this.games.manager.transaction(async (manager) => {
+      await this.insertMoveRaw(manager, move);
+      await this.updateGameRaw(manager, game);
+    });
+  }
+
+  private async finalizeIfGameOver(
+    game: Game,
+    outcome: Extract<MoveOutcome, { status: 'ok' }>,
+    color: 'w' | 'b',
+  ): Promise<void> {
+    const reason = outcome.gameOverReason;
+    if (reason) {
+      const result: GameResult =
+        reason === 'checkmate' ? (color === 'w' ? 'white' : 'black') : 'draw';
+      await this.finalize(game, result, reason);
+    } else {
+      this.scheduleFlagFall(game);
+    }
   }
 
   private async insertMoveRaw(manager: EntityManager, move: Move): Promise<void> {
