@@ -150,96 +150,202 @@ export function connectSocket(baseUrl, accessToken) {
   });
 }
 
+/** Mutable per-player state for one runPlayer session. */
+function createPlayerState() {
+  return {
+    color: null,
+    gameId: null,
+    nextPly: 0,
+    // Set right before we emit our own move, cleared once its echo comes
+    // back - this is what lets handleGameMove tell "the broadcast
+    // confirming MY move" apart from "notification of the opponent's move",
+    // which arrives on the exact same event with no other distinguishing
+    // field.
+    moveSentAt: null,
+  };
+}
+
+function maybePlay(socket, state) {
+  if (!state.color || state.nextPly >= SCRIPT.length) return;
+  // A move already in flight (awaiting its own echo) must not be
+  // re-sent - 'game:join's 'game:state' reply and a 'game:move' broadcast
+  // are two independent round trips that can arrive out of order under
+  // load, and both call maybePlay(); without this guard, a 'game:state'
+  // reply delayed past a subsequent real move re-fires an emit for a ply
+  // already submitted, which the server correctly (but confusingly)
+  // rejects as "not your turn" once the real turn has moved on.
+  if (state.moveSentAt !== null) return;
+  const isMyTurn = (state.nextPly % 2 === 0) === (state.color === 'white');
+  if (!isMyTurn) return;
+  const [from, to] = SCRIPT[state.nextPly];
+  state.moveSentAt = Date.now();
+  socket.emit('game:move', { gameId: state.gameId, from, to });
+}
+
+function handleGameCreated(socket, state, onGameReady, created) {
+  state.gameId = created.id;
+  state.color = created.white.id === socket.auth.userIdForTest ? 'white' : 'black';
+  onGameReady?.(state.gameId);
+  socket.emit('game:join', { gameId: state.gameId });
+}
+
+// The authoritative resync point: whatever ply the server says we're at
+// *right now*, as of our own join - not a guess based on when we joined
+// relative to the opponent. This is what makes join order/timing
+// irrelevant: a socket that joins after the opponent has already moved
+// picks up exactly where the game actually is instead of silently
+// missing a move broadcast it wasn't in the room for yet.
+function handleGameState(socket, state, gameState) {
+  // Never regress: 'game:join's round trip can be slower than a
+  // subsequent 'game:move' broadcast under load, so a 'game:state' reply
+  // can describe an already-superseded snapshot by the time it arrives.
+  // Applying it unconditionally would roll nextPly backward and
+  // re-trigger a move for a ply that's already been played.
+  state.nextPly = Math.max(state.nextPly, gameState.moves.length);
+  maybePlay(socket, state);
+}
+
+function handleGameMove(socket, state, onMoveLatency, payload) {
+  const serverPly = payload?.move?.ply; // 1-indexed; equals the move count once applied
+  // A socket's permanent user:{id} room membership (since handleConnection,
+  // well before this game even existed) means it can receive a game's
+  // early move broadcasts through TWO overlapping channels: a live
+  // 'game:move' push, and the 'game:state' snapshot fetched on 'game:join'
+  // - whichever arrives second describes a ply this socket already knows
+  // about. Tracking the server's own ply number (not blindly incrementing
+  // a local counter) makes this idempotent regardless of which channel
+  // delivers it first.
+  if (typeof serverPly === 'number' && serverPly <= state.nextPly) return;
+  // Only set when this echo is confirming a move THIS socket just made
+  // (see moveSentAt's own comment) - skip opponent-move notifications.
+  if (state.moveSentAt !== null) {
+    onMoveLatency?.(Date.now() - state.moveSentAt);
+    state.moveSentAt = null;
+  }
+  state.nextPly = typeof serverPly === 'number' ? serverPly : state.nextPly + 1;
+  if (state.nextPly >= SCRIPT.length) {
+    // Whoever just moved last offers resignation to end the game cleanly.
+    if (state.nextPly % 2 === 0 ? state.color === 'black' : state.color === 'white') {
+      socket.emit('game:resign', { gameId: state.gameId });
+    }
+  } else {
+    maybePlay(socket, state);
+  }
+}
+
 /** Drives one socket through: seek -> play its half of SCRIPT -> resign/accept end. */
 export function runPlayer(socket, log, { onGameReady, onGameOver, onDisconnect, onMoveLatency }) {
-  let color = null;
-  let gameId = null;
-  let nextPly = 0;
-  // Set right before we emit our own move, cleared once its echo comes back -
-  // this is what lets the 'game:move' listener below tell "the broadcast
-  // confirming MY move" apart from "notification of the opponent's move",
-  // which arrives on the exact same event with no other distinguishing field.
-  let moveSentAt = null;
+  const state = createPlayerState();
 
-  function maybePlay() {
-    if (!color || nextPly >= SCRIPT.length) return;
-    // A move already in flight (awaiting its own echo) must not be
-    // re-sent - 'game:join's 'game:state' reply and a 'game:move' broadcast
-    // are two independent round trips that can arrive out of order under
-    // load, and both call maybePlay(); without this guard, a 'game:state'
-    // reply delayed past a subsequent real move re-fires an emit for a ply
-    // already submitted, which the server correctly (but confusingly)
-    // rejects as "not your turn" once the real turn has moved on.
-    if (moveSentAt !== null) return;
-    const isMyTurn = (nextPly % 2 === 0) === (color === 'white');
-    if (!isMyTurn) return;
-    const [from, to] = SCRIPT[nextPly];
-    moveSentAt = Date.now();
-    socket.emit('game:move', { gameId, from, to });
+  socket.on('game:created', (created) => handleGameCreated(socket, state, onGameReady, created));
+  socket.on('game:state', (gameState) => handleGameState(socket, state, gameState));
+  socket.on('game:move', (payload) => handleGameMove(socket, state, onMoveLatency, payload));
+  socket.on('game:over', (gameOverState) => onGameOver?.(gameOverState));
+  socket.on('game:error', (err) => log.info('game:error', err));
+  socket.on('disconnect', (reason) => onDisconnect?.(reason, state.gameId));
+}
+
+/** Per-run mutable bookkeeping. Created before runSimulation's try block so
+ * even an early failure (e.g. a health-check timeout, before any socket
+ * exists) still has valid, empty state to attach to the thrown error. */
+function createTracker() {
+  return {
+    notifiedGameIds: new Set(),
+    finishedGameIds: new Set(),
+    unexpectedDisconnectGameIds: new Set(),
+    disconnectReasons: {},
+    moveLatencies: [],
+    gamesCreated: 0,
+    gamesFinished: 0,
+  };
+}
+
+async function createGuests(baseUrl, count, concurrency) {
+  return pooled(Array.from({ length: count }), concurrency, () => createGuest(baseUrl));
+}
+
+async function connectAllSockets(baseUrl, guests, concurrency) {
+  return pooled(guests, concurrency, async (g) => {
+    const socket = await connectSocket(baseUrl, g.accessToken);
+    socket.auth.userIdForTest = g.userId;
+    return socket;
+  });
+}
+
+/** Wires every socket's runPlayer callbacks into `tracker`, returning
+ * promises that resolve once every player has been notified of its game
+ * (`allCreated`) and once every game has ended (`allFinished`). */
+function attachPlayers(sockets, log, tracker, t0, playerCount) {
+  let gamesCreatedResolve, gamesFinishedResolve;
+  const allCreated = new Promise((r) => (gamesCreatedResolve = r));
+  const allFinished = new Promise((r) => (gamesFinishedResolve = r));
+
+  for (const socket of sockets) {
+    runPlayer(socket, log, {
+      onGameReady: (gameId) => {
+        tracker.notifiedGameIds.add(gameId);
+        tracker.gamesCreated += 1;
+        if (tracker.gamesCreated === playerCount) gamesCreatedResolve();
+      },
+      onGameOver: (state) => {
+        tracker.finishedGameIds.add(state.id);
+        tracker.gamesFinished += 1;
+        if (tracker.gamesFinished === playerCount) gamesFinishedResolve();
+      },
+      onDisconnect: (reason, gameId) => {
+        tracker.disconnectReasons[reason] = (tracker.disconnectReasons[reason] ?? 0) + 1;
+        if (gameId && !tracker.finishedGameIds.has(gameId)) tracker.unexpectedDisconnectGameIds.add(gameId);
+      },
+      onMoveLatency: (latencyMs) => tracker.moveLatencies.push({ atMs: Date.now() - t0, latencyMs }),
+    });
   }
 
-  socket.on('game:created', (state) => {
-    gameId = state.id;
-    color = state.white.id === socket.auth.userIdForTest ? 'white' : 'black';
-    onGameReady?.(gameId);
-    socket.emit('game:join', { gameId });
-  });
+  return { allCreated, allFinished };
+}
 
-  // The authoritative resync point: whatever ply the server says we're at
-  // *right now*, as of our own join - not a guess based on when we joined
-  // relative to the opponent. This is what makes join order/timing
-  // irrelevant: a socket that joins after the opponent has already moved
-  // picks up exactly where the game actually is instead of silently
-  // missing a move broadcast it wasn't in the room for yet.
-  socket.on('game:state', (state) => {
-    // Never regress: 'game:join's round trip can be slower than a
-    // subsequent 'game:move' broadcast under load, so a 'game:state' reply
-    // can describe an already-superseded snapshot by the time it arrives.
-    // Applying it unconditionally would roll nextPly backward and
-    // re-trigger a move for a ply that's already been played.
-    nextPly = Math.max(nextPly, state.moves.length);
-    maybePlay();
-  });
+// Every socket seeks the same time control, so the server's matchmaking
+// pool pairs them up two at a time.
+function seekMatchmaking(sockets, tcMinutes, tcIncrementSeconds) {
+  for (const socket of sockets) {
+    socket.emit('matchmaking:seek', { minutes: tcMinutes, incrementSeconds: tcIncrementSeconds });
+  }
+}
 
-  socket.on('game:move', (payload) => {
-    const serverPly = payload?.move?.ply; // 1-indexed; equals the move count once applied
-    // A socket's permanent user:{id} room membership (since handleConnection,
-    // well before this game even existed) means it can receive a game's
-    // early move broadcasts through TWO overlapping channels: a live
-    // 'game:move' push, and the 'game:state' snapshot fetched on 'game:join'
-    // - whichever arrives second describes a ply this socket already knows
-    // about. Tracking the server's own ply number (not blindly incrementing
-    // a local counter) makes this idempotent regardless of which channel
-    // delivers it first.
-    if (typeof serverPly === 'number' && serverPly <= nextPly) return;
-    // Only set when this echo is confirming a move THIS socket just made
-    // (see moveSentAt comment above) - skip opponent-move notifications.
-    if (moveSentAt !== null) {
-      onMoveLatency?.(Date.now() - moveSentAt);
-      moveSentAt = null;
-    }
-    nextPly = typeof serverPly === 'number' ? serverPly : nextPly + 1;
-    if (nextPly >= SCRIPT.length) {
-      // Whoever just moved last offers resignation to end the game cleanly.
-      if (nextPly % 2 === 0 ? color === 'black' : color === 'white') {
-        socket.emit('game:resign', { gameId });
-      }
-    } else {
-      maybePlay();
-    }
-  });
+/** Races `promise` against a timeout. `messageFn` is called lazily, only if
+ * the timeout actually fires, so the error reflects tracker state at that
+ * moment rather than whatever it was when withTimeout was first called. */
+function withTimeout(promise, ms, messageFn) {
+  return Promise.race([
+    promise,
+    sleep(ms).then(() => {
+      throw new Error(messageFn());
+    }),
+  ]);
+}
 
-  socket.on('game:over', (state) => {
-    onGameOver?.(state);
-  });
+function startHeartbeat(log, tracker, playerCount, intervalMs = 2000) {
+  return setInterval(() => {
+    log.info(
+      `progress: ${tracker.gamesCreated}/${playerCount} notified, ${tracker.gamesFinished}/${playerCount} finished, ` +
+        `${tracker.unexpectedDisconnectGameIds.size} sockets disconnected pre-finish, reasons=${JSON.stringify(tracker.disconnectReasons)}`,
+    );
+  }, intervalMs);
+}
 
-  socket.on('game:error', (err) => {
-    log.info('game:error', err);
-  });
+function finalizeMetrics(metrics, tracker, games) {
+  metrics.unexpectedDisconnects = tracker.unexpectedDisconnectGameIds.size;
+  metrics.disconnectReasons = tracker.disconnectReasons;
+  metrics.gamesPerSecondMatching = games / (metrics.phases.allMatchedMs / 1000);
+  metrics.movesPerSecondPlay = (games * SCRIPT.length) / (metrics.phases.allFinishedMs / 1000);
+  // This is the number that actually matters for playability: how long a
+  // player waits, per move, between making it and seeing it confirmed -
+  // not the aggregate throughput above, which can look fine in sum while
+  // individual moves (especially late in a saturated run) take seconds.
+  metrics.moveLatencyMs = summarizeLatencies(tracker.moveLatencies);
+}
 
-  socket.on('disconnect', (reason) => {
-    onDisconnect?.(reason, gameId);
-  });
+function disconnectAll(sockets) {
+  for (const socket of sockets) socket.disconnect();
 }
 
 /**
@@ -268,11 +374,7 @@ export async function runSimulation({
 }) {
   const metrics = { games, phases: {} };
   const t0 = Date.now();
-  const notifiedGameIds = new Set();
-  const finishedGameIds = new Set();
-  const unexpectedDisconnectGameIds = new Set();
-  const disconnectReasons = {};
-  const moveLatencies = [];
+  const tracker = createTracker();
 
   try {
     await waitForHealth(baseUrl);
@@ -280,100 +382,53 @@ export async function runSimulation({
 
     const playerCount = games * 2;
     const t1 = Date.now();
-    const guests = await pooled(Array.from({ length: playerCount }), concurrency, () => createGuest(baseUrl));
+    const guests = await createGuests(baseUrl, playerCount, concurrency);
     metrics.phases.guestsCreatedMs = Date.now() - t1;
     log.info(`created ${guests.length} guest accounts in ${metrics.phases.guestsCreatedMs}ms`);
 
     const t2 = Date.now();
-    const sockets = await pooled(guests, concurrency, async (g) => {
-      const socket = await connectSocket(baseUrl, g.accessToken);
-      socket.auth.userIdForTest = g.userId;
-      return socket;
-    });
+    const sockets = await connectAllSockets(baseUrl, guests, concurrency);
     metrics.phases.socketsConnectedMs = Date.now() - t2;
     log.info(`connected ${sockets.length} sockets in ${metrics.phases.socketsConnectedMs}ms`);
     await onSocketsConnected?.();
 
-    let gamesCreated = 0;
-    let gamesFinished = 0;
-    let gamesCreatedResolve, gamesFinishedResolve;
-    const allCreated = new Promise((r) => (gamesCreatedResolve = r));
-    const allFinished = new Promise((r) => (gamesFinishedResolve = r));
-
-    for (const socket of sockets) {
-      runPlayer(socket, log, {
-        onGameReady: (gameId) => {
-          notifiedGameIds.add(gameId);
-          gamesCreated += 1;
-          if (gamesCreated === playerCount) gamesCreatedResolve();
-        },
-        onGameOver: (state) => {
-          finishedGameIds.add(state.id);
-          gamesFinished += 1;
-          if (gamesFinished === playerCount) gamesFinishedResolve();
-        },
-        onDisconnect: (reason, gameId) => {
-          disconnectReasons[reason] = (disconnectReasons[reason] ?? 0) + 1;
-          if (gameId && !finishedGameIds.has(gameId)) unexpectedDisconnectGameIds.add(gameId);
-        },
-        onMoveLatency: (latencyMs) => moveLatencies.push({ atMs: Date.now() - t0, latencyMs }),
-      });
-    }
+    const { allCreated, allFinished } = attachPlayers(sockets, log, tracker, t0, playerCount);
 
     const t3 = Date.now();
-    // Kick things off: every socket seeks the same time control, so the
-    // server's matchmaking pool pairs them up two at a time.
-    for (const socket of sockets) {
-      socket.emit('matchmaking:seek', { minutes: tcMinutes, incrementSeconds: tcIncrementSeconds });
-    }
+    seekMatchmaking(sockets, tcMinutes, tcIncrementSeconds);
 
     const matchTimeoutMs = Math.max(20_000, games * 20);
-    await Promise.race([
+    await withTimeout(
       allCreated,
-      sleep(matchTimeoutMs).then(() => {
-        throw new Error(`matchmaking timed out (${gamesCreated}/${playerCount} notified)`);
-      }),
-    ]);
+      matchTimeoutMs,
+      () => `matchmaking timed out (${tracker.gamesCreated}/${playerCount} notified)`,
+    );
     metrics.phases.allMatchedMs = Date.now() - t3;
     log.info(`all ${games} games matched in ${metrics.phases.allMatchedMs}ms`);
 
     const t4 = Date.now();
     const playTimeoutMs = Math.max(20_000, games * 150);
-    const heartbeat = setInterval(() => {
-      log.info(
-        `progress: ${gamesCreated}/${playerCount} notified, ${gamesFinished}/${playerCount} finished, ` +
-          `${unexpectedDisconnectGameIds.size} sockets disconnected pre-finish, reasons=${JSON.stringify(disconnectReasons)}`,
-      );
-    }, 2000);
-    await Promise.race([
+    const heartbeat = startHeartbeat(log, tracker, playerCount);
+    await withTimeout(
       allFinished,
-      sleep(playTimeoutMs).then(() => {
-        throw new Error(`game play timed out (${gamesFinished}/${playerCount} finished)`);
-      }),
-    ]).finally(() => clearInterval(heartbeat));
+      playTimeoutMs,
+      () => `game play timed out (${tracker.gamesFinished}/${playerCount} finished)`,
+    ).finally(() => clearInterval(heartbeat));
     metrics.phases.allFinishedMs = Date.now() - t4;
     log.info(`all ${games} games played + resigned in ${metrics.phases.allFinishedMs}ms`);
 
-    metrics.unexpectedDisconnects = unexpectedDisconnectGameIds.size;
-    metrics.disconnectReasons = disconnectReasons;
     metrics.totalMs = Date.now() - t0;
-    metrics.gamesPerSecondMatching = games / (metrics.phases.allMatchedMs / 1000);
-    metrics.movesPerSecondPlay = (games * SCRIPT.length) / (metrics.phases.allFinishedMs / 1000);
-    // This is the number that actually matters for playability: how long a
-    // player waits, per move, between making it and seeing it confirmed -
-    // not the aggregate throughput above, which can look fine in sum while
-    // individual moves (especially late in a saturated run) take seconds.
-    metrics.moveLatencyMs = summarizeLatencies(moveLatencies);
+    finalizeMetrics(metrics, tracker, games);
 
-    for (const socket of sockets) socket.disconnect();
+    disconnectAll(sockets);
 
     return metrics;
   } catch (error) {
     throw Object.assign(error, {
-      notifiedGameIds,
-      finishedGameIds,
-      disconnectReasons,
-      unexpectedDisconnectCount: unexpectedDisconnectGameIds.size,
+      notifiedGameIds: tracker.notifiedGameIds,
+      finishedGameIds: tracker.finishedGameIds,
+      disconnectReasons: tracker.disconnectReasons,
+      unexpectedDisconnectCount: tracker.unexpectedDisconnectGameIds.size,
     });
   }
 }
