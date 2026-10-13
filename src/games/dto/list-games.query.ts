@@ -8,8 +8,8 @@ const STATUSES: GameStatus[] = ['active', 'completed', 'aborted'];
 
 // Exported so GamesService.listGamesForUser enforces the same bounds this
 // DTO validates at the API boundary, instead of a second, separately
-// maintained "20 default, 50 max" at the service layer.
-export const DEFAULT_GAMES_LIST_LIMIT = 20;
+// maintained "10 default, 50 max" at the service layer.
+export const DEFAULT_GAMES_LIST_LIMIT = 10;
 export const MAX_GAMES_LIST_LIMIT = 50;
 const MIN_GAMES_LIST_LIMIT = 1;
 
