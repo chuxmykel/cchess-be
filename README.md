@@ -41,7 +41,12 @@ Copy `.env.example` to `.env` and fill in the Postgres connection (matching
 the `createuser`/`createdb` commands above) and a JWT secret pair (any long
 random string works for local dev) - these have no built-in default and the
 app fails fast at boot if they're missing (see `src/config/configuration.ts`).
-Everything else in `.env.example` is optional and has a sane default.
+Fill in the `TEST_DB_*` vars too - the test suite reads its own, separate
+connection (same role, pointed at `cchess_be_test`, unless you want it
+somewhere else entirely, e.g. a different host in CI) rather than sharing
+`DB_*` with the dev database, so tests never run against dev data by
+accident. Everything else in `.env.example` is optional and has a sane
+default.
 
 Then apply the schema and start the server:
 

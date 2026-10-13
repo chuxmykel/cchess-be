@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { RefreshToken } from '../auth/entities/refresh-token.entity.js';
 import { ClusterModule } from '../cluster/cluster.module.js';
+import { requireEnv } from '../common/require-env.js';
 import { Rating } from '../users/entities/rating.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import { UsersService } from '../users/users.service.js';
@@ -29,13 +30,17 @@ async function buildModule() {
       }),
       EventEmitterModule.forRoot(),
       ClusterModule,
+      // These DB_* reads resolve to the TEST_DB_* values from .env -
+      // vitest.config.ts injects them under the DB_* names before this file
+      // runs (see its own `env` block) - not a fallback-bearing default; see
+      // src/database/data-source.ts for why these have no fallback.
       TypeOrmModule.forRoot({
         type: 'postgres',
-        host: process.env.DB_HOST ?? '127.0.0.1',
-        port: Number(process.env.DB_PORT ?? 5432),
-        username: process.env.DB_USERNAME ?? 'cchess',
-        password: process.env.DB_PASSWORD ?? 'cchess_dev_password',
-        database: process.env.DB_NAME ?? 'cchess_be_test',
+        host: requireEnv('DB_HOST'),
+        port: Number(requireEnv('DB_PORT')),
+        username: requireEnv('DB_USERNAME'),
+        password: requireEnv('DB_PASSWORD'),
+        database: requireEnv('DB_NAME'),
         entities: [User, Rating, RefreshToken, Game, Move],
         // Schema already applied via real migrations (see
         // src/database/migrations) - this test module only registers a
