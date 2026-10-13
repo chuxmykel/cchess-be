@@ -31,7 +31,9 @@ export function toWireError(error: unknown): WireError {
   return { name: 'Error', message: String(error) };
 }
 
-export function reviveError(wire: WireError): Error {
-  const ctor = (KNOWN_EXCEPTIONS as Record<string, new (message: string) => Error>)[wire.name];
-  return ctor ? new ctor(wire.message) : new Error(wire.message);
+export function reviveError(wireError: WireError): Error {
+  const ctor = (
+    KNOWN_EXCEPTIONS as Record<string, new (message: string) => Error>
+  )[wireError.name];
+  return ctor ? new ctor(wireError.message) : new Error(wireError.message);
 }

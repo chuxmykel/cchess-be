@@ -53,6 +53,7 @@ export class ClusterBus implements OnModuleDestroy {
 
   /** Registers the handler that runs ON THIS WORKER when another worker forwards `type` here. */
   onRequest<TPayload, TResult>(type: string, handler: (payload: TPayload) => Promise<TResult>): void {
+    this.logger.log(`[ClusterBus.onRequest] Setting ${type} handler`);
     this.handlers.set(type, handler as RequestHandler);
   }
 
@@ -72,6 +73,9 @@ export class ClusterBus implements OnModuleDestroy {
       this.pending.set(corrId, { resolve: resolve as (v: unknown) => void, reject, timeout });
 
       const message: ClusterIpcMessage = { kind: 'request', corrId, from: WORKER_INDEX, to: targetWorker, reqType: type, payload };
+      this.logger.log(
+        `[ClusterBus.request] Sending request type: ${type} with payload: ${JSON.stringify(payload)} from worker: ${WORKER_INDEX} to worker: ${targetWorker}.`,
+      );
       process.send?.(message);
     });
   }
@@ -91,7 +95,9 @@ export class ClusterBus implements OnModuleDestroy {
 
     const handler = this.handlers.get(msg.reqType);
     if (!handler) {
-      const error = toWireError(new Error(`worker ${WORKER_INDEX} has no handler for '${msg.reqType}'`));
+      const errorMessage = `worker ${WORKER_INDEX} has no handler for '${msg.reqType}'`;
+      const error = toWireError(new Error(errorMessage));
+      this.logger.error(errorMessage);
       process.send?.({ kind: 'response', corrId: msg.corrId, to: msg.from, ok: false, error } satisfies ClusterIpcMessage);
       return;
     }
