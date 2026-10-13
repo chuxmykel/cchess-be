@@ -27,7 +27,7 @@ export interface PgnPlayers {
 export function buildPgnText(game: Game, players: PgnPlayers, sans: string[]): string {
   const result = game.result ? RESULT_TAG[game.result] : '*';
   const tags = [
-    `[Event "Casual ${game.gameType} game"]`,
+    `[Event "${game.rated ? 'Rated' : 'Casual'} ${game.gameType} game"]`,
     `[Site "cchess"]`,
     `[Date "${pgnDate(game.createdAt)}"]`,
     `[White "${players.whiteUsername}"]`,
