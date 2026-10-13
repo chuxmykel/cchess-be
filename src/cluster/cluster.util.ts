@@ -10,6 +10,12 @@ export const WORKER_INDEX = Number(process.env.CLUSTER_WORKER_INDEX ?? 0);
 
 export const CLUSTERING_ENABLED = CLUSTER_WORKERS > 1;
 
+// djb2's own standard seed and multiplier - fast, good-enough distribution
+// for UUIDs/opaque ids, not security-sensitive (ownership routing, not
+// auth). Fixed by the algorithm, not a value this app chose.
+const DJB2_SEED = 5381;
+const DJB2_MULTIPLIER = 33;
+
 /**
  * The worker index (0-based, stable for the process's lifetime - not
  * Node's own auto-incrementing `cluster.worker.id`, which changes on
@@ -17,12 +23,6 @@ export const CLUSTERING_ENABLED = CLUSTER_WORKERS > 1;
  * same way independently, so there's no coordination needed to find out
  * who owns what - just a pure function of the key.
  */
-// djb2's own standard seed and multiplier - fast, good-enough distribution
-// for UUIDs/opaque ids, not security-sensitive (ownership routing, not
-// auth). Fixed by the algorithm, not a value this app chose.
-const DJB2_SEED = 5381;
-const DJB2_MULTIPLIER = 33;
-
 export function ownerIndex(key: string): number {
   let hash = DJB2_SEED;
   for (let i = 0; i < key.length; i++) {
