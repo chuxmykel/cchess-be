@@ -201,24 +201,15 @@ export class RealtimeGateway
     payload: { gameId: string; from: string; to: string; promotion?: string },
   ) {
     const user = (socket.data as SocketData).user;
-    try {
-      await this.gamesService.applyMove(
+    await this.runGameAction(socket, WS_EVENTS.GAME_MOVE, payload.gameId, () =>
+      this.gamesService.applyMove(
         payload.gameId,
         user.userId,
         payload.from,
         payload.to,
         payload.promotion,
-      );
-    } catch (error) {
-      this.logIfUnexpected(
-        `${WS_EVENTS.GAME_MOVE} (game ${payload.gameId})`,
-        error,
-      );
-      socket.emit(WS_EVENTS.GAME_ERROR, {
-        gameId: payload.gameId,
-        message: (error as Error).message,
-      });
-    }
+      ),
+    );
   }
 
   @SubscribeMessage(WS_EVENTS.GAME_RESIGN)
@@ -226,7 +217,7 @@ export class RealtimeGateway
     @ConnectedSocket() socket: Socket,
     @MessageBody() payload: { gameId: string },
   ) {
-    await this.guard(socket, payload.gameId, () =>
+    await this.runGameAction(socket, WS_EVENTS.GAME_RESIGN, payload.gameId, () =>
       this.gamesService.resign(payload.gameId, this.userId(socket)),
     );
   }
@@ -236,7 +227,7 @@ export class RealtimeGateway
     @ConnectedSocket() socket: Socket,
     @MessageBody() payload: { gameId: string },
   ) {
-    await this.guard(socket, payload.gameId, () =>
+    await this.runGameAction(socket, WS_EVENTS.GAME_ABORT, payload.gameId, () =>
       this.gamesService.abort(payload.gameId, this.userId(socket)),
     );
   }
@@ -246,7 +237,7 @@ export class RealtimeGateway
     @ConnectedSocket() socket: Socket,
     @MessageBody() payload: { gameId: string },
   ) {
-    await this.guard(socket, payload.gameId, () =>
+    await this.runGameAction(socket, WS_EVENTS.GAME_DRAW_OFFER, payload.gameId, () =>
       this.gamesService.offerDraw(payload.gameId, this.userId(socket)),
     );
   }
@@ -256,7 +247,7 @@ export class RealtimeGateway
     @ConnectedSocket() socket: Socket,
     @MessageBody() payload: { gameId: string; accept: boolean },
   ) {
-    await this.guard(socket, payload.gameId, () =>
+    await this.runGameAction(socket, WS_EVENTS.GAME_DRAW_RESPOND, payload.gameId, () =>
       this.gamesService.respondDraw(
         payload.gameId,
         this.userId(socket),
@@ -290,15 +281,16 @@ export class RealtimeGateway
     return (socket.data as SocketData).user.userId;
   }
 
-  private async guard(
+  private async runGameAction(
     socket: Socket,
+    event: string,
     gameId: string,
     fn: () => Promise<unknown>,
   ): Promise<void> {
     try {
       await fn();
     } catch (error) {
-      this.logIfUnexpected(`game action (game ${gameId})`, error);
+      this.logIfUnexpected(`${event} (game ${gameId})`, error);
       socket.emit(WS_EVENTS.GAME_ERROR, {
         gameId,
         message: (error as Error).message,
