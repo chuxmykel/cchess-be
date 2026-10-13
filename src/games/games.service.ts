@@ -105,17 +105,35 @@ export class GamesService implements OnModuleDestroy {
    * rather than forwarding again.
    */
   private registerClusterHandlers(): void {
-    this.cluster.onRequest(GAMES_RPC.CREATE, this.handleCreateRequest.bind(this));
-    this.cluster.onRequest(GAMES_RPC.APPLY_MOVE, this.handleApplyMoveRequest.bind(this));
-    this.cluster.onRequest(GAMES_RPC.RESIGN, this.handleResignRequest.bind(this));
+    this.cluster.onRequest(
+      GAMES_RPC.CREATE,
+      this.handleCreateRequest.bind(this),
+    );
+    this.cluster.onRequest(
+      GAMES_RPC.APPLY_MOVE,
+      this.handleApplyMoveRequest.bind(this),
+    );
+    this.cluster.onRequest(
+      GAMES_RPC.RESIGN,
+      this.handleResignRequest.bind(this),
+    );
     this.cluster.onRequest(GAMES_RPC.ABORT, this.handleAbortRequest.bind(this));
-    this.cluster.onRequest(GAMES_RPC.OFFER_DRAW, this.handleOfferDrawRequest.bind(this));
-    this.cluster.onRequest(GAMES_RPC.RESPOND_DRAW, this.handleRespondDrawRequest.bind(this));
+    this.cluster.onRequest(
+      GAMES_RPC.OFFER_DRAW,
+      this.handleOfferDrawRequest.bind(this),
+    );
+    this.cluster.onRequest(
+      GAMES_RPC.RESPOND_DRAW,
+      this.handleRespondDrawRequest.bind(this),
+    );
     this.cluster.onRequest(
       GAMES_RPC.FORFEIT_BY_ABANDONMENT,
       this.handleForfeitByAbandonmentRequest.bind(this),
     );
-    this.cluster.onRequest(GAMES_RPC.GET_WITH_MOVES, this.handleGetWithMovesRequest.bind(this));
+    this.cluster.onRequest(
+      GAMES_RPC.GET_WITH_MOVES,
+      this.handleGetWithMovesRequest.bind(this),
+    );
   }
 
   private async handleCreateRequest(payload: {
@@ -156,15 +174,24 @@ export class GamesService implements OnModuleDestroy {
     return { game: toWireGame(game), move: toWireMove(move) };
   }
 
-  private async handleResignRequest(payload: { gameId: string; userId: string }) {
+  private async handleResignRequest(payload: {
+    gameId: string;
+    userId: string;
+  }) {
     return toWireGame(await this.resign(payload.gameId, payload.userId));
   }
 
-  private async handleAbortRequest(payload: { gameId: string; userId: string }) {
+  private async handleAbortRequest(payload: {
+    gameId: string;
+    userId: string;
+  }) {
     return toWireGame(await this.abort(payload.gameId, payload.userId));
   }
 
-  private async handleOfferDrawRequest(payload: { gameId: string; userId: string }) {
+  private async handleOfferDrawRequest(payload: {
+    gameId: string;
+    userId: string;
+  }) {
     return toWireGame(await this.offerDraw(payload.gameId, payload.userId));
   }
 
@@ -173,10 +200,15 @@ export class GamesService implements OnModuleDestroy {
     userId: string;
     accept: boolean;
   }) {
-    return toWireGame(await this.respondDraw(payload.gameId, payload.userId, payload.accept));
+    return toWireGame(
+      await this.respondDraw(payload.gameId, payload.userId, payload.accept),
+    );
   }
 
-  private async handleForfeitByAbandonmentRequest(payload: { gameId: string; userId: string }) {
+  private async handleForfeitByAbandonmentRequest(payload: {
+    gameId: string;
+    userId: string;
+  }) {
     await this.forfeitByAbandonment(payload.gameId, payload.userId);
     return null;
   }
@@ -186,6 +218,28 @@ export class GamesService implements OnModuleDestroy {
     return { game: toWireGame(game), moves: game.moves.map(toWireMove) };
   }
 
+  /**
+   * Shared skeleton behind every ownership-routed method below (mutating or
+   * not): if this worker doesn't own `gameId`, forward `payload` over
+   * ClusterBus to whichever worker does and translate its wire-format reply
+   * with `fromWire`; otherwise run `runLocal` directly.
+   */
+  private async runOwnershipRouted<TResult, TWire = TResult>(
+    gameId: string,
+    channel: string,
+    payload: unknown,
+    fromWire: (wire: TWire) => TResult,
+    runLocal: () => Promise<TResult>,
+  ): Promise<TResult> {
+    if (isMine(gameId)) return runLocal();
+    const wire = await this.cluster.request<TWire>(
+      ownerIndex(gameId),
+      channel,
+      payload,
+    );
+    return fromWire(wire);
+  }
+
   async createGame(
     white: User,
     black: User,
@@ -193,21 +247,13 @@ export class GamesService implements OnModuleDestroy {
     rated: boolean,
   ): Promise<Game> {
     const gameId = randomUUID();
-    if (!isMine(gameId)) {
-      const wire = await this.cluster.request<Record<string, unknown>>(
-        ownerIndex(gameId),
-        GAMES_RPC.CREATE,
-        {
-          gameId,
-          whiteId: white.id,
-          blackId: black.id,
-          tc,
-          rated,
-        },
-      );
-      return fromWireGame(wire);
-    }
-    return this.createGameLocal(gameId, white, black, tc, rated);
+    return this.runOwnershipRouted(
+      gameId,
+      GAMES_RPC.CREATE,
+      { gameId, whiteId: white.id, blackId: black.id, tc, rated },
+      fromWireGame,
+      this.createGameLocal.bind(this, gameId, white, black, tc, rated),
+    );
   }
 
   private async createGameLocal(
@@ -249,7 +295,9 @@ export class GamesService implements OnModuleDestroy {
     this.logger.debug(
       `game ${saved.id} created: ${white.id} vs ${black.id}, ${tc.minutes}+${tc.incrementSeconds} (${gameType}), rated=${saved.rated}`,
     );
-    this.events.emit(DOMAIN_EVENTS.GAME_CREATED, { game: saved } satisfies GameEvent);
+    this.events.emit(DOMAIN_EVENTS.GAME_CREATED, {
+      game: saved,
+    } satisfies GameEvent);
     return saved;
   }
 
@@ -275,22 +323,31 @@ export class GamesService implements OnModuleDestroy {
     // read fanned out to whichever worker happens to receive the HTTP
     // request (Node's cluster module round-robins port-sharing across
     // workers regardless of which one owns this gameId). This matters
-    // specifically because of the cache-first branch just below: only the
-    // owning worker's gameCache/movesCache is guaranteed to reflect a move
-    // whose broadcast has already gone out but whose DB write hasn't
-    // landed yet (see applyMove) - a different worker falling through to
-    // the DB in that same window could race it and miss the very move a
-    // client's REST read was triggered by.
-    if (!isMine(gameId)) {
-      const wire = await this.cluster.request<{
-        game: Record<string, unknown>;
-        moves: Record<string, unknown>[];
-      }>(ownerIndex(gameId), GAMES_RPC.GET_WITH_MOVES, { gameId });
-      const game = fromWireGame(wire.game);
-      game.moves = wire.moves.map(fromWireMove);
-      return game;
-    }
+    // specifically because of getGameWithMovesLocal's cache-first branch:
+    // only the owning worker's gameCache/movesCache is guaranteed to
+    // reflect a move whose broadcast has already gone out but whose DB
+    // write hasn't landed yet (see applyMove) - a different worker falling
+    // through to the DB in that same window could race it and miss the
+    // very move a client's REST read was triggered by.
+    return this.runOwnershipRouted(
+      gameId,
+      GAMES_RPC.GET_WITH_MOVES,
+      { gameId },
+      this.gameWithMovesFromWire,
+      this.getGameWithMovesLocal.bind(this, gameId),
+    );
+  }
 
+  private gameWithMovesFromWire(this: void, wire: {
+    game: Record<string, unknown>;
+    moves: Record<string, unknown>[];
+  }): Game {
+    const game = fromWireGame(wire.game);
+    game.moves = wire.moves.map(fromWireMove);
+    return game;
+  }
+
+  private async getGameWithMovesLocal(gameId: string): Promise<Game> {
     // An active game this worker owns: the cache (not the DB) is
     // authoritative, same reasoning as getGameOrThrow.
     const cachedMoves = this.movesCache.get(gameId);
@@ -331,7 +388,10 @@ export class GamesService implements OnModuleDestroy {
     userId: string,
     options: { status?: GameStatus; limit?: number; before?: Date } = {},
   ): Promise<Game[]> {
-    const limit = Math.min(options.limit ?? DEFAULT_GAMES_LIST_LIMIT, MAX_GAMES_LIST_LIMIT);
+    const limit = Math.min(
+      options.limit ?? DEFAULT_GAMES_LIST_LIMIT,
+      MAX_GAMES_LIST_LIMIT,
+    );
     const qb = this.games
       .createQueryBuilder('g')
       .leftJoinAndSelect('g.white', 'white')
@@ -356,19 +416,29 @@ export class GamesService implements OnModuleDestroy {
     to: string,
     promotion?: string,
   ): Promise<{ game: Game; move: Move }> {
-    if (!isMine(gameId)) {
-      const wire = await this.cluster.request<{
-        game: Record<string, unknown>;
-        move: Record<string, unknown>;
-      }>(ownerIndex(gameId), GAMES_RPC.APPLY_MOVE, {
-        gameId,
-        userId,
-        from,
-        to,
-        promotion,
-      });
-      return { game: fromWireGame(wire.game), move: fromWireMove(wire.move) };
-    }
+    return this.runOwnershipRouted(
+      gameId,
+      GAMES_RPC.APPLY_MOVE,
+      { gameId, userId, from, to, promotion },
+      this.applyMoveFromWire,
+      this.applyMoveLocal.bind(this, gameId, userId, from, to, promotion),
+    );
+  }
+
+  private applyMoveFromWire(this: void, wire: {
+    game: Record<string, unknown>;
+    move: Record<string, unknown>;
+  }): { game: Game; move: Move } {
+    return { game: fromWireGame(wire.game), move: fromWireMove(wire.move) };
+  }
+
+  private async applyMoveLocal(
+    gameId: string,
+    userId: string,
+    from: string,
+    to: string,
+    promotion?: string,
+  ): Promise<{ game: Game; move: Move }> {
     return this.mutex.runExclusive(gameId, async () => {
       const game = await this.getGameOrThrow(gameId);
       this.assertGameActive(game);
@@ -406,7 +476,10 @@ export class GamesService implements OnModuleDestroy {
       // applyMove() itself still doesn't resolve until the write completes
       // (same guarantee every caller already had), so there's no read-
       // after-write gap and no detached-write error handling to add.
-      this.events.emit(DOMAIN_EVENTS.GAME_MOVE, { game, move } satisfies GameMoveEvent);
+      this.events.emit(DOMAIN_EVENTS.GAME_MOVE, {
+        game,
+        move,
+      } satisfies GameMoveEvent);
 
       await this.persistMoveAndGame(move, game);
       await this.finalizeIfGameOver(game, outcome, color);
@@ -439,8 +512,7 @@ export class GamesService implements OnModuleDestroy {
       : now - game.createdAt.getTime();
     const remainingBefore =
       color === 'w' ? game.whiteTimeRemainingMs : game.blackTimeRemainingMs;
-    const remainingAfterElapsed =
-      remainingBefore - Math.max(sinceLastMove, 0);
+    const remainingAfterElapsed = remainingBefore - Math.max(sinceLastMove, 0);
 
     if (remainingAfterElapsed <= 0) {
       await this.finalize(game, color === 'w' ? 'black' : 'white', 'timeout');
@@ -550,7 +622,10 @@ export class GamesService implements OnModuleDestroy {
     }
   }
 
-  private async insertMoveRaw(manager: EntityManager, move: Move): Promise<void> {
+  private async insertMoveRaw(
+    manager: EntityManager,
+    move: Move,
+  ): Promise<void> {
     await manager.query(
       `INSERT INTO moves
          (id, "gameId", ply, "from", "to", piece, color, san, captured, promotion, "fenAfter", "clockAfterMs", "createdAt")
@@ -573,7 +648,10 @@ export class GamesService implements OnModuleDestroy {
     );
   }
 
-  private async updateGameRaw(manager: EntityManager, game: Game): Promise<void> {
+  private async updateGameRaw(
+    manager: EntityManager,
+    game: Game,
+  ): Promise<void> {
     await manager.query(
       `UPDATE games
        SET fen = $1, turn = $2, "lastMoveAt" = $3, "drawOfferedBy" = $4,
@@ -592,14 +670,16 @@ export class GamesService implements OnModuleDestroy {
   }
 
   async resign(gameId: string, userId: string): Promise<Game> {
-    if (!isMine(gameId)) {
-      return fromWireGame(
-        await this.cluster.request(ownerIndex(gameId), GAMES_RPC.RESIGN, {
-          gameId,
-          userId,
-        }),
-      );
-    }
+    return this.runOwnershipRouted(
+      gameId,
+      GAMES_RPC.RESIGN,
+      { gameId, userId },
+      fromWireGame,
+      this.resignLocal.bind(this, gameId, userId),
+    );
+  }
+
+  private resignLocal(gameId: string, userId: string): Promise<Game> {
     return this.mutex.runExclusive(gameId, async () => {
       const game = await this.getGameOrThrow(gameId);
       if (game.status !== 'active')
@@ -615,14 +695,16 @@ export class GamesService implements OnModuleDestroy {
   }
 
   async offerDraw(gameId: string, userId: string): Promise<Game> {
-    if (!isMine(gameId)) {
-      return fromWireGame(
-        await this.cluster.request(ownerIndex(gameId), GAMES_RPC.OFFER_DRAW, {
-          gameId,
-          userId,
-        }),
-      );
-    }
+    return this.runOwnershipRouted(
+      gameId,
+      GAMES_RPC.OFFER_DRAW,
+      { gameId, userId },
+      fromWireGame,
+      this.offerDrawLocal.bind(this, gameId, userId),
+    );
+  }
+
+  private offerDrawLocal(gameId: string, userId: string): Promise<Game> {
     return this.mutex.runExclusive(gameId, async () => {
       const game = await this.getGameOrThrow(gameId);
       if (game.status !== 'active')
@@ -649,15 +731,20 @@ export class GamesService implements OnModuleDestroy {
     userId: string,
     accept: boolean,
   ): Promise<Game> {
-    if (!isMine(gameId)) {
-      return fromWireGame(
-        await this.cluster.request(ownerIndex(gameId), GAMES_RPC.RESPOND_DRAW, {
-          gameId,
-          userId,
-          accept,
-        }),
-      );
-    }
+    return this.runOwnershipRouted(
+      gameId,
+      GAMES_RPC.RESPOND_DRAW,
+      { gameId, userId, accept },
+      fromWireGame,
+      this.respondDrawLocal.bind(this, gameId, userId, accept),
+    );
+  }
+
+  private respondDrawLocal(
+    gameId: string,
+    userId: string,
+    accept: boolean,
+  ): Promise<Game> {
     return this.mutex.runExclusive(gameId, async () => {
       const game = await this.getGameOrThrow(gameId);
       if (game.status !== 'active')
@@ -683,14 +770,16 @@ export class GamesService implements OnModuleDestroy {
   }
 
   async abort(gameId: string, userId: string): Promise<Game> {
-    if (!isMine(gameId)) {
-      return fromWireGame(
-        await this.cluster.request(ownerIndex(gameId), GAMES_RPC.ABORT, {
-          gameId,
-          userId,
-        }),
-      );
-    }
+    return this.runOwnershipRouted(
+      gameId,
+      GAMES_RPC.ABORT,
+      { gameId, userId },
+      fromWireGame,
+      this.abortLocal.bind(this, gameId, userId),
+    );
+  }
+
+  private abortLocal(gameId: string, userId: string): Promise<Game> {
     return this.mutex.runExclusive(gameId, async () => {
       const game = await this.getGameOrThrow(gameId);
       if (game.status !== 'active')
@@ -719,15 +808,21 @@ export class GamesService implements OnModuleDestroy {
   }
 
   async forfeitByAbandonment(gameId: string, userId: string): Promise<void> {
-    if (!isMine(gameId)) {
-      await this.cluster.request(
-        ownerIndex(gameId),
-        GAMES_RPC.FORFEIT_BY_ABANDONMENT,
-        { gameId, userId },
-      );
-      return;
-    }
-    await this.mutex.runExclusive(gameId, async () => {
+    return this.runOwnershipRouted(
+      gameId,
+      GAMES_RPC.FORFEIT_BY_ABANDONMENT,
+      { gameId, userId },
+      this.wireToVoid,
+      this.forfeitByAbandonmentLocal.bind(this, gameId, userId),
+    );
+  }
+
+  private wireToVoid(this: void): undefined {
+    return undefined;
+  }
+
+  private forfeitByAbandonmentLocal(gameId: string, userId: string): Promise<void> {
+    return this.mutex.runExclusive(gameId, async () => {
       const game = await this.getGameOrThrow(gameId);
       if (game.status !== 'active') return;
       const color = this.colorOf(game, userId);
@@ -824,7 +919,9 @@ export class GamesService implements OnModuleDestroy {
     // it got here (checkmate, resignation, timeout, abandonment, draw,
     // abort) - cheap visibility into why/how games are actually ending
     // without needing a DB query.
-    this.logger.debug(`game ${game.id} ending: status=${status} result=${result} reason=${reason}`);
+    this.logger.debug(
+      `game ${game.id} ending: status=${status} result=${result} reason=${reason}`,
+    );
     this.clearFlagFallTimer(game.id);
     const cachedEngine = this.engines.get(game.id);
     this.engines.delete(game.id);
