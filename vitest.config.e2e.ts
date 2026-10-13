@@ -1,6 +1,8 @@
 import { defineConfig } from 'vitest/config';
 import tsconfigPaths from 'vite-tsconfig-paths';
 
+import { requireEnvFileValue } from './vitest.env.js';
+
 export default defineConfig({
   plugins: [tsconfigPaths()],
   test: {
@@ -8,7 +10,7 @@ export default defineConfig({
     root: './',
     include: ['**/*.e2e-spec.ts'],
     env: {
-      DB_NAME: 'cchess_be_test',
+      DB_NAME: requireEnvFileValue('TEST_DB_NAME'),
       JWT_ACCESS_SECRET: 'test-access-secret',
       JWT_REFRESH_SECRET: 'test-refresh-secret',
     },
