@@ -37,9 +37,10 @@ function isClusterIpcMessage(value: unknown): value is ClusterIpcMessage {
 @Injectable()
 export class ClusterBus implements OnModuleDestroy {
   private readonly logger = new Logger(ClusterBus.name);
-  private readonly pending = new Map<string, PendingRequest>();
+  private readonly pendingRequestsByCorrId = new Map<string, PendingRequest>();
   private readonly handlers = new Map<string, RequestHandler>();
-  private seq = 0;
+  /** Incremented per outbound request - see `request()` for why. */
+  private requestSeq = 0;
   private readonly listener = (msg: unknown) => void this.handleInbound(msg);
 
   constructor() {
@@ -48,7 +49,7 @@ export class ClusterBus implements OnModuleDestroy {
 
   onModuleDestroy(): void {
     process.off('message', this.listener);
-    for (const p of this.pending.values()) clearTimeout(p.timeout);
+    for (const p of this.pendingRequestsByCorrId.values()) clearTimeout(p.timeout);
   }
 
   /** Registers the handler that runs ON THIS WORKER when another worker forwards `type` here. */
@@ -58,10 +59,10 @@ export class ClusterBus implements OnModuleDestroy {
   }
 
   async request<TResult>(targetWorker: number, type: string, payload: unknown, timeoutMs = 15_000): Promise<TResult> {
-    const corrId = `${WORKER_INDEX}:${++this.seq}`;
+    const corrId = `${WORKER_INDEX}:${++this.requestSeq}`;
     return new Promise<TResult>((resolve, reject) => {
       const timeout = setTimeout(() => {
-        this.pending.delete(corrId);
+        this.pendingRequestsByCorrId.delete(corrId);
         // Worth knowing about even though the caller also sees the rejection -
         // a timeout here means the target worker is overloaded, deadlocked, or
         // crashed, which the eventual HTTP/WS error alone doesn't distinguish
@@ -70,7 +71,7 @@ export class ClusterBus implements OnModuleDestroy {
         reject(new Error(`cluster request '${type}' to worker ${targetWorker} timed out after ${timeoutMs}ms`));
       }, timeoutMs);
       timeout.unref?.();
-      this.pending.set(corrId, { resolve: resolve as (v: unknown) => void, reject, timeout });
+      this.pendingRequestsByCorrId.set(corrId, { resolve: resolve as (v: unknown) => void, reject, timeout });
 
       const message: ClusterIpcMessage = { kind: 'request', corrId, from: WORKER_INDEX, to: targetWorker, reqType: type, payload };
       this.logger.log(
@@ -84,12 +85,12 @@ export class ClusterBus implements OnModuleDestroy {
     if (!isClusterIpcMessage(msg)) return;
 
     if (msg.kind === 'response') {
-      const pending = this.pending.get(msg.corrId);
-      if (!pending) return;
-      this.pending.delete(msg.corrId);
-      clearTimeout(pending.timeout);
-      if (msg.ok) pending.resolve(msg.result);
-      else pending.reject(reviveError(msg.error));
+      const pendingRequest = this.pendingRequestsByCorrId.get(msg.corrId);
+      if (!pendingRequest) return;
+      this.pendingRequestsByCorrId.delete(msg.corrId);
+      clearTimeout(pendingRequest.timeout);
+      if (msg.ok) pendingRequest.resolve(msg.result);
+      else pendingRequest.reject(reviveError(msg.error));
       return;
     }
 
