@@ -38,6 +38,10 @@ interface Seek {
 
 export type SeekResult = { status: 'queued' } | { status: 'matched'; game: Game };
 
+type WireSeekResult = { status: 'queued' } | { status: 'matched'; game: Record<string, unknown> };
+
+type SeekStatus = { seeking: boolean; minutes?: number; incrementSeconds?: number };
+
 /**
  * In-memory seek pool: pairs up players wanting the same time control.
  * Single-process by default (fine for one Nest instance / SQLite). Under
@@ -82,16 +86,44 @@ export class MatchmakingService {
     return !CLUSTERING_ENABLED || WORKER_INDEX === MatchmakingService.MATCHMAKER_WORKER;
   }
 
+  /**
+   * Routes a matchmaking operation to wherever it actually needs to run:
+   * locally if this worker is the matchmaker (see `isMatchmaker`), or
+   * forwarded to it over `ClusterBus` otherwise. Mirrors
+   * `GamesService.runOwnershipRouted`, just keyed on a fixed worker
+   * (`MATCHMAKER_WORKER`) instead of a per-gameId owner.
+   */
+  private async runMatchmakerRouted<TResult, TWire = TResult>(
+    channel: string,
+    payload: unknown,
+    fromWire: (wire: TWire) => TResult,
+    runLocal: () => TResult | Promise<TResult>,
+  ): Promise<TResult> {
+    if (this.isMatchmaker) return runLocal();
+    const wire = await this.clusterBus.request<TWire>(MatchmakingService.MATCHMAKER_WORKER, channel, payload);
+    return fromWire(wire);
+  }
+
+  private seekResultFromWire(wire: WireSeekResult): SeekResult {
+    return wire.status === 'matched' ? { status: 'matched', game: fromWireGame(wire.game) } : wire;
+  }
+
+  private statusFromWire(wire: SeekStatus): SeekStatus {
+    return wire;
+  }
+
+  private wireToVoid(): undefined {
+    return undefined;
+  }
+
   async seek(user: User, tc: TimeControl): Promise<SeekResult> {
-    if (!this.isMatchmaker) {
-      const wire = await this.clusterBus.request<{ status: 'queued' } | { status: 'matched'; game: Record<string, unknown> }>(
-        MatchmakingService.MATCHMAKER_WORKER,
-        MM_RPC.SEEK,
-        { user: toWireSeekUser(user), tc },
-      );
-      return wire.status === 'matched' ? { status: 'matched', game: fromWireGame(wire.game) } : wire;
-    }
-    return this.seekLocal(user, tc);
+    return this.runMatchmakerRouted<SeekResult, WireSeekResult>(
+      MM_RPC.SEEK,
+      { user: toWireSeekUser(user), tc },
+      // eslint-disable-next-line typescript/unbound-method
+      this.seekResultFromWire,
+      this.seekLocal.bind(this, user, tc),
+    );
   }
 
   private async seekLocal(user: User, tc: TimeControl): Promise<SeekResult> {
@@ -137,24 +169,28 @@ export class MatchmakingService {
   }
 
   cancelSeek(userId: string): void {
-    if (!this.isMatchmaker) {
-      // Best-effort cleanup (seek cancellation, disconnect, etc.) - nothing
-      // downstream awaits this, so a dropped/delayed forward just means a
-      // stale seek lingers briefly rather than breaking a user-facing flow.
-      void this.clusterBus.request(MatchmakingService.MATCHMAKER_WORKER, MM_RPC.CANCEL, { userId }).catch(() => {});
-      return;
-    }
+    // Best-effort cleanup (seek cancellation, disconnect, etc.) - nothing
+    // downstream awaits this, so a dropped/delayed forward just means a
+    // stale seek lingers briefly rather than breaking a user-facing flow.
+    void this.runMatchmakerRouted(
+      MM_RPC.CANCEL,
+      { userId },
+      // eslint-disable-next-line typescript/unbound-method
+      this.wireToVoid,
+      this.cancelSeekLocal.bind(this, userId),
+    ).catch(() => {});
+  }
+
+  private cancelSeekLocal(userId: string): void {
     this.seeksByUser.delete(userId);
   }
 
-  async getStatus(userId: string): Promise<{ seeking: boolean; minutes?: number; incrementSeconds?: number }> {
-    if (!this.isMatchmaker) {
-      return this.clusterBus.request(MatchmakingService.MATCHMAKER_WORKER, MM_RPC.STATUS, { userId });
-    }
-    return this.getStatusLocal(userId);
+  async getStatus(userId: string): Promise<SeekStatus> {
+    // eslint-disable-next-line typescript/unbound-method
+    return this.runMatchmakerRouted(MM_RPC.STATUS, { userId }, this.statusFromWire, this.getStatusLocal.bind(this, userId));
   }
 
-  private getStatusLocal(userId: string): { seeking: boolean; minutes?: number; incrementSeconds?: number } {
+  private getStatusLocal(userId: string): SeekStatus {
     const seek = this.seeksByUser.get(userId);
     if (!seek) return { seeking: false };
     return { seeking: true, minutes: seek.minutes, incrementSeconds: seek.incrementSeconds };

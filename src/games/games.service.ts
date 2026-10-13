@@ -333,12 +333,13 @@ export class GamesService implements OnModuleDestroy {
       gameId,
       GAMES_RPC.GET_WITH_MOVES,
       { gameId },
+      // eslint-disable-next-line typescript/unbound-method
       this.gameWithMovesFromWire,
       this.getGameWithMovesLocal.bind(this, gameId),
     );
   }
 
-  private gameWithMovesFromWire(this: void, wire: {
+  private gameWithMovesFromWire(wire: {
     game: Record<string, unknown>;
     moves: Record<string, unknown>[];
   }): Game {
@@ -420,12 +421,13 @@ export class GamesService implements OnModuleDestroy {
       gameId,
       GAMES_RPC.APPLY_MOVE,
       { gameId, userId, from, to, promotion },
+      // eslint-disable-next-line typescript/unbound-method
       this.applyMoveFromWire,
       this.applyMoveLocal.bind(this, gameId, userId, from, to, promotion),
     );
   }
 
-  private applyMoveFromWire(this: void, wire: {
+  private applyMoveFromWire(wire: {
     game: Record<string, unknown>;
     move: Record<string, unknown>;
   }): { game: Game; move: Move } {
@@ -812,12 +814,13 @@ export class GamesService implements OnModuleDestroy {
       gameId,
       GAMES_RPC.FORFEIT_BY_ABANDONMENT,
       { gameId, userId },
+      // eslint-disable-next-line typescript/unbound-method
       this.wireToVoid,
       this.forfeitByAbandonmentLocal.bind(this, gameId, userId),
     );
   }
 
-  private wireToVoid(this: void): undefined {
+  private wireToVoid(): undefined {
     return undefined;
   }
 
