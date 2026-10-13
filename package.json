@@ -26,9 +26,9 @@
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "typeorm": "typeorm",
-    "migration:generate": "npm run build && typeorm migration:generate -d dist/database/data-source.js",
-    "migration:run": "npm run build && typeorm migration:run -d dist/database/data-source.js",
-    "migration:revert": "npm run build && typeorm migration:revert -d dist/database/data-source.js"
+    "migration:generate": "npm run build && node --env-file=.env node_modules/typeorm/cli.js migration:generate -d dist/database/data-source.js",
+    "migration:run": "npm run build && node --env-file=.env node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js",
+    "migration:revert": "npm run build && node --env-file=.env node_modules/typeorm/cli.js migration:revert -d dist/database/data-source.js"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",

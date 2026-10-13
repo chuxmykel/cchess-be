@@ -29,13 +29,19 @@ npm install
 ```
 
 Needs a local Postgres (one-time setup - adjust names/password to taste,
-just keep them in sync with `.env`/`src/config/configuration.ts`'s defaults):
+just keep them in sync with what you put in `.env` below):
 
 ```bash
 createuser cchess --login --pwprompt    # or: CREATE ROLE cchess WITH LOGIN PASSWORD '...';
 createdb cchess_be --owner=cchess
 createdb cchess_be_test --owner=cchess  # used by the test suite, kept separate from dev data
 ```
+
+Copy `.env.example` to `.env` and fill in the Postgres connection (matching
+the `createuser`/`createdb` commands above) and a JWT secret pair (any long
+random string works for local dev) - these have no built-in default and the
+app fails fast at boot if they're missing (see `src/config/configuration.ts`).
+Everything else in `.env.example` is optional and has a sane default.
 
 Then apply the schema and start the server:
 
@@ -45,10 +51,7 @@ npm run start:dev       # watch mode
 ```
 
 The server listens on `:3000` by default. Interactive API docs are served at
-`/docs`. Copy `.env.example` to `.env` to override any defaults - the
-Postgres connection defaults match the `createuser`/`createdb` commands
-above, and insecure JWT-secret defaults are used automatically outside
-`NODE_ENV=production` (see `src/config/configuration.ts`).
+`/docs`.
 
 ## Commands
 
