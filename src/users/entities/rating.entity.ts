@@ -14,7 +14,7 @@ import {
 import type { GameType } from '../../chess/time-control.js';
 import { User } from './user.entity.js';
 
-export const STARTING_RATING = 1200;
+export const STARTING_RATING = 1500;
 
 @Entity('ratings')
 @Index(['user', 'category'], { unique: true })

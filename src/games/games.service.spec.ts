@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { RefreshToken } from '../auth/entities/refresh-token.entity.js';
 import { ClusterModule } from '../cluster/cluster.module.js';
 import { requireEnv } from '../common/require-env.js';
-import { Rating } from '../users/entities/rating.entity.js';
+import { Rating, STARTING_RATING } from '../users/entities/rating.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import { UsersService } from '../users/users.service.js';
 import { Game } from './entities/game.entity.js';
@@ -120,10 +120,18 @@ describe('GamesService', () => {
     expect(finalGame.result).toBe('black');
     expect(finalGame.resultReason).toBe('checkmate');
 
+    // Both players start at the same rating with 0 games played, so
+    // expectedScore is exactly 0.5 and the provisional K-factor (40) applies
+    // - see elo.ts: round(40 * (1 - 0.5)) = 20, symmetric either direction.
     const blackRatings = await ctx.usersService.getRatings(black.id);
     const blackBlitz = blackRatings.find((r) => r.category === 'blitz')!;
-    expect(blackBlitz.rating).toBeGreaterThan(1200);
+    expect(blackBlitz.rating).toBe(STARTING_RATING + 20);
     expect(blackBlitz.gamesPlayed).toBe(1);
+
+    const whiteRatings = await ctx.usersService.getRatings(white.id);
+    const whiteBlitz = whiteRatings.find((r) => r.category === 'blitz')!;
+    expect(whiteBlitz.rating).toBe(STARTING_RATING - 20);
+    expect(whiteBlitz.gamesPlayed).toBe(1);
   });
 
   it('resigns in favor of the opponent', async () => {
@@ -154,12 +162,18 @@ describe('GamesService', () => {
   it('allows abort within the ply limit but not after', async () => {
     const white = await makeUser('white6');
     const black = await makeUser('black6');
-    const game = await ctx.gamesService.createGame(white, black, { minutes: 5, incrementSeconds: 0 }, true);
 
-    await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
-    await ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5');
+    // 1 ply played, below the configured abortPlyLimit of 2 - still abortable.
+    const withinLimit = await ctx.gamesService.createGame(white, black, { minutes: 5, incrementSeconds: 0 }, true);
+    await ctx.gamesService.applyMove(withinLimit.id, white.id, 'e2', 'e4');
+    const aborted = await ctx.gamesService.abort(withinLimit.id, black.id);
+    expect(aborted.status).toBe('aborted');
 
-    await expect(ctx.gamesService.abort(game.id, white.id)).rejects.toThrow('Too late to abort');
+    // 2 plies played, at the limit - no longer abortable.
+    const pastLimit = await ctx.gamesService.createGame(white, black, { minutes: 5, incrementSeconds: 0 }, true);
+    await ctx.gamesService.applyMove(pastLimit.id, white.id, 'e2', 'e4');
+    await ctx.gamesService.applyMove(pastLimit.id, black.id, 'e7', 'e5');
+    await expect(ctx.gamesService.abort(pastLimit.id, white.id)).rejects.toThrow('Too late to abort');
   });
 
   it('aborts a fresh game with no rating impact', async () => {
