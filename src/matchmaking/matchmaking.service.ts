@@ -57,11 +57,11 @@ export class MatchmakingService {
   constructor(
     private readonly gamesService: GamesService,
     private readonly usersService: UsersService,
-    private readonly cluster: ClusterBus,
+    private readonly clusterBus: ClusterBus,
   ) {
-    this.cluster.onRequest(MM_RPC.SEEK, this.handleSeekRequest.bind(this));
-    this.cluster.onRequest(MM_RPC.CANCEL, this.handleCancelRequest.bind(this));
-    this.cluster.onRequest(MM_RPC.STATUS, this.handleStatusRequest.bind(this));
+    this.clusterBus.onRequest(MM_RPC.SEEK, this.handleSeekRequest.bind(this));
+    this.clusterBus.onRequest(MM_RPC.CANCEL, this.handleCancelRequest.bind(this));
+    this.clusterBus.onRequest(MM_RPC.STATUS, this.handleStatusRequest.bind(this));
   }
 
   private async handleSeekRequest(payload: { user: WireSeekUser; tc: TimeControl }) {
@@ -84,7 +84,7 @@ export class MatchmakingService {
 
   async seek(user: User, tc: TimeControl): Promise<SeekResult> {
     if (!this.isMatchmaker) {
-      const wire = await this.cluster.request<{ status: 'queued' } | { status: 'matched'; game: Record<string, unknown> }>(
+      const wire = await this.clusterBus.request<{ status: 'queued' } | { status: 'matched'; game: Record<string, unknown> }>(
         MatchmakingService.MATCHMAKER_WORKER,
         MM_RPC.SEEK,
         { user: toWireSeekUser(user), tc },
@@ -141,7 +141,7 @@ export class MatchmakingService {
       // Best-effort cleanup (seek cancellation, disconnect, etc.) - nothing
       // downstream awaits this, so a dropped/delayed forward just means a
       // stale seek lingers briefly rather than breaking a user-facing flow.
-      void this.cluster.request(MatchmakingService.MATCHMAKER_WORKER, MM_RPC.CANCEL, { userId }).catch(() => {});
+      void this.clusterBus.request(MatchmakingService.MATCHMAKER_WORKER, MM_RPC.CANCEL, { userId }).catch(() => {});
       return;
     }
     this.seeksByUser.delete(userId);
@@ -149,7 +149,7 @@ export class MatchmakingService {
 
   async getStatus(userId: string): Promise<{ seeking: boolean; minutes?: number; incrementSeconds?: number }> {
     if (!this.isMatchmaker) {
-      return this.cluster.request(MatchmakingService.MATCHMAKER_WORKER, MM_RPC.STATUS, { userId });
+      return this.clusterBus.request(MatchmakingService.MATCHMAKER_WORKER, MM_RPC.STATUS, { userId });
     }
     return this.getStatusLocal(userId);
   }

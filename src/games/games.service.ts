@@ -87,7 +87,7 @@ export class GamesService implements OnModuleDestroy {
     private readonly usersService: UsersService,
     private readonly events: EventEmitter2,
     private readonly configService: ConfigService<AppConfig, true>,
-    private readonly cluster: ClusterBus,
+    private readonly clusterBus: ClusterBus,
   ) {
     this.registerClusterHandlers();
   }
@@ -105,32 +105,32 @@ export class GamesService implements OnModuleDestroy {
    * rather than forwarding again.
    */
   private registerClusterHandlers(): void {
-    this.cluster.onRequest(
+    this.clusterBus.onRequest(
       GAMES_RPC.CREATE,
       this.handleCreateRequest.bind(this),
     );
-    this.cluster.onRequest(
+    this.clusterBus.onRequest(
       GAMES_RPC.APPLY_MOVE,
       this.handleApplyMoveRequest.bind(this),
     );
-    this.cluster.onRequest(
+    this.clusterBus.onRequest(
       GAMES_RPC.RESIGN,
       this.handleResignRequest.bind(this),
     );
-    this.cluster.onRequest(GAMES_RPC.ABORT, this.handleAbortRequest.bind(this));
-    this.cluster.onRequest(
+    this.clusterBus.onRequest(GAMES_RPC.ABORT, this.handleAbortRequest.bind(this));
+    this.clusterBus.onRequest(
       GAMES_RPC.OFFER_DRAW,
       this.handleOfferDrawRequest.bind(this),
     );
-    this.cluster.onRequest(
+    this.clusterBus.onRequest(
       GAMES_RPC.RESPOND_DRAW,
       this.handleRespondDrawRequest.bind(this),
     );
-    this.cluster.onRequest(
+    this.clusterBus.onRequest(
       GAMES_RPC.FORFEIT_BY_ABANDONMENT,
       this.handleForfeitByAbandonmentRequest.bind(this),
     );
-    this.cluster.onRequest(
+    this.clusterBus.onRequest(
       GAMES_RPC.GET_WITH_MOVES,
       this.handleGetWithMovesRequest.bind(this),
     );
@@ -232,7 +232,7 @@ export class GamesService implements OnModuleDestroy {
     runLocal: () => Promise<TResult>,
   ): Promise<TResult> {
     if (isMine(gameId)) return runLocal();
-    const wire = await this.cluster.request<TWire>(
+    const wire = await this.clusterBus.request<TWire>(
       ownerIndex(gameId),
       channel,
       payload,
