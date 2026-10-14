@@ -27,7 +27,8 @@ export interface WireError {
 }
 
 export function toWireError(error: unknown): WireError {
-  if (error instanceof Error) return { name: error.name, message: error.message };
+  if (error instanceof Error)
+    return { name: error.name, message: error.message };
   return { name: 'Error', message: String(error) };
 }
 

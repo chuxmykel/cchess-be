@@ -51,7 +51,8 @@ const RAPID_MAX_ESTIMATED_MINUTES = 25;
  * presets) still bucket sensibly for matchmaking and rating categories.
  */
 export function classifyTimeControl(tc: TimeControl): GameType {
-  const estimatedMinutes = tc.minutes + (tc.incrementSeconds * ASSUMED_INCREMENTS_PER_GAME) / 60;
+  const estimatedMinutes =
+    tc.minutes + (tc.incrementSeconds * ASSUMED_INCREMENTS_PER_GAME) / 60;
 
   if (estimatedMinutes < BULLET_MAX_ESTIMATED_MINUTES) return 'bullet';
   if (estimatedMinutes < BLITZ_MAX_ESTIMATED_MINUTES) return 'blitz';

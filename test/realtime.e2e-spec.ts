@@ -7,7 +7,11 @@ import { createListeningTestApp, registerUser } from './utils/app.js';
 
 function connect(baseUrl: string, accessToken: string): Promise<Socket> {
   return new Promise((resolve, reject) => {
-    const socket = io(baseUrl, { auth: { token: accessToken }, transports: ['websocket'], reconnection: false });
+    const socket = io(baseUrl, {
+      auth: { token: accessToken },
+      transports: ['websocket'],
+      reconnection: false,
+    });
     const timer = setTimeout(() => reject(new Error('connect timeout')), 5000);
     socket.once('connect', () => {
       clearTimeout(timer);
@@ -20,9 +24,16 @@ function connect(baseUrl: string, accessToken: string): Promise<Socket> {
   });
 }
 
-function waitForEvent<T = unknown>(socket: Socket, event: string, timeoutMs = 5000): Promise<T> {
+function waitForEvent<T = unknown>(
+  socket: Socket,
+  event: string,
+  timeoutMs = 5000,
+): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`timed out waiting for "${event}"`)), timeoutMs);
+    const timer = setTimeout(
+      () => reject(new Error(`timed out waiting for "${event}"`)),
+      timeoutMs,
+    );
     socket.once(event, (payload: T) => {
       clearTimeout(timer);
       resolve(payload);
@@ -65,7 +76,12 @@ describe('Realtime gateway (e2e)', () => {
     const challenge = await request(app.getHttpServer())
       .post('/challenges')
       .set('Authorization', `Bearer ${ivan.accessToken}`)
-      .send({ opponentUsername: judy.username, minutes: 5, incrementSeconds: 0, color: 'white' })
+      .send({
+        opponentUsername: judy.username,
+        minutes: 5,
+        incrementSeconds: 0,
+        color: 'white',
+      })
       .expect(201);
     const accepted = await request(app.getHttpServer())
       .post(`/challenges/${challenge.body.id}/accept`)
@@ -76,7 +92,10 @@ describe('Realtime gateway (e2e)', () => {
     const whiteSocket = await connect(baseUrl, ivan.accessToken);
     const blackSocket = await connect(baseUrl, judy.accessToken);
 
-    const whiteState = waitForEvent<{ id: string; turn: string }>(whiteSocket, 'game:state');
+    const whiteState = waitForEvent<{ id: string; turn: string }>(
+      whiteSocket,
+      'game:state',
+    );
     whiteSocket.emit('game:join', { gameId });
     await expect(whiteState).resolves.toMatchObject({ id: gameId, turn: 'w' });
 
@@ -84,12 +103,23 @@ describe('Realtime gateway (e2e)', () => {
     blackSocket.emit('game:join', { gameId });
     await blackState;
 
-    const blackSawMove = waitForEvent<{ move: { san: string }; turn: string }>(blackSocket, 'game:move');
-    const whiteSawOwnMove = waitForEvent<{ move: { san: string } }>(whiteSocket, 'game:move');
+    const blackSawMove = waitForEvent<{ move: { san: string }; turn: string }>(
+      blackSocket,
+      'game:move',
+    );
+    const whiteSawOwnMove = waitForEvent<{ move: { san: string } }>(
+      whiteSocket,
+      'game:move',
+    );
     whiteSocket.emit('game:move', { gameId, from: 'e2', to: 'e4' });
 
-    await expect(blackSawMove).resolves.toMatchObject({ move: { san: 'e4' }, turn: 'b' });
-    await expect(whiteSawOwnMove).resolves.toMatchObject({ move: { san: 'e4' } });
+    await expect(blackSawMove).resolves.toMatchObject({
+      move: { san: 'e4' },
+      turn: 'b',
+    });
+    await expect(whiteSawOwnMove).resolves.toMatchObject({
+      move: { san: 'e4' },
+    });
 
     // Confirm it actually persisted, not just broadcast.
     const afterMove = await request(app.getHttpServer())
@@ -99,9 +129,15 @@ describe('Realtime gateway (e2e)', () => {
     expect(afterMove.body.moves).toHaveLength(1);
     expect(afterMove.body.turn).toBe('b');
 
-    const bothSeeGameOver = Promise.all([waitForEvent(whiteSocket, 'game:over'), waitForEvent(blackSocket, 'game:over')]);
+    const bothSeeGameOver = Promise.all([
+      waitForEvent(whiteSocket, 'game:over'),
+      waitForEvent(blackSocket, 'game:over'),
+    ]);
     blackSocket.emit('game:resign', { gameId });
-    const [whiteOver, blackOver] = (await bothSeeGameOver) as Array<{ result: string; resultReason: string }>;
+    const [whiteOver, blackOver] = (await bothSeeGameOver) as Array<{
+      result: string;
+      resultReason: string;
+    }>;
     expect(whiteOver.result).toBe('white');
     expect(whiteOver.resultReason).toBe('resignation');
     expect(blackOver).toMatchObject(whiteOver);
@@ -117,7 +153,12 @@ describe('Realtime gateway (e2e)', () => {
     const challenge = await request(app.getHttpServer())
       .post('/challenges')
       .set('Authorization', `Bearer ${kim.accessToken}`)
-      .send({ opponentUsername: liam.username, minutes: 5, incrementSeconds: 0, color: 'white' })
+      .send({
+        opponentUsername: liam.username,
+        minutes: 5,
+        incrementSeconds: 0,
+        color: 'white',
+      })
       .expect(201);
     const accepted = await request(app.getHttpServer())
       .post(`/challenges/${challenge.body.id}/accept`)
@@ -129,9 +170,15 @@ describe('Realtime gateway (e2e)', () => {
     whiteSocket.emit('game:join', { gameId });
     await waitForEvent(whiteSocket, 'game:state');
 
-    const error = waitForEvent<{ gameId: string; message: string }>(whiteSocket, 'game:error');
+    const error = waitForEvent<{ gameId: string; message: string }>(
+      whiteSocket,
+      'game:error',
+    );
     whiteSocket.emit('game:move', { gameId, from: 'e2', to: 'e5' });
-    await expect(error).resolves.toMatchObject({ gameId, message: 'Illegal move' });
+    await expect(error).resolves.toMatchObject({
+      gameId,
+      message: 'Illegal move',
+    });
 
     whiteSocket.disconnect();
   });

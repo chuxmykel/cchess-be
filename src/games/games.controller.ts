@@ -1,4 +1,14 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Query,
+  Res,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 
@@ -18,7 +28,9 @@ export class GamesController {
   constructor(private readonly gamesService: GamesService) {}
 
   @Get()
-  @ApiOperation({ summary: "List the authenticated user's games (most recent first)" })
+  @ApiOperation({
+    summary: "List the authenticated user's games (most recent first)",
+  })
   async listMine(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListGamesQuery,
@@ -43,13 +55,21 @@ export class GamesController {
   }
 
   @Post(':id/moves')
-  @ApiOperation({ summary: 'Submit a move (also available over the realtime gateway)' })
+  @ApiOperation({
+    summary: 'Submit a move (also available over the realtime gateway)',
+  })
   async makeMove(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: MakeMoveDto,
   ): Promise<GameStateDto> {
-    const { game } = await this.gamesService.applyMove(id, user.userId, dto.from, dto.to, dto.promotion);
+    const { game } = await this.gamesService.applyMove(
+      id,
+      user.userId,
+      dto.from,
+      dto.to,
+      dto.promotion,
+    );
     const full = await this.gamesService.getGameWithMoves(game.id);
     return toGameStateDto(full);
   }
@@ -57,23 +77,36 @@ export class GamesController {
   @Post(':id/resign')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Resign an active game' })
-  async resign(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string): Promise<GameStateDto> {
+  async resign(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<GameStateDto> {
     await this.gamesService.resign(id, user.userId);
     return toGameStateDto(await this.gamesService.getGameWithMoves(id));
   }
 
   @Post(':id/abort')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Abort a game in its first few moves (no rating impact)' })
-  async abort(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string): Promise<GameStateDto> {
+  @ApiOperation({
+    summary: 'Abort a game in its first few moves (no rating impact)',
+  })
+  async abort(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<GameStateDto> {
     await this.gamesService.abort(id, user.userId);
     return toGameStateDto(await this.gamesService.getGameWithMoves(id));
   }
 
   @Post(':id/draw-offer')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Offer (or, if one is pending from the opponent, accept) a draw' })
-  async offerDraw(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string): Promise<GameStateDto> {
+  @ApiOperation({
+    summary: 'Offer (or, if one is pending from the opponent, accept) a draw',
+  })
+  async offerDraw(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<GameStateDto> {
     await this.gamesService.offerDraw(id, user.userId);
     return toGameStateDto(await this.gamesService.getGameWithMoves(id));
   }

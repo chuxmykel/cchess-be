@@ -1,6 +1,15 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
 
-import { classifyTimeControl, isValidTimeControl, type GameType, type TimeControl } from '../chess/time-control.js';
+import {
+  classifyTimeControl,
+  isValidTimeControl,
+  type GameType,
+  type TimeControl,
+} from '../chess/time-control.js';
 import { ClusterBus } from '../cluster/cluster-bus.js';
 import { CLUSTERING_ENABLED, WORKER_INDEX } from '../cluster/cluster.util.js';
 import { fromWireGame, toWireGame } from '../cluster/cluster-wire.js';
@@ -23,7 +32,13 @@ interface WireSeekUser {
 }
 
 function toWireSeekUser(user: User): WireSeekUser {
-  return { id: user.id, username: user.username, displayName: user.displayName, avatarColor: user.avatarColor, isGuest: user.isGuest };
+  return {
+    id: user.id,
+    username: user.username,
+    displayName: user.displayName,
+    avatarColor: user.avatarColor,
+    isGuest: user.isGuest,
+  };
 }
 
 interface Seek {
@@ -36,11 +51,17 @@ interface Seek {
   createdAt: number;
 }
 
-export type SeekResult = { status: 'queued' } | { status: 'matched'; game: Game };
+export type SeekResult =
+  { status: 'queued' } | { status: 'matched'; game: Game };
 
-type WireSeekResult = { status: 'queued' } | { status: 'matched'; game: Record<string, unknown> };
+type WireSeekResult =
+  { status: 'queued' } | { status: 'matched'; game: Record<string, unknown> };
 
-type SeekStatus = { seeking: boolean; minutes?: number; incrementSeconds?: number };
+type SeekStatus = {
+  seeking: boolean;
+  minutes?: number;
+  incrementSeconds?: number;
+};
 
 /**
  * In-memory seek pool: pairs up players wanting the same time control.
@@ -64,13 +85,27 @@ export class MatchmakingService {
     private readonly clusterBus: ClusterBus,
   ) {
     this.clusterBus.onRequest(MM_RPC.SEEK, this.handleSeekRequest.bind(this));
-    this.clusterBus.onRequest(MM_RPC.CANCEL, this.handleCancelRequest.bind(this));
-    this.clusterBus.onRequest(MM_RPC.STATUS, this.handleStatusRequest.bind(this));
+    this.clusterBus.onRequest(
+      MM_RPC.CANCEL,
+      this.handleCancelRequest.bind(this),
+    );
+    this.clusterBus.onRequest(
+      MM_RPC.STATUS,
+      this.handleStatusRequest.bind(this),
+    );
   }
 
-  private async handleSeekRequest(payload: { user: WireSeekUser; tc: TimeControl }) {
-    const result = await this.seekLocal(payload.user as unknown as User, payload.tc);
-    return result.status === 'matched' ? { status: 'matched', game: toWireGame(result.game) } : result;
+  private async handleSeekRequest(payload: {
+    user: WireSeekUser;
+    tc: TimeControl;
+  }) {
+    const result = await this.seekLocal(
+      payload.user as unknown as User,
+      payload.tc,
+    );
+    return result.status === 'matched'
+      ? { status: 'matched', game: toWireGame(result.game) }
+      : result;
   }
 
   private async handleCancelRequest(payload: { userId: string }) {
@@ -83,7 +118,10 @@ export class MatchmakingService {
   }
 
   private get isMatchmaker(): boolean {
-    return !CLUSTERING_ENABLED || WORKER_INDEX === MatchmakingService.MATCHMAKER_WORKER;
+    return (
+      !CLUSTERING_ENABLED ||
+      WORKER_INDEX === MatchmakingService.MATCHMAKER_WORKER
+    );
   }
 
   /**
@@ -100,12 +138,18 @@ export class MatchmakingService {
     runLocal: () => TResult | Promise<TResult>,
   ): Promise<TResult> {
     if (this.isMatchmaker) return runLocal();
-    const wire = await this.clusterBus.request<TWire>(MatchmakingService.MATCHMAKER_WORKER, channel, payload);
+    const wire = await this.clusterBus.request<TWire>(
+      MatchmakingService.MATCHMAKER_WORKER,
+      channel,
+      payload,
+    );
     return fromWire(wire);
   }
 
   private seekResultFromWire(wire: WireSeekResult): SeekResult {
-    return wire.status === 'matched' ? { status: 'matched', game: fromWireGame(wire.game) } : wire;
+    return wire.status === 'matched'
+      ? { status: 'matched', game: fromWireGame(wire.game) }
+      : wire;
   }
 
   private statusFromWire(wire: SeekStatus): SeekStatus {
@@ -131,7 +175,9 @@ export class MatchmakingService {
       throw new BadRequestException('Invalid time control');
     }
     if (this.seeksByUser.has(user.id)) {
-      throw new ConflictException('Already in the matchmaking queue - cancel it first');
+      throw new ConflictException(
+        'Already in the matchmaking queue - cancel it first',
+      );
     }
 
     const gameType = classifyTimeControl(tc);
@@ -187,23 +233,40 @@ export class MatchmakingService {
 
   async getStatus(userId: string): Promise<SeekStatus> {
     // eslint-disable-next-line typescript/unbound-method
-    return this.runMatchmakerRouted(MM_RPC.STATUS, { userId }, this.statusFromWire, this.getStatusLocal.bind(this, userId));
+    return this.runMatchmakerRouted(
+      MM_RPC.STATUS,
+      { userId },
+      this.statusFromWire,
+      this.getStatusLocal.bind(this, userId),
+    );
   }
 
   private getStatusLocal(userId: string): SeekStatus {
     const seek = this.seeksByUser.get(userId);
     if (!seek) return { seeking: false };
-    return { seeking: true, minutes: seek.minutes, incrementSeconds: seek.incrementSeconds };
+    return {
+      seeking: true,
+      minutes: seek.minutes,
+      incrementSeconds: seek.incrementSeconds,
+    };
   }
 
-  private findCompatibleSeek(userId: string, tc: TimeControl, rating: number): Seek | undefined {
+  private findCompatibleSeek(
+    userId: string,
+    tc: TimeControl,
+    rating: number,
+  ): Seek | undefined {
     const RATING_WINDOW = 400;
     let best: Seek | undefined;
     let bestDiff = Infinity;
 
     for (const seek of this.seeksByUser.values()) {
       if (seek.userId === userId) continue;
-      if (seek.minutes !== tc.minutes || seek.incrementSeconds !== tc.incrementSeconds) continue;
+      if (
+        seek.minutes !== tc.minutes ||
+        seek.incrementSeconds !== tc.incrementSeconds
+      )
+        continue;
       const diff = Math.abs(seek.rating - rating);
       if (diff > RATING_WINDOW) continue;
       if (diff < bestDiff) {

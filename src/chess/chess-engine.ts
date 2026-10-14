@@ -1,9 +1,20 @@
-import { Chess, type Color, type Move, type PieceSymbol, type Square } from 'chess.js';
+import {
+  Chess,
+  type Color,
+  type Move,
+  type PieceSymbol,
+  type Square,
+} from 'chess.js';
 
 export type MoveOutcome =
   | { status: 'illegal' }
   | { status: 'needs-promotion-choice' }
-  | { status: 'ok'; move: AppliedMove; fen: string; gameOverReason: GameOverReason };
+  | {
+      status: 'ok';
+      move: AppliedMove;
+      fen: string;
+      gameOverReason: GameOverReason;
+    };
 
 export interface AppliedMove {
   from: Square;
@@ -30,7 +41,11 @@ export type GameOverReason =
   | 'fifty-move-rule'
   | null;
 
-function toAppliedMove(move: Move, isCheck: boolean, isCheckmate: boolean): AppliedMove {
+function toAppliedMove(
+  move: Move,
+  isCheck: boolean,
+  isCheckmate: boolean,
+): AppliedMove {
   return {
     from: move.from,
     to: move.to,
@@ -68,7 +83,11 @@ export class ServerChessEngine {
     return engine;
   }
 
-  attemptMove(from: Square, to: Square, promotionPiece?: PieceSymbol): MoveOutcome {
+  attemptMove(
+    from: Square,
+    to: Square,
+    promotionPiece?: PieceSymbol,
+  ): MoveOutcome {
     const legalMoves = this.game.moves({ square: from, verbose: true });
     const legalMove = legalMoves.find((move) => move.to === to);
 
@@ -162,7 +181,10 @@ export class ServerChessEngine {
   // for each) and attemptMove (derives them for free from a check it already
   // had to do) - only the cost of getting those two booleans differs, not
   // the order the rest of the reasons should be checked in.
-  private resolveGameOverReason(isCheckmate: boolean, isStalemate: boolean): GameOverReason {
+  private resolveGameOverReason(
+    isCheckmate: boolean,
+    isStalemate: boolean,
+  ): GameOverReason {
     if (isCheckmate) return 'checkmate';
     if (isStalemate) return 'stalemate';
     if (this.isInsufficientMaterial()) return 'insufficient-material';

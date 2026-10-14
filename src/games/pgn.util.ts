@@ -24,7 +24,11 @@ export interface PgnPlayers {
  * the hot move-application path (which never load those relations - see
  * GamesService) can still produce a PGN at game-end without an extra join.
  */
-export function buildPgnText(game: Game, players: PgnPlayers, sans: string[]): string {
+export function buildPgnText(
+  game: Game,
+  players: PgnPlayers,
+  sans: string[],
+): string {
   const result = game.result ? RESULT_TAG[game.result] : '*';
   const tags = [
     `[Event "${game.rated ? 'Rated' : 'Casual'} ${game.gameType} game"]`,
@@ -41,7 +45,9 @@ export function buildPgnText(game: Game, players: PgnPlayers, sans: string[]): s
     const moveNumber = i / 2 + 1;
     const white = sans[i];
     const black = sans[i + 1];
-    movetext.push(black ? `${moveNumber}. ${white} ${black}` : `${moveNumber}. ${white}`);
+    movetext.push(
+      black ? `${moveNumber}. ${white} ${black}` : `${moveNumber}. ${white}`,
+    );
   }
 
   return `${tags.join('\n')}\n\n${movetext.join(' ')} ${result}`.trim();

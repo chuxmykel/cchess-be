@@ -85,7 +85,12 @@ describe('GamesService', () => {
   it('creates a game with full clocks and the right gameType classification', async () => {
     const white = await makeUser('white1');
     const black = await makeUser('black1');
-    const game = await ctx.gamesService.createGame(white, black, { minutes: 5, incrementSeconds: 0 }, true);
+    const game = await ctx.gamesService.createGame(
+      white,
+      black,
+      { minutes: 5, incrementSeconds: 0 },
+      true,
+    );
 
     expect(game.gameType).toBe('blitz');
     expect(game.whiteTimeRemainingMs).toBe(5 * 60 * 1000);
@@ -97,25 +102,49 @@ describe('GamesService', () => {
   it('applies a legal move and switches turn, rejects illegal moves and wrong-turn moves', async () => {
     const white = await makeUser('white2');
     const black = await makeUser('black2');
-    const game = await ctx.gamesService.createGame(white, black, { minutes: 5, incrementSeconds: 0 }, true);
+    const game = await ctx.gamesService.createGame(
+      white,
+      black,
+      { minutes: 5, incrementSeconds: 0 },
+      true,
+    );
 
-    const { move } = await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
+    const { move } = await ctx.gamesService.applyMove(
+      game.id,
+      white.id,
+      'e2',
+      'e4',
+    );
     expect(move.san).toBe('e4');
 
-    await expect(ctx.gamesService.applyMove(game.id, white.id, 'd2', 'd4')).rejects.toThrow("not your turn");
-    await expect(ctx.gamesService.applyMove(game.id, black.id, 'a7', 'a4')).rejects.toThrow('Illegal move');
+    await expect(
+      ctx.gamesService.applyMove(game.id, white.id, 'd2', 'd4'),
+    ).rejects.toThrow('not your turn');
+    await expect(
+      ctx.gamesService.applyMove(game.id, black.id, 'a7', 'a4'),
+    ).rejects.toThrow('Illegal move');
   });
 
   it('ends the game and updates ratings on checkmate', async () => {
     const white = await makeUser('white3');
     const black = await makeUser('black3');
-    const game = await ctx.gamesService.createGame(white, black, { minutes: 5, incrementSeconds: 0 }, true);
+    const game = await ctx.gamesService.createGame(
+      white,
+      black,
+      { minutes: 5, incrementSeconds: 0 },
+      true,
+    );
 
     // Fool's mate: black delivers checkmate on move 2.
     await ctx.gamesService.applyMove(game.id, white.id, 'f2', 'f3');
     await ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5');
     await ctx.gamesService.applyMove(game.id, white.id, 'g2', 'g4');
-    const { game: finalGame } = await ctx.gamesService.applyMove(game.id, black.id, 'd8', 'h4');
+    const { game: finalGame } = await ctx.gamesService.applyMove(
+      game.id,
+      black.id,
+      'd8',
+      'h4',
+    );
 
     expect(finalGame.status).toBe('completed');
     expect(finalGame.result).toBe('black');
@@ -140,9 +169,20 @@ describe('GamesService', () => {
     const black = await makeUser('black3b');
     // createRegisteredUser already creates a 0-games blitz row for both -
     // bump it to 100 rather than inserting a second one (unique per user+category).
-    await ctx.ratingsRepo.update({ userId: white.id, category: 'blitz' }, { gamesPlayed: 100 });
-    await ctx.ratingsRepo.update({ userId: black.id, category: 'blitz' }, { gamesPlayed: 100 });
-    const game = await ctx.gamesService.createGame(white, black, { minutes: 5, incrementSeconds: 0 }, true);
+    await ctx.ratingsRepo.update(
+      { userId: white.id, category: 'blitz' },
+      { gamesPlayed: 100 },
+    );
+    await ctx.ratingsRepo.update(
+      { userId: black.id, category: 'blitz' },
+      { gamesPlayed: 100 },
+    );
+    const game = await ctx.gamesService.createGame(
+      white,
+      black,
+      { minutes: 5, incrementSeconds: 0 },
+      true,
+    );
 
     // Fool's mate: black delivers checkmate on move 2.
     await ctx.gamesService.applyMove(game.id, white.id, 'f2', 'f3');
@@ -153,11 +193,15 @@ describe('GamesService', () => {
     // 100 games played is past PROVISIONAL_GAMES_THRESHOLD (30), so the
     // established K-factor (20, not the provisional 40 above) applies - see
     // elo.ts: round(20 * (1 - 0.5)) = 10, symmetric either direction.
-    const blackBlitz = (await ctx.usersService.getRatings(black.id)).find((r) => r.category === 'blitz')!;
+    const blackBlitz = (await ctx.usersService.getRatings(black.id)).find(
+      (r) => r.category === 'blitz',
+    )!;
     expect(blackBlitz.rating).toBe(STARTING_RATING + 10);
     expect(blackBlitz.gamesPlayed).toBe(101);
 
-    const whiteBlitz = (await ctx.usersService.getRatings(white.id)).find((r) => r.category === 'blitz')!;
+    const whiteBlitz = (await ctx.usersService.getRatings(white.id)).find(
+      (r) => r.category === 'blitz',
+    )!;
     expect(whiteBlitz.rating).toBe(STARTING_RATING - 10);
     expect(whiteBlitz.gamesPlayed).toBe(101);
   });
@@ -167,9 +211,20 @@ describe('GamesService', () => {
     const black = await makeUser('black3c');
     // Both past PROVISIONAL_GAMES_THRESHOLD (30) - established K-factor (20)
     // for both, so the only asymmetry comes from the rating gap itself.
-    await ctx.ratingsRepo.update({ userId: white.id, category: 'blitz' }, { rating: 1445, gamesPlayed: 50 });
-    await ctx.ratingsRepo.update({ userId: black.id, category: 'blitz' }, { rating: 1100, gamesPlayed: 50 });
-    const game = await ctx.gamesService.createGame(white, black, { minutes: 5, incrementSeconds: 0 }, true);
+    await ctx.ratingsRepo.update(
+      { userId: white.id, category: 'blitz' },
+      { rating: 1445, gamesPlayed: 50 },
+    );
+    await ctx.ratingsRepo.update(
+      { userId: black.id, category: 'blitz' },
+      { rating: 1100, gamesPlayed: 50 },
+    );
+    const game = await ctx.gamesService.createGame(
+      white,
+      black,
+      { minutes: 5, incrementSeconds: 0 },
+      true,
+    );
 
     // Fool's mate: black (the underdog, 1100) delivers checkmate on move 2.
     await ctx.gamesService.applyMove(game.id, white.id, 'f2', 'f3');
@@ -180,11 +235,15 @@ describe('GamesService', () => {
     // expectedScore(1445, 1100) = 1 / (1 + 10^((1100-1445)/400)) ~= 0.8793,
     // so white (expected to win big) loses more than 20 points and black
     // (expected to lose) gains more than 20 - see elo.ts.
-    const blackBlitz = (await ctx.usersService.getRatings(black.id)).find((r) => r.category === 'blitz')!;
+    const blackBlitz = (await ctx.usersService.getRatings(black.id)).find(
+      (r) => r.category === 'blitz',
+    )!;
     expect(blackBlitz.rating).toBe(1100 + 18);
     expect(blackBlitz.gamesPlayed).toBe(51);
 
-    const whiteBlitz = (await ctx.usersService.getRatings(white.id)).find((r) => r.category === 'blitz')!;
+    const whiteBlitz = (await ctx.usersService.getRatings(white.id)).find(
+      (r) => r.category === 'blitz',
+    )!;
     expect(whiteBlitz.rating).toBe(1445 - 18);
     expect(whiteBlitz.gamesPlayed).toBe(51);
   });
@@ -192,7 +251,12 @@ describe('GamesService', () => {
   it('resigns in favor of the opponent', async () => {
     const white = await makeUser('white4');
     const black = await makeUser('black4');
-    const game = await ctx.gamesService.createGame(white, black, { minutes: 5, incrementSeconds: 0 }, true);
+    const game = await ctx.gamesService.createGame(
+      white,
+      black,
+      { minutes: 5, incrementSeconds: 0 },
+      true,
+    );
 
     const resigned = await ctx.gamesService.resign(game.id, white.id);
     expect(resigned.status).toBe('completed');
@@ -203,10 +267,17 @@ describe('GamesService', () => {
   it('handles a draw offer and acceptance', async () => {
     const white = await makeUser('white5');
     const black = await makeUser('black5');
-    const game = await ctx.gamesService.createGame(white, black, { minutes: 5, incrementSeconds: 0 }, true);
+    const game = await ctx.gamesService.createGame(
+      white,
+      black,
+      { minutes: 5, incrementSeconds: 0 },
+      true,
+    );
 
     await ctx.gamesService.offerDraw(game.id, white.id);
-    await expect(ctx.gamesService.respondDraw(game.id, white.id, true)).rejects.toThrow();
+    await expect(
+      ctx.gamesService.respondDraw(game.id, white.id, true),
+    ).rejects.toThrow();
 
     const result = await ctx.gamesService.respondDraw(game.id, black.id, true);
     expect(result.status).toBe('completed');
@@ -219,28 +290,47 @@ describe('GamesService', () => {
     const black = await makeUser('black6');
 
     // 1 ply played, below the configured abortPlyLimit of 2 - still abortable.
-    const withinLimit = await ctx.gamesService.createGame(white, black, { minutes: 5, incrementSeconds: 0 }, true);
+    const withinLimit = await ctx.gamesService.createGame(
+      white,
+      black,
+      { minutes: 5, incrementSeconds: 0 },
+      true,
+    );
     await ctx.gamesService.applyMove(withinLimit.id, white.id, 'e2', 'e4');
     const aborted = await ctx.gamesService.abort(withinLimit.id, black.id);
     expect(aborted.status).toBe('aborted');
 
     // 2 plies played, at the limit - no longer abortable.
-    const pastLimit = await ctx.gamesService.createGame(white, black, { minutes: 5, incrementSeconds: 0 }, true);
+    const pastLimit = await ctx.gamesService.createGame(
+      white,
+      black,
+      { minutes: 5, incrementSeconds: 0 },
+      true,
+    );
     await ctx.gamesService.applyMove(pastLimit.id, white.id, 'e2', 'e4');
     await ctx.gamesService.applyMove(pastLimit.id, black.id, 'e7', 'e5');
-    await expect(ctx.gamesService.abort(pastLimit.id, white.id)).rejects.toThrow('Too late to abort');
+    await expect(
+      ctx.gamesService.abort(pastLimit.id, white.id),
+    ).rejects.toThrow('Too late to abort');
   });
 
   it('aborts a fresh game with no rating impact', async () => {
     const white = await makeUser('white7');
     const black = await makeUser('black7');
-    const game = await ctx.gamesService.createGame(white, black, { minutes: 5, incrementSeconds: 0 }, true);
+    const game = await ctx.gamesService.createGame(
+      white,
+      black,
+      { minutes: 5, incrementSeconds: 0 },
+      true,
+    );
 
     const aborted = await ctx.gamesService.abort(game.id, black.id);
     expect(aborted.status).toBe('aborted');
 
     const whiteRatings = await ctx.usersService.getRatings(white.id);
-    expect(whiteRatings.find((r) => r.category === 'blitz')!.gamesPlayed).toBe(0);
+    expect(whiteRatings.find((r) => r.category === 'blitz')!.gamesPlayed).toBe(
+      0,
+    );
   });
 
   it('flags a player on time if their clock runs out', async () => {
@@ -252,7 +342,12 @@ describe('GamesService', () => {
     // which don't mix well with genuine async I/O (a real Postgres
     // round-trip resolves via libuv's I/O poll phase, not just the
     // microtask-queue flushing vi.advanceTimersByTimeAsync does).
-    const game = await ctx.gamesService.createGame(white, black, { minutes: 0, incrementSeconds: 1 }, true);
+    const game = await ctx.gamesService.createGame(
+      white,
+      black,
+      { minutes: 0, incrementSeconds: 1 },
+      true,
+    );
 
     const deadline = Date.now() + 2000;
     let final = await ctx.gamesService.getGameOrThrow(game.id);
@@ -269,7 +364,12 @@ describe('GamesService', () => {
   it('does not let guest games affect ratings', async () => {
     const white = await makeUser('white9');
     const guest = await ctx.usersService.createGuestUser();
-    const game = await ctx.gamesService.createGame(white, guest, { minutes: 5, incrementSeconds: 0 }, true);
+    const game = await ctx.gamesService.createGame(
+      white,
+      guest,
+      { minutes: 5, incrementSeconds: 0 },
+      true,
+    );
     expect(game.rated).toBe(false);
   });
 });

@@ -5,7 +5,11 @@ interface ToMessage {
 }
 
 function hasNumericTo(value: unknown): value is ToMessage {
-  return typeof value === 'object' && value !== null && typeof (value as ToMessage).to === 'number';
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as ToMessage).to === 'number'
+  );
 }
 
 // If a worker keeps dying faster than this, it's not a transient blip
@@ -55,12 +59,16 @@ export function runClusterPrimary(numWorkers: number): void {
   }
 
   cluster.on('exit', (worker, code, signal) => {
-    const index = [...workersByIndex.entries()].find(([, w]) => w === worker)?.[0];
+    const index = [...workersByIndex.entries()].find(
+      ([, w]) => w === worker,
+    )?.[0];
     workersByIndex.delete(index ?? -1);
 
     if (index === undefined) {
       // eslint-disable-next-line no-console
-      console.error(`unknown cluster worker (pid ${worker.process.pid}) exited (code=${code}, signal=${signal})`);
+      console.error(
+        `unknown cluster worker (pid ${worker.process.pid}) exited (code=${code}, signal=${signal})`,
+      );
       return;
     }
 

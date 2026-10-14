@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 
@@ -8,7 +13,12 @@ import type { GameType } from '../chess/time-control.js';
 import { Rating, STARTING_RATING } from './entities/rating.entity.js';
 import { User } from './entities/user.entity.js';
 
-export const GAME_TYPES: readonly GameType[] = ['bullet', 'blitz', 'rapid', 'classical'];
+export const GAME_TYPES: readonly GameType[] = [
+  'bullet',
+  'blitz',
+  'rapid',
+  'classical',
+];
 
 // Postgres's own SQLSTATE code for unique_violation - not an app-specific
 // value, it's part of the Postgres error-code standard.
@@ -67,7 +77,9 @@ export class UsersService {
 
   async findByUsernameOrEmail(identifier: string): Promise<User | null> {
     const lowered = identifier.toLowerCase();
-    return this.users.findOne({ where: [{ username: lowered }, { email: lowered }] });
+    return this.users.findOne({
+      where: [{ username: lowered }, { email: lowered }],
+    });
   }
 
   async createRegisteredUser(params: {
@@ -98,7 +110,12 @@ export class UsersService {
 
     await this.ratings.save(
       GAME_TYPES.map((category) =>
-        this.ratings.create({ userId: saved.id, category, rating: STARTING_RATING, gamesPlayed: 0 }),
+        this.ratings.create({
+          userId: saved.id,
+          category,
+          rating: STARTING_RATING,
+          gamesPlayed: 0,
+        }),
       ),
     );
 
@@ -131,13 +148,16 @@ export class UsersService {
       } catch (error) {
         const isUniqueViolation =
           error instanceof QueryFailedError &&
-          (error as unknown as { code?: string }).code === POSTGRES_UNIQUE_VIOLATION;
+          (error as unknown as { code?: string }).code ===
+            POSTGRES_UNIQUE_VIOLATION;
         if (!isUniqueViolation || attempt === MAX_ATTEMPTS) throw error;
         // A real collision, not the theoretical edge case the comment above
         // describes - worth knowing if this starts firing often outside of
         // load testing, since that'd mean the odds have shifted (e.g. a far
         // larger guest-account volume than expected).
-        this.logger.warn(`guest username collision on attempt ${attempt}/${MAX_ATTEMPTS}, retrying`);
+        this.logger.warn(
+          `guest username collision on attempt ${attempt}/${MAX_ATTEMPTS}, retrying`,
+        );
       }
     }
     // Unreachable (the loop always returns or throws), but keeps TS's
@@ -150,19 +170,33 @@ export class UsersService {
     updates: { displayName?: string; bio?: string | null },
   ): Promise<User> {
     const user = await this.findByIdOrThrow(userId);
-    if (updates.displayName !== undefined) user.displayName = updates.displayName;
+    if (updates.displayName !== undefined)
+      user.displayName = updates.displayName;
     if (updates.bio !== undefined) user.bio = updates.bio;
     return this.users.save(user);
   }
 
   /** Returns the rating row (creating one at the starting rating if missing - e.g. a guest's first rated game). */
   async getOrCreateRating(userId: string, category: GameType): Promise<Rating> {
-    const existing = await this.ratings.findOne({ where: { userId, category } });
+    const existing = await this.ratings.findOne({
+      where: { userId, category },
+    });
     if (existing) return existing;
-    return this.ratings.save(this.ratings.create({ userId, category, rating: STARTING_RATING, gamesPlayed: 0 }));
+    return this.ratings.save(
+      this.ratings.create({
+        userId,
+        category,
+        rating: STARTING_RATING,
+        gamesPlayed: 0,
+      }),
+    );
   }
 
-  async applyRatingDelta(userId: string, category: GameType, delta: number): Promise<Rating> {
+  async applyRatingDelta(
+    userId: string,
+    category: GameType,
+    delta: number,
+  ): Promise<Rating> {
     const rating = await this.getOrCreateRating(userId, category);
     rating.rating += delta;
     rating.gamesPlayed += 1;

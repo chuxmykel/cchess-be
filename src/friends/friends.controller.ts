@@ -15,13 +15,17 @@ export class FriendsController {
 
   @Get('friends')
   @ApiOperation({ summary: 'List accepted friends' })
-  async listFriends(@CurrentUser() user: AuthenticatedUser): Promise<FriendDto[]> {
+  async listFriends(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<FriendDto[]> {
     const friends = await this.friendsService.listFriends(user.userId);
     return friends.map(toFriendDto);
   }
 
   @Get('friends/requests')
-  @ApiOperation({ summary: 'List incoming and outgoing pending friend requests' })
+  @ApiOperation({
+    summary: 'List incoming and outgoing pending friend requests',
+  })
   async listRequests(
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<{ incoming: FriendRequestDto[]; outgoing: FriendRequestDto[] }> {
@@ -30,41 +34,71 @@ export class FriendsController {
       this.friendsService.listOutgoingRequests(user.userId),
     ]);
     return {
-      incoming: incoming.map((r) => ({ id: r.id, user: toFriendDto(r.requester), createdAt: r.createdAt })),
-      outgoing: outgoing.map((r) => ({ id: r.id, user: toFriendDto(r.addressee), createdAt: r.createdAt })),
+      incoming: incoming.map((r) => ({
+        id: r.id,
+        user: toFriendDto(r.requester),
+        createdAt: r.createdAt,
+      })),
+      outgoing: outgoing.map((r) => ({
+        id: r.id,
+        user: toFriendDto(r.addressee),
+        createdAt: r.createdAt,
+      })),
     };
   }
 
   @Post('friends/requests')
   @ApiOperation({ summary: 'Send a friend request by username' })
-  async sendRequest(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateFriendRequestDto) {
-    const friendship = await this.friendsService.sendRequest(user.userId, dto.username);
+  async sendRequest(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateFriendRequestDto,
+  ) {
+    const friendship = await this.friendsService.sendRequest(
+      user.userId,
+      dto.username,
+    );
     return { id: friendship.id, status: friendship.status };
   }
 
   @Post('friends/requests/:id/accept')
   @ApiOperation({ summary: 'Accept an incoming friend request' })
-  async accept(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+  async accept(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
     const friendship = await this.friendsService.respond(user.userId, id, true);
     return { id: friendship.id, status: friendship.status };
   }
 
   @Post('friends/requests/:id/decline')
   @ApiOperation({ summary: 'Decline an incoming friend request' })
-  async decline(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    const friendship = await this.friendsService.respond(user.userId, id, false);
+  async decline(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    const friendship = await this.friendsService.respond(
+      user.userId,
+      id,
+      false,
+    );
     return { id: friendship.id, status: friendship.status };
   }
 
   @Delete('friends/requests/:id')
   @ApiOperation({ summary: 'Cancel an outgoing friend request' })
-  async cancel(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string): Promise<void> {
+  async cancel(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<void> {
     await this.friendsService.cancelOutgoing(user.userId, id);
   }
 
   @Delete('friends/:username')
   @ApiOperation({ summary: 'Remove a friend' })
-  async remove(@CurrentUser() user: AuthenticatedUser, @Param('username') username: string): Promise<void> {
+  async remove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('username') username: string,
+  ): Promise<void> {
     await this.friendsService.removeFriend(user.userId, username);
   }
 }

@@ -31,7 +31,9 @@ export class AuthController {
   @Public()
   @Post('guest')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Create a temporary guest account and log in as it' })
+  @ApiOperation({
+    summary: 'Create a temporary guest account and log in as it',
+  })
   loginAsGuest(): Promise<AuthResponseDto> {
     return this.authService.loginAsGuest();
   }

@@ -8,7 +8,10 @@ import type { Move } from '../games/entities/move.entity.js';
  * locally-produced one. Only Date columns need this; everything else
  * (strings, numbers, booleans, nulls) survives JSON as-is.
  */
-export function reviveDates<T extends object>(obj: T, keys: readonly (keyof T)[]): T {
+export function reviveDates<T extends object>(
+  obj: T,
+  keys: readonly (keyof T)[],
+): T {
   const record = obj as Record<string, unknown>;
   for (const key of keys) {
     const value = record[key as string];
@@ -32,16 +35,30 @@ export function toWireGame(game: Game): Record<string, unknown> {
     // eslint-disable-next-line typescript/no-misused-spread
     ...game,
     white: game.white
-      ? { id: game.white.id, username: game.white.username, displayName: game.white.displayName, avatarColor: game.white.avatarColor }
+      ? {
+          id: game.white.id,
+          username: game.white.username,
+          displayName: game.white.displayName,
+          avatarColor: game.white.avatarColor,
+        }
       : game.white,
     black: game.black
-      ? { id: game.black.id, username: game.black.username, displayName: game.black.displayName, avatarColor: game.black.avatarColor }
+      ? {
+          id: game.black.id,
+          username: game.black.username,
+          displayName: game.black.displayName,
+          avatarColor: game.black.avatarColor,
+        }
       : game.black,
   };
 }
 
 export function fromWireGame(wire: Record<string, unknown>): Game {
-  return reviveDates(wire as unknown as Game, ['createdAt', 'lastMoveAt', 'endedAt']);
+  return reviveDates(wire as unknown as Game, [
+    'createdAt',
+    'lastMoveAt',
+    'endedAt',
+  ]);
 }
 
 export function toWireMove(move: Move): Record<string, unknown> {

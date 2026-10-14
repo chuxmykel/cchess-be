@@ -16,7 +16,9 @@ const ELO_RATING_SCALE = 400;
 export type EloScore = 1 | 0.5 | 0;
 
 function kFactor(gamesPlayed: number): number {
-  return gamesPlayed < PROVISIONAL_GAMES_THRESHOLD ? PROVISIONAL_K : ESTABLISHED_K;
+  return gamesPlayed < PROVISIONAL_GAMES_THRESHOLD
+    ? PROVISIONAL_K
+    : ESTABLISHED_K;
 }
 
 function expectedScore(ratingA: number, ratingB: number): number {
@@ -46,11 +48,23 @@ export function computeGameEloDeltas(params: {
   blackGamesPlayed: number;
   result: 'white' | 'black' | 'draw';
 }): EloUpdateResult {
-  const whiteScore: EloScore = params.result === 'white' ? 1 : params.result === 'draw' ? 0.5 : 0;
-  const blackScore: EloScore = params.result === 'black' ? 1 : params.result === 'draw' ? 0.5 : 0;
+  const whiteScore: EloScore =
+    params.result === 'white' ? 1 : params.result === 'draw' ? 0.5 : 0;
+  const blackScore: EloScore =
+    params.result === 'black' ? 1 : params.result === 'draw' ? 0.5 : 0;
 
   return {
-    whiteDelta: computeEloDelta(params.whiteRating, params.whiteGamesPlayed, params.blackRating, whiteScore),
-    blackDelta: computeEloDelta(params.blackRating, params.blackGamesPlayed, params.whiteRating, blackScore),
+    whiteDelta: computeEloDelta(
+      params.whiteRating,
+      params.whiteGamesPlayed,
+      params.blackRating,
+      whiteScore,
+    ),
+    blackDelta: computeEloDelta(
+      params.blackRating,
+      params.blackGamesPlayed,
+      params.whiteRating,
+      blackScore,
+    ),
   };
 }

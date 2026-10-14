@@ -17,7 +17,10 @@ loadDotenv({ quiet: true });
  * means every `ownerIndex`/`isMine` check is trivially true and this whole
  * module is a no-op, so single-process dev/test behavior is unchanged.
  */
-export const CLUSTER_WORKERS = Math.max(1, Number(process.env.CLUSTER_WORKERS ?? 1));
+export const CLUSTER_WORKERS = Math.max(
+  1,
+  Number(process.env.CLUSTER_WORKERS ?? 1),
+);
 
 /** Set by the primary on each forked worker's env before it boots - see cluster-primary.ts. */
 export const WORKER_INDEX = Number(process.env.CLUSTER_WORKER_INDEX ?? 0);
