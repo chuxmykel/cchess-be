@@ -17,6 +17,11 @@ export default defineConfig({
       DB_USERNAME: requireEnvFileValue('TEST_DB_USERNAME'),
       DB_PASSWORD: requireEnvFileValue('TEST_DB_PASSWORD'),
       DB_NAME: requireEnvFileValue('TEST_DB_NAME'),
+      // Pinned regardless of the dev .env's own value (e.g. set >1)
+      // cluster.util.ts now loads .env directly (see its
+      // own comment), and a test process has no primary/worker IPC for
+      // isMine()/ownerIndex() routing to actually reach.
+      CLUSTER_WORKERS: '1',
     },
     fileParallelism: false,
   },

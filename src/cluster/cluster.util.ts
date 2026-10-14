@@ -1,3 +1,17 @@
+import { config as loadDotenv } from 'dotenv';
+
+// This module is reached from app.module.ts's own import graph (via
+// ClusterBus/typeorm.module.ts) before app.module.ts's body runs
+// ConfigModule.forRoot() - so under `nest start`/`start:dev` (no
+// `--env-file`), the read below would otherwise always see CLUSTER_WORKERS
+// as unset. Loading it here directly makes this module self-sufficient
+// regardless of how the process was started; harmless under `--env-file`
+// or ConfigModule's own dotenv call too, since dotenv never overwrites a
+// var that's already set. `quiet` skips dotenv's own "injected env" log -
+// this app's own Nest logger is the only thing that should write to stdout
+// on boot.
+loadDotenv({ quiet: true });
+
 /**
  * Sharding is opt-in and off by default - CLUSTER_WORKERS unset (or `1`)
  * means every `ownerIndex`/`isMine` check is trivially true and this whole
