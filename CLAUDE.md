@@ -48,13 +48,29 @@ npm run migration:run      # build + apply pending migrations
 npm run migration:revert   # build + roll back the last migration
 ```
 
-The migration scripts invoke the plain `typeorm` CLI (not
-`typeorm-ts-node-esm`) against the *compiled* `dist/database/data-source.js`
-- that CLI variant needs `ts-node`, which this project deliberately doesn't
-depend on (it's `nest build` + `node dist/...` everywhere else). This means
-`migration:generate` only sees changes that have been built - it's already
-wired to `npm run build &&` for that reason, but keep it in mind if you ever
-invoke the raw `typeorm` binary yourself.
+The migration scripts run `node --env-file=.env node_modules/typeorm/cli.js
+migration:x -d dist/database/data-source.js` directly against the compiled
+CLI entry point, not through the `typeorm` bin - Node's `--env-file` can't
+be passed via `NODE_OPTIONS`
+(`process.allowedNodeEnvironmentFlags.has('--env-file')` is `false`), so it
+has to go straight to the `node` invocation, which means resolving past the
+bin's shebang wrapper to `node_modules/typeorm/cli.js` itself. They also
+avoid `typeorm-ts-node-esm`, which needs `ts-node` - a dependency this
+project deliberately doesn't have (it's `nest build` + `node dist/...`
+everywhere else). This means `migration:generate` only sees changes that
+have been built - already wired to `npm run build &&` for that reason, but
+keep it in mind if you ever invoke the CLI yourself.
+
+`data-source.ts` (the CLI's own `DataSource`, outside Nest's DI) has no
+fallback env defaults - `requireEnv()` (`src/common/require-env.ts`) throws
+if `.env` is missing any connection var, rather than silently migrating
+against a guessed-at database. Its `entities` option is also a glob
+(`dist/**/*.entity.js`) instead of a manually maintained class list - safe
+here specifically because this file only ever runs against freshly-built
+`dist/` (via the `build &&` above). `app.module.ts` keeps an explicit class
+list instead: it's also loaded straight from `src/*.ts` by the e2e suite,
+and a glob there does a raw Node `import()` that bypasses vitest's TS
+transform and breaks on non-compiled files.
 
 There's no `lint:fix` - oxlint's type-aware mode here is check-only; fix
 flagged issues by hand.

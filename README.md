@@ -168,6 +168,17 @@ client may receive a game's moves before it has itself emitted `game:join`
 for that particular game; track the server's own `move.ply` idempotently
 rather than counting received events.
 
+The gateway's own CORS is wide open (`origin: '*', credentials: false` -
+see `realtime.gateway.ts`), unlike REST's configurable origin - intentional,
+not an oversight: `@WebSocketGateway` options are static decorator metadata
+evaluated before DI exists, so it can't read `ConfigService` the way REST's
+CORS does, but that's fine here specifically because auth travels in the
+handshake's own `auth.token` payload above, never a cookie - there's no
+ambient credential for a cross-origin page to ride on, so there's nothing
+an origin restriction would protect. This stops being true the moment any
+client authenticates via a cookie instead (e.g. a future browser client) -
+revisit `origin`/`credentials` together if that ever happens.
+
 | Client -> Server | Payload | Server -> Client | Payload |
 | --- | --- | --- | --- |
 | `game:join` | `{ gameId }` | `game:state` | Full `GameStateDto` |
@@ -178,7 +189,12 @@ rather than counting received events.
 | `game:drawRespond` | `{ gameId, accept }` | `game:created` | Full `GameStateDto` - pushed to both players, e.g. on a matchmaking pair |
 | `matchmaking:seek` | `{ minutes, incrementSeconds }` | `game:error` / `matchmaking:error` | `{ message }` (and `{ gameId, message }` for game errors) |
 | `matchmaking:cancel` | - | `challenge:received` / `challenge:accepted` / `challenge:resolved` | `ChallengeDto` |
-| | | `friend:requestReceived` / `friend:requestAccepted` | `{ id, from? }` |
+| `game:leave` | `{ gameId }` | `friend:requestReceived` / `friend:requestAccepted` | `{ id, from? }` |
+
+`ping` isn't part of the broadcast protocol above - it's a plain Socket.IO
+acknowledgement (payload: the client's own timestamp as a number), echoed
+straight back as the ack value for round-trip latency measurement, not a
+separate emit.
 
 Disconnecting a socket starts a `GAME_DISCONNECT_GRACE_MS` (default 60s)
 countdown per joined game; reconnecting and re-emitting `game:join` before it
@@ -278,7 +294,3 @@ default is conservative because it assumes they're colocated.
   one box) would need it in a shared store (e.g. Redis) instead.
 - **No bot opponent** - the client's "Play Stockfish" stub is intentionally
   out of scope for this phase.
-- **CORS on the Socket.IO gateway is wide open** (`origin: '*'`) since
-  `@WebSocketGateway` options are static decorator metadata evaluated before
-  DI is available; lock this down (custom adapter reading `ConfigService`)
-  before any non-dev deployment.
