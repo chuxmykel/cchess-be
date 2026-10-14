@@ -18,8 +18,14 @@ export class MatchmakingController {
   ) {}
 
   @Post('seek')
-  @ApiOperation({ summary: 'Join the matchmaking queue for a time control, or get matched immediately' })
-  async seek(@CurrentUser() currentUser: AuthenticatedUser, @Body() dto: CreateSeekDto) {
+  @ApiOperation({
+    summary:
+      'Join the matchmaking queue for a time control, or get matched immediately',
+  })
+  async seek(
+    @CurrentUser() currentUser: AuthenticatedUser,
+    @Body() dto: CreateSeekDto,
+  ) {
     const user = await this.usersService.findByIdOrThrow(currentUser.userId);
     const result = await this.matchmakingService.seek(user, dto);
     if (result.status === 'matched') {

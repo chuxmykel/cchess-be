@@ -1,7 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 import type { GameType } from '../../chess/time-control.js';
-import type { Game, GameResultReason, GameStatus } from '../entities/game.entity.js';
+import type {
+  Game,
+  GameResultReason,
+  GameStatus,
+} from '../entities/game.entity.js';
 
 export type PerspectiveResult = 'win' | 'loss' | 'draw' | null;
 

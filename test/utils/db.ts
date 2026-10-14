@@ -9,7 +9,11 @@ import type { DataSource } from 'typeorm';
  * added.
  */
 export async function truncateAllTables(dataSource: DataSource): Promise<void> {
-  const tableNames = dataSource.entityMetadatas.map((m) => `"${m.tableName}"`).join(', ');
+  const tableNames = dataSource.entityMetadatas
+    .map((m) => `"${m.tableName}"`)
+    .join(', ');
   if (!tableNames) return;
-  await dataSource.query(`TRUNCATE TABLE ${tableNames} RESTART IDENTITY CASCADE`);
+  await dataSource.query(
+    `TRUNCATE TABLE ${tableNames} RESTART IDENTITY CASCADE`,
+  );
 }

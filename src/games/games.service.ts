@@ -35,7 +35,10 @@ import {
 } from '../chess/time-control.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
 import { UsersService } from '../users/users.service.js';
-import { DEFAULT_GAMES_LIST_LIMIT, MAX_GAMES_LIST_LIMIT } from './dto/list-games.query.js';
+import {
+  DEFAULT_GAMES_LIST_LIMIT,
+  MAX_GAMES_LIST_LIMIT,
+} from './dto/list-games.query.js';
 import type { User } from '../users/entities/user.entity.js';
 import { computeGameEloDeltas } from './elo.js';
 import {
@@ -117,7 +120,10 @@ export class GamesService implements OnModuleDestroy {
       GAMES_RPC.RESIGN,
       this.handleResignRequest.bind(this),
     );
-    this.clusterBus.onRequest(GAMES_RPC.ABORT, this.handleAbortRequest.bind(this));
+    this.clusterBus.onRequest(
+      GAMES_RPC.ABORT,
+      this.handleAbortRequest.bind(this),
+    );
     this.clusterBus.onRequest(
       GAMES_RPC.OFFER_DRAW,
       this.handleOfferDrawRequest.bind(this),
@@ -824,7 +830,10 @@ export class GamesService implements OnModuleDestroy {
     return undefined;
   }
 
-  private forfeitByAbandonmentLocal(gameId: string, userId: string): Promise<void> {
+  private forfeitByAbandonmentLocal(
+    gameId: string,
+    userId: string,
+  ): Promise<void> {
     return this.mutex.runExclusive(gameId, async () => {
       const game = await this.getGameOrThrow(gameId);
       if (game.status !== 'active') return;

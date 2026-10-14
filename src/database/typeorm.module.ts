@@ -3,7 +3,10 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { RefreshToken } from '../auth/entities/refresh-token.entity.js';
 import { Challenge } from '../challenges/entities/challenge.entity.js';
-import { CLUSTER_WORKERS, CLUSTERING_ENABLED } from '../cluster/cluster.util.js';
+import {
+  CLUSTER_WORKERS,
+  CLUSTERING_ENABLED,
+} from '../cluster/cluster.util.js';
 import type { AppConfig } from '../config/configuration.js';
 import { Friendship } from '../friends/entities/friendship.entity.js';
 import { Game } from '../games/entities/game.entity.js';
@@ -61,7 +64,10 @@ export const typeOrmModule = TypeOrmModule.forRootAsync({
         ? {
             poolSize: Math.max(
               MIN_POOL_SIZE_PER_WORKER,
-              Math.min(PG_DEFAULT_POOL_SIZE, Math.floor(TOTAL_POOL_BUDGET / CLUSTER_WORKERS)),
+              Math.min(
+                PG_DEFAULT_POOL_SIZE,
+                Math.floor(TOTAL_POOL_BUDGET / CLUSTER_WORKERS),
+              ),
             ),
           }
         : {}),

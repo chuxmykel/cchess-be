@@ -20,7 +20,8 @@ export class KeyedMutex {
     );
     this.queueTailByKey.set(key, newTail);
     void newTail.finally(() => {
-      if (this.queueTailByKey.get(key) === newTail) this.queueTailByKey.delete(key);
+      if (this.queueTailByKey.get(key) === newTail)
+        this.queueTailByKey.delete(key);
     });
     return operation;
   }

@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -14,12 +19,16 @@ export interface FriendRequestEvent {
 @Injectable()
 export class FriendsService {
   constructor(
-    @InjectRepository(Friendship) private readonly friendships: Repository<Friendship>,
+    @InjectRepository(Friendship)
+    private readonly friendships: Repository<Friendship>,
     private readonly usersService: UsersService,
     private readonly events: EventEmitter2,
   ) {}
 
-  private async findBetween(userAId: string, userBId: string): Promise<Friendship | null> {
+  private async findBetween(
+    userAId: string,
+    userBId: string,
+  ): Promise<Friendship | null> {
     return this.friendships
       .createQueryBuilder('f')
       .where(
@@ -30,7 +39,10 @@ export class FriendsService {
       .getOne();
   }
 
-  async sendRequest(requesterId: string, targetUsername: string): Promise<Friendship> {
+  async sendRequest(
+    requesterId: string,
+    targetUsername: string,
+  ): Promise<Friendship> {
     const target = await this.usersService.findByUsername(targetUsername);
     if (!target) throw new NotFoundException('User not found');
     if (target.id === requesterId) {
@@ -41,7 +53,10 @@ export class FriendsService {
     if (existing?.status === 'accepted') {
       throw new ConflictException('Already friends');
     }
-    if (existing?.status === 'pending' && existing.requesterId === requesterId) {
+    if (
+      existing?.status === 'pending' &&
+      existing.requesterId === requesterId
+    ) {
       throw new ConflictException('Friend request already sent');
     }
     if (existing?.status === 'pending' && existing.requesterId === target.id) {
@@ -68,7 +83,11 @@ export class FriendsService {
     }
 
     const saved = await this.friendships.save(
-      this.friendships.create({ requesterId, addresseeId: target.id, status: 'pending' }),
+      this.friendships.create({
+        requesterId,
+        addresseeId: target.id,
+        status: 'pending',
+      }),
     );
     this.events.emit(DOMAIN_EVENTS.FRIEND_REQUEST_CREATED, {
       friendship: saved,
@@ -76,8 +95,14 @@ export class FriendsService {
     return saved;
   }
 
-  async respond(userId: string, requestId: string, accept: boolean): Promise<Friendship> {
-    const request = await this.friendships.findOne({ where: { id: requestId } });
+  async respond(
+    userId: string,
+    requestId: string,
+    accept: boolean,
+  ): Promise<Friendship> {
+    const request = await this.friendships.findOne({
+      where: { id: requestId },
+    });
     if (!request || request.addresseeId !== userId) {
       throw new NotFoundException('Friend request not found');
     }
@@ -95,8 +120,14 @@ export class FriendsService {
   }
 
   async cancelOutgoing(userId: string, requestId: string): Promise<void> {
-    const request = await this.friendships.findOne({ where: { id: requestId } });
-    if (!request || request.requesterId !== userId || request.status !== 'pending') {
+    const request = await this.friendships.findOne({
+      where: { id: requestId },
+    });
+    if (
+      !request ||
+      request.requesterId !== userId ||
+      request.status !== 'pending'
+    ) {
       throw new NotFoundException('Friend request not found');
     }
     await this.friendships.softRemove(request);
@@ -120,7 +151,9 @@ export class FriendsService {
       ],
       relations: { requester: true, addressee: true },
     });
-    return rows.map((row) => (row.requesterId === userId ? row.addressee : row.requester));
+    return rows.map((row) =>
+      row.requesterId === userId ? row.addressee : row.requester,
+    );
   }
 
   async listIncomingRequests(userId: string): Promise<Friendship[]> {

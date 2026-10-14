@@ -11,8 +11,14 @@ import { setupClusterRedisAdapter } from './cluster/cluster-io-adapter.js';
 import { CLUSTERING_ENABLED, CLUSTER_WORKERS } from './cluster/cluster.util.js';
 import type { AppConfig } from './config/configuration.js';
 
-function configureCors(app: INestApplication, configService: ConfigService<AppConfig, true>): void {
-  app.enableCors({ origin: configService.get('corsOrigin', { infer: true }), credentials: true });
+function configureCors(
+  app: INestApplication,
+  configService: ConfigService<AppConfig, true>,
+): void {
+  app.enableCors({
+    origin: configService.get('corsOrigin', { infer: true }),
+    credentials: true,
+  });
 }
 
 function configureValidationPipe(app: INestApplication): void {

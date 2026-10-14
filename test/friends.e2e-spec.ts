@@ -56,7 +56,7 @@ describe('Friends (e2e)', () => {
     expect(afterRemoval.body).toHaveLength(0);
   });
 
-  it("rejects friending yourself and duplicate requests", async () => {
+  it('rejects friending yourself and duplicate requests', async () => {
     const grace = await registerUser(app, 'grace_friends');
 
     await request(app.getHttpServer())

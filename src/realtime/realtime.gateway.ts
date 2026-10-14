@@ -217,8 +217,11 @@ export class RealtimeGateway
     @ConnectedSocket() socket: Socket,
     @MessageBody() payload: { gameId: string },
   ) {
-    await this.runGameAction(socket, WS_EVENTS.GAME_RESIGN, payload.gameId, () =>
-      this.gamesService.resign(payload.gameId, this.userId(socket)),
+    await this.runGameAction(
+      socket,
+      WS_EVENTS.GAME_RESIGN,
+      payload.gameId,
+      () => this.gamesService.resign(payload.gameId, this.userId(socket)),
     );
   }
 
@@ -237,8 +240,11 @@ export class RealtimeGateway
     @ConnectedSocket() socket: Socket,
     @MessageBody() payload: { gameId: string },
   ) {
-    await this.runGameAction(socket, WS_EVENTS.GAME_DRAW_OFFER, payload.gameId, () =>
-      this.gamesService.offerDraw(payload.gameId, this.userId(socket)),
+    await this.runGameAction(
+      socket,
+      WS_EVENTS.GAME_DRAW_OFFER,
+      payload.gameId,
+      () => this.gamesService.offerDraw(payload.gameId, this.userId(socket)),
     );
   }
 
@@ -247,12 +253,16 @@ export class RealtimeGateway
     @ConnectedSocket() socket: Socket,
     @MessageBody() payload: { gameId: string; accept: boolean },
   ) {
-    await this.runGameAction(socket, WS_EVENTS.GAME_DRAW_RESPOND, payload.gameId, () =>
-      this.gamesService.respondDraw(
-        payload.gameId,
-        this.userId(socket),
-        payload.accept,
-      ),
+    await this.runGameAction(
+      socket,
+      WS_EVENTS.GAME_DRAW_RESPOND,
+      payload.gameId,
+      () =>
+        this.gamesService.respondDraw(
+          payload.gameId,
+          this.userId(socket),
+          payload.accept,
+        ),
     );
   }
 

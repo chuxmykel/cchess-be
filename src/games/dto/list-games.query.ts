@@ -31,7 +31,9 @@ export class ListGamesQuery {
   @Max(MAX_GAMES_LIST_LIMIT)
   limit?: number;
 
-  @ApiPropertyOptional({ description: 'ISO date - only games created before this' })
+  @ApiPropertyOptional({
+    description: 'ISO date - only games created before this',
+  })
   @IsOptional()
   @Type(() => Date)
   @IsDate()

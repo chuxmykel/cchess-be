@@ -1,4 +1,11 @@
-import { Body, Controller, Get, NotFoundException, Param, Patch } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Patch,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
@@ -34,7 +41,9 @@ export class UsersController {
 
   @Get(':username')
   @ApiOperation({ summary: "Get a user's public profile by username" })
-  async getByUsername(@Param('username') username: string): Promise<ProfileDto> {
+  async getByUsername(
+    @Param('username') username: string,
+  ): Promise<ProfileDto> {
     const user = await this.usersService.findByUsername(username);
     if (!user) {
       throw new NotFoundException('User not found');

@@ -47,7 +47,11 @@ export class MeDto extends ProfileDto {
 }
 
 export function toRatingDto(rating: Rating): RatingDto {
-  return { category: rating.category, rating: rating.rating, gamesPlayed: rating.gamesPlayed };
+  return {
+    category: rating.category,
+    rating: rating.rating,
+    gamesPlayed: rating.gamesPlayed,
+  };
 }
 
 export function toProfileDto(user: User, ratings: Rating[]): ProfileDto {

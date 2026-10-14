@@ -20,18 +20,28 @@ export class ChallengesController {
 
   @Get()
   @ApiOperation({ summary: 'List incoming and outgoing pending challenges' })
-  async list(@CurrentUser() user: AuthenticatedUser): Promise<{ incoming: ChallengeDto[]; outgoing: ChallengeDto[] }> {
+  async list(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ incoming: ChallengeDto[]; outgoing: ChallengeDto[] }> {
     const [incoming, outgoing] = await Promise.all([
       this.challengesService.listIncoming(user.userId),
       this.challengesService.listOutgoing(user.userId),
     ]);
-    return { incoming: incoming.map(toChallengeDto), outgoing: outgoing.map(toChallengeDto) };
+    return {
+      incoming: incoming.map(toChallengeDto),
+      outgoing: outgoing.map(toChallengeDto),
+    };
   }
 
   @Post()
   @ApiOperation({ summary: 'Challenge another user (e.g. a friend) to a game' })
-  async create(@CurrentUser() currentUser: AuthenticatedUser, @Body() dto: CreateChallengeDto): Promise<ChallengeDto> {
-    const challenger = await this.usersService.findByIdOrThrow(currentUser.userId);
+  async create(
+    @CurrentUser() currentUser: AuthenticatedUser,
+    @Body() dto: CreateChallengeDto,
+  ): Promise<ChallengeDto> {
+    const challenger = await this.usersService.findByIdOrThrow(
+      currentUser.userId,
+    );
     const challenge = await this.challengesService.create(
       challenger,
       dto.opponentUsername,
@@ -43,21 +53,30 @@ export class ChallengesController {
 
   @Post(':id/accept')
   @ApiOperation({ summary: 'Accept a challenge, starting the game' })
-  async accept(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+  async accept(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
     const { game } = await this.challengesService.accept(user.userId, id);
     return toGameStateDto(game);
   }
 
   @Post(':id/decline')
   @ApiOperation({ summary: 'Decline a challenge' })
-  async decline(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string): Promise<ChallengeDto> {
+  async decline(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<ChallengeDto> {
     const challenge = await this.challengesService.decline(user.userId, id);
     return toChallengeDto(challenge);
   }
 
   @Post(':id/cancel')
   @ApiOperation({ summary: 'Cancel an outgoing challenge' })
-  async cancel(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string): Promise<ChallengeDto> {
+  async cancel(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<ChallengeDto> {
     const challenge = await this.challengesService.cancel(user.userId, id);
     return toChallengeDto(challenge);
   }

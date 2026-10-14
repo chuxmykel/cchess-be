@@ -1,6 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import type { Challenge, ChallengeStatus, ColorPreference } from '../entities/challenge.entity.js';
+import type {
+  Challenge,
+  ChallengeStatus,
+  ColorPreference,
+} from '../entities/challenge.entity.js';
 
 export class ChallengeUserDto {
   @ApiProperty()

@@ -116,7 +116,12 @@ export class GameStateDto {
 }
 
 function toPlayerDto(user: Game['white']): GamePlayerDto {
-  return { id: user.id, username: user.username, displayName: user.displayName, avatarColor: user.avatarColor };
+  return {
+    id: user.id,
+    username: user.username,
+    displayName: user.displayName,
+    avatarColor: user.avatarColor,
+  };
 }
 
 export function toMoveDto(move: Move): MoveDto {

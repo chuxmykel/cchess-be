@@ -18,7 +18,11 @@ describe('Auth (e2e)', () => {
   it('registers, logs in, refreshes, and logs out', async () => {
     const register = await request(app.getHttpServer())
       .post('/auth/register')
-      .send({ username: 'carol', email: 'carol@example.com', password: 'password123' })
+      .send({
+        username: 'carol',
+        email: 'carol@example.com',
+        password: 'password123',
+      })
       .expect(201);
 
     expect(register.body.user.username).toBe('carol');
@@ -61,12 +65,20 @@ describe('Auth (e2e)', () => {
   it('rejects duplicate usernames and wrong passwords', async () => {
     await request(app.getHttpServer())
       .post('/auth/register')
-      .send({ username: 'dave', email: 'dave@example.com', password: 'password123' })
+      .send({
+        username: 'dave',
+        email: 'dave@example.com',
+        password: 'password123',
+      })
       .expect(201);
 
     await request(app.getHttpServer())
       .post('/auth/register')
-      .send({ username: 'dave', email: 'dave2@example.com', password: 'password123' })
+      .send({
+        username: 'dave',
+        email: 'dave2@example.com',
+        password: 'password123',
+      })
       .expect(409);
 
     await request(app.getHttpServer())
@@ -76,7 +88,9 @@ describe('Auth (e2e)', () => {
   });
 
   it('logs in as a guest with no email/password', async () => {
-    const res = await request(app.getHttpServer()).post('/auth/guest').expect(200);
+    const res = await request(app.getHttpServer())
+      .post('/auth/guest')
+      .expect(200);
     expect(res.body.user.isGuest).toBe(true);
     expect(res.body.user.username).toMatch(/^guest_/);
   });

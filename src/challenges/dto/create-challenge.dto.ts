@@ -1,7 +1,20 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 
-import { MAX_INCREMENT, MAX_MINUTES, MIN_INCREMENT, MIN_MINUTES } from '../../chess/time-control.js';
+import {
+  MAX_INCREMENT,
+  MAX_MINUTES,
+  MIN_INCREMENT,
+  MIN_MINUTES,
+} from '../../chess/time-control.js';
 import type { ColorPreference } from '../entities/challenge.entity.js';
 
 const COLOR_PREFERENCES: ColorPreference[] = ['white', 'black', 'random'];

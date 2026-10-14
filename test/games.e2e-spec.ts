@@ -22,7 +22,12 @@ describe('Games via challenges (e2e)', () => {
     const challenge = await request(app.getHttpServer())
       .post('/challenges')
       .set('Authorization', `Bearer ${ivan.accessToken}`)
-      .send({ opponentUsername: judy.username, minutes: 5, incrementSeconds: 0, color: 'white' })
+      .send({
+        opponentUsername: judy.username,
+        minutes: 5,
+        incrementSeconds: 0,
+        color: 'white',
+      })
       .expect(201);
     expect(challenge.body.status).toBe('pending');
 
@@ -71,7 +76,9 @@ describe('Games via challenges (e2e)', () => {
       .get(`/games/${gameId}/pgn`)
       .set('Authorization', `Bearer ${ivan.accessToken}`)
       .expect(200);
-    expect(pgn.text).toContain('[White "ivan_games"]'.replace('ivan_games', ivan.username));
+    expect(pgn.text).toContain(
+      '[White "ivan_games"]'.replace('ivan_games', ivan.username),
+    );
     expect(pgn.text).toContain('0-1');
   });
 
@@ -96,7 +103,9 @@ describe('Games via challenges (e2e)', () => {
     expect(matched.body.game.gameType).toBe('blitz');
 
     const otherPlayerToken =
-      matched.body.game.white.username === kim.username ? kim.accessToken : liam.accessToken;
+      matched.body.game.white.username === kim.username
+        ? kim.accessToken
+        : liam.accessToken;
 
     const aborted = await request(app.getHttpServer())
       .post(`/games/${gameId}/abort`)

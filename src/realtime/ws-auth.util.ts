@@ -27,5 +27,9 @@ export function verifySocketToken(
     throw new Error('Missing auth token');
   }
   const payload = jwtService.verify<AccessTokenPayload>(token);
-  return { userId: payload.sub, username: payload.username, isGuest: payload.isGuest };
+  return {
+    userId: payload.sub,
+    username: payload.username,
+    isGuest: payload.isGuest,
+  };
 }
