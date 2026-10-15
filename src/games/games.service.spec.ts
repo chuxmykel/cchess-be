@@ -1,20 +1,22 @@
 import { ConfigModule } from '@nestjs/config';
-import { EventEmitterModule } from '@nestjs/event-emitter';
+import { EventEmitter2, EventEmitterModule } from '@nestjs/event-emitter';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken, TypeOrmModule } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { RefreshToken } from '../auth/entities/refresh-token.entity.js';
 import { ClusterModule } from '../cluster/cluster.module.js';
+import { DOMAIN_EVENTS } from '../common/events.js';
 import { requireEnv } from '../common/require-env.js';
 import { Rating, STARTING_RATING } from '../users/entities/rating.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import { UsersService } from '../users/users.service.js';
 import { Game } from './entities/game.entity.js';
 import { Move } from './entities/move.entity.js';
-import { GamesService } from './games.service.js';
+import { GameEvent, GamesService } from './games.service.js';
 import { truncateAllTables } from '../../test/utils/db.js';
+import { TimeControl, toClockMs } from '../chess/time-control.js';
 
 async function buildModule() {
   const moduleRef = await Test.createTestingModule({
@@ -59,8 +61,27 @@ async function buildModule() {
     gamesService: moduleRef.get(GamesService),
     usersService: moduleRef.get(UsersService),
     ratingsRepo: moduleRef.get<Repository<Rating>>(getRepositoryToken(Rating)),
+    eventEmitter: moduleRef.get(EventEmitter2),
     moduleRef,
   };
+}
+
+/** Resolves once GamesService's own 'game.ended' event fires for this game
+ * id - the real signal finalize() emits only after both its DB save and
+ * applyRatingUpdates() have completed, same as RealtimeGateway relies on.
+ **/
+function waitForGameEnded(
+  eventEmitter: EventEmitter2,
+  gameId: string,
+): Promise<GameEvent> {
+  return new Promise((resolve) => {
+    const handler = (event: GameEvent) => {
+      if (event.game.id !== gameId) return;
+      eventEmitter.off(DOMAIN_EVENTS.GAME_ENDED, handler);
+      resolve(event);
+    };
+    eventEmitter.on(DOMAIN_EVENTS.GAME_ENDED, handler);
+  });
 }
 
 describe('GamesService', () => {
@@ -333,32 +354,92 @@ describe('GamesService', () => {
     );
   });
 
-  it('flags a player on time if their clock runs out', async () => {
+  it('flags a player on time, persisting their zeroed clock and updating ratings', async () => {
     const white = await makeUser('white8');
     const black = await makeUser('black8');
-    // 0 minutes + a non-zero increment is a valid time control (see
-    // isValidTimeControl) and gives a 0ms starting clock, so the flag-fall
-    // timer fires on the next real tick instead of needing fake timers -
-    // which don't mix well with genuine async I/O (a real Postgres
-    // round-trip resolves via libuv's I/O poll phase, not just the
-    // microtask-queue flushing vi.advanceTimersByTimeAsync does).
+    const gameMinutes = 0.05 / 60;
+    // Short so the test is fast, and non-zero so the assertions below can
+    // pin an exact stale value that would otherwise leak through unzeroed
+    // on an unfixed handleFlagFall.
+    const timeControl: TimeControl = {
+      minutes: gameMinutes,
+      incrementSeconds: 0,
+    };
     const game = await ctx.gamesService.createGame(
       white,
       black,
-      { minutes: 0, incrementSeconds: 1 },
+      timeControl,
       true,
     );
 
-    const deadline = Date.now() + 2000;
-    let final = await ctx.gamesService.getGameOrThrow(game.id);
-    while (final.status === 'active' && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      final = await ctx.gamesService.getGameOrThrow(game.id);
-    }
+    const { game: finalGame } = await waitForGameEnded(
+      ctx.eventEmitter,
+      game.id,
+    );
 
-    expect(final.status).toBe('completed');
-    expect(final.result).toBe('black');
-    expect(final.resultReason).toBe('timeout');
+    expect(finalGame.status).toBe('completed');
+    expect(finalGame.result).toBe('black');
+    expect(finalGame.resultReason).toBe('timeout');
+    expect(finalGame.whiteTimeRemainingMs).toBe(0);
+    expect(finalGame.blackTimeRemainingMs).toBe(toClockMs(timeControl));
+
+    const blackRating = await ctx.ratingsRepo.findOne({
+      where: { userId: black.id, category: 'bullet' },
+    });
+    expect(blackRating?.gamesPlayed).toBe(1);
+  });
+
+  it("zeroes the flagged player's clock when a move arrives after time is already up", async () => {
+    const white = await makeUser('white8c');
+    const black = await makeUser('black8c');
+
+    // FIXME: we shouldn't be hitting pg at all.
+    // Mock only Date.now(), not setTimeout/fake timers - vi.useFakeTimers()
+    // would also fake the real pg driver's own internal timers and corrupt
+    // the connection (a real Postgres round-trip resolves via libuv's I/O
+    // poll phase, independent of JS timers - faking those out from under
+    // the driver breaks it). Date.now() alone doesn't affect when the real,
+    // already-scheduled flag-fall timer actually fires (it's a genuine ~60s away in
+    // wall-clock time), so this move reaches enforceClock - and finalizes
+    // the game - well before that background timer ever gets a chance to,
+    // deterministically exercising enforceClock's branch instead of
+    // handleFlagFall's.
+    const dateSpy = vi.spyOn(Date, 'now');
+    try {
+      const game = await ctx.gamesService.createGame(
+        white,
+        black,
+        { minutes: 1, incrementSeconds: 0 },
+        true,
+      );
+      const { game: gameAfterWhiteMove } = await ctx.gamesService.applyMove(
+        game.id,
+        white.id,
+        'e2',
+        'e4',
+      );
+
+      dateSpy.mockReturnValue(Date.now() + 61_000);
+
+      await expect(
+        ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5'),
+      ).rejects.toThrow('Flagged on time');
+
+      dateSpy.mockRestore();
+
+      const finalGame = await ctx.gamesService.getGameOrThrow(game.id);
+      expect(finalGame.status).toBe('completed');
+      expect(finalGame.result).toBe('white');
+      expect(finalGame.resultReason).toBe('timeout');
+      expect(finalGame.blackTimeRemainingMs).toBe(0);
+      // Only the loser's clock is forced to 0 - white's (whatever it was
+      // left at after their own move) is untouched by the fix.
+      expect(finalGame.whiteTimeRemainingMs).toBe(
+        gameAfterWhiteMove.whiteTimeRemainingMs,
+      );
+    } finally {
+      dateSpy.mockRestore();
+    }
   });
 
   it('does not let guest games affect ratings', async () => {

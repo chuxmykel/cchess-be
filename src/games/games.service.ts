@@ -523,6 +523,8 @@ export class GamesService implements OnModuleDestroy {
     const remainingAfterElapsed = remainingBefore - Math.max(sinceLastMove, 0);
 
     if (remainingAfterElapsed <= 0) {
+      if (color === 'w') game.whiteTimeRemainingMs = 0;
+      else game.blackTimeRemainingMs = 0;
       await this.finalize(game, color === 'w' ? 'black' : 'white', 'timeout');
       throw new ConflictException('Flagged on time');
     }
@@ -913,6 +915,8 @@ export class GamesService implements OnModuleDestroy {
       }
 
       const loserColor = game.turn;
+      if (loserColor === 'w') game.whiteTimeRemainingMs = 0;
+      else game.blackTimeRemainingMs = 0;
       await this.finalize(
         game,
         loserColor === 'w' ? 'black' : 'white',

@@ -40,8 +40,14 @@ describe('isValidTimeControl', () => {
     expect(isValidTimeControl({ minutes: 0, incrementSeconds: 0 })).toBe(false);
   });
 
-  it('accepts 0 minutes with a positive increment', () => {
-    expect(isValidTimeControl({ minutes: 0, incrementSeconds: 1 })).toBe(true);
+  it('rejects 0 minutes even with a positive increment', () => {
+    expect(isValidTimeControl({ minutes: 0, incrementSeconds: 1 })).toBe(false);
+  });
+
+  it('accepts a tiny positive minutes value with no increment', () => {
+    expect(
+      isValidTimeControl({ minutes: 1 / 60_000, incrementSeconds: 0 }),
+    ).toBe(true);
   });
 
   it('rejects negative values', () => {

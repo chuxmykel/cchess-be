@@ -2,9 +2,10 @@ export type GameType = 'bullet' | 'blitz' | 'rapid' | 'classical';
 
 export interface TimeControl {
   /**
-   * Starting clock per side, in minutes. 0 is valid (e.g. "0+1" bullet).
-   * Fractional values are allowed so sub-minute base times are
-   * representable - e.g. 5 seconds is 5/60 ≈ 0.08333.
+   * Starting clock per side, in minutes. Must be greater than 0 - there is
+   * no "0 base + increment only" time control. Fractional values are
+   * allowed so sub-minute base times are representable instead - e.g. 5
+   * seconds is 5/60 ≈ 0.08333.
    */
   minutes: number;
   /** Increment added to a player's clock after each of their moves, in seconds. */
@@ -23,11 +24,10 @@ export function isValidTimeControl(tc: TimeControl): boolean {
   return (
     Number.isFinite(tc.minutes) &&
     Number.isInteger(tc.incrementSeconds) &&
-    tc.minutes >= MIN_MINUTES &&
+    tc.minutes > MIN_MINUTES &&
     tc.minutes <= MAX_MINUTES &&
     tc.incrementSeconds >= MIN_INCREMENT &&
-    tc.incrementSeconds <= MAX_INCREMENT &&
-    (tc.minutes > 0 || tc.incrementSeconds > 0)
+    tc.incrementSeconds <= MAX_INCREMENT
   );
 }
 
