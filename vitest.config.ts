@@ -1,12 +1,11 @@
 import { defineConfig } from 'vitest/config';
-import tsconfigPaths from 'vite-tsconfig-paths';
 
 import { requireEnvFileValue } from './vitest.env.js';
 
 export default defineConfig({
   // Resolves the path aliases declared in tsconfig.json, including the ones
-  // added by `nest g library`.
-  plugins: [tsconfigPaths()],
+  // added by `nest g library` - native since Vite 6, so no plugin needed.
+  resolve: { tsconfigPaths: true },
   test: {
     globals: true,
     root: './',
