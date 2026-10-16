@@ -162,12 +162,6 @@ export class RealtimeGateway
     }
   }
 
-  // Client-initiated RTT probe (see ../../cchess's useConnectionLatency) -
-  // Engine.IO's own heartbeat is server-initiated, so it can't be read as a
-  // round-trip sample. The client sends its own timestamp via an ack
-  // callback (socket.timeout(ms).emit('ping', Date.now(), cb)); echoing it
-  // back is all an ack-based RTT measurement needs - returning a non-nil
-  // value here is what makes Nest invoke the client's ack callback at all.
   @SubscribeMessage(WS_EVENTS.PING)
   onPing(@MessageBody() clientTime: number): number {
     return clientTime;
