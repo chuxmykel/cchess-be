@@ -22,6 +22,7 @@ import {
   fromWireMove,
   toWireGame,
   toWireMove,
+  wireToVoid,
 } from '../cluster/cluster-wire.js';
 import { GAMES_RPC } from '../cluster/rpc-channels.js';
 import { KeyedMutex } from '../common/keyed-mutex.js';
@@ -84,6 +85,22 @@ function scoreFor(
 
 function roundedChange(before: Glicko2Rating, after: Glicko2Rating): number {
   return Math.round(after.rating) - Math.round(before.rating);
+}
+
+function gameWithMovesFromWire(wire: {
+  game: Record<string, unknown>;
+  moves: Record<string, unknown>[];
+}): Game {
+  const game = fromWireGame(wire.game);
+  game.moves = wire.moves.map(fromWireMove);
+  return game;
+}
+
+function applyMoveFromWire(wire: {
+  game: Record<string, unknown>;
+  move: Record<string, unknown>;
+}): { game: Game; move: Move } {
+  return { game: fromWireGame(wire.game), move: fromWireMove(wire.move) };
 }
 
 @Injectable()
@@ -388,19 +405,9 @@ export class GamesService implements OnModuleDestroy {
       gameId,
       GAMES_RPC.GET_WITH_MOVES,
       { gameId },
-      // eslint-disable-next-line typescript/unbound-method
-      this.gameWithMovesFromWire,
+      gameWithMovesFromWire,
       this.getGameWithMovesLocal.bind(this, gameId),
     );
-  }
-
-  private gameWithMovesFromWire(wire: {
-    game: Record<string, unknown>;
-    moves: Record<string, unknown>[];
-  }): Game {
-    const game = fromWireGame(wire.game);
-    game.moves = wire.moves.map(fromWireMove);
-    return game;
   }
 
   private async getGameWithMovesLocal(gameId: string): Promise<Game> {
@@ -476,17 +483,9 @@ export class GamesService implements OnModuleDestroy {
       gameId,
       GAMES_RPC.APPLY_MOVE,
       { gameId, userId, from, to, promotion },
-      // eslint-disable-next-line typescript/unbound-method
-      this.applyMoveFromWire,
+      applyMoveFromWire,
       this.applyMoveLocal.bind(this, gameId, userId, from, to, promotion),
     );
-  }
-
-  private applyMoveFromWire(wire: {
-    game: Record<string, unknown>;
-    move: Record<string, unknown>;
-  }): { game: Game; move: Move } {
-    return { game: fromWireGame(wire.game), move: fromWireMove(wire.move) };
   }
 
   private async applyMoveLocal(
@@ -891,14 +890,9 @@ export class GamesService implements OnModuleDestroy {
       gameId,
       GAMES_RPC.FORFEIT_BY_ABANDONMENT,
       { gameId, userId },
-      // eslint-disable-next-line typescript/unbound-method
-      this.wireToVoid,
+      wireToVoid,
       this.forfeitByAbandonmentLocal.bind(this, gameId, userId),
     );
-  }
-
-  private wireToVoid(): undefined {
-    return undefined;
   }
 
   private forfeitByAbandonmentLocal(
