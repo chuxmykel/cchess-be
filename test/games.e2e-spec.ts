@@ -55,6 +55,7 @@ describe('Games via challenges (e2e)', () => {
     expect(accepted.body.black.username).toBe(judy.username);
     expect(accepted.body.white.rating).toBe(STARTING_RATING);
     expect(accepted.body.black.rating).toBe(STARTING_RATING);
+    expect(accepted.body.black.provisional).toBe(true);
 
     await request(app.getHttpServer())
       .post(`/games/${gameId}/moves`)

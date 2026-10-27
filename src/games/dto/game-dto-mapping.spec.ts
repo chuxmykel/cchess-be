@@ -30,6 +30,8 @@ function makeFinishedGame(overrides: Partial<Game> = {}): Game {
     rated: true,
     whiteRatingAtStart: 1620,
     blackRatingAtStart: 1480,
+    whiteDeviationAtStart: 60,
+    blackDeviationAtStart: 200,
     whiteRatingDiff: -12,
     blackRatingDiff: 12,
     status: 'completed',
@@ -63,10 +65,23 @@ describe('toGameStateDto', () => {
     expect(dto.blackRatingDiff).toBe(12);
   });
 
+  it('marks a rating that was still uncertain as provisional', () => {
+    const dto = toGameStateDto(makeFinishedGame());
+
+    expect(dto.white.provisional).toBe(false);
+    expect(dto.black.provisional).toBe(true);
+  });
+
   it('leaves a guest without a rating', () => {
-    const dto = toGameStateDto(makeFinishedGame({ blackRatingAtStart: null }));
+    const dto = toGameStateDto(
+      makeFinishedGame({
+        blackRatingAtStart: null,
+        blackDeviationAtStart: null,
+      }),
+    );
 
     expect(dto.black.rating).toBeNull();
+    expect(dto.black.provisional).toBe(false);
   });
 });
 
@@ -75,6 +90,7 @@ describe('toGameSummaryDto', () => {
     const dto = toGameSummaryDto(makeFinishedGame(), WHITE.id);
 
     expect(dto.opponentRating).toBe(1480);
+    expect(dto.opponentProvisional).toBe(true);
     expect(dto.ratingDiff).toBe(-12);
   });
 
@@ -82,6 +98,7 @@ describe('toGameSummaryDto', () => {
     const dto = toGameSummaryDto(makeFinishedGame(), BLACK.id);
 
     expect(dto.opponentRating).toBe(1620);
+    expect(dto.opponentProvisional).toBe(false);
     expect(dto.ratingDiff).toBe(12);
   });
 

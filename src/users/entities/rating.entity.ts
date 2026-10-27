@@ -17,7 +17,11 @@ import { User } from './user.entity.js';
 export const STARTING_RATING = 1500;
 export const STARTING_DEVIATION = 350;
 export const STARTING_VOLATILITY = 0.06;
+export const PROVISIONAL_DEVIATION = 110;
 
+export function isProvisional(deviation: number | null): boolean {
+  return deviation !== null && deviation > PROVISIONAL_DEVIATION;
+}
 
 @Entity('ratings')
 @Index(['user', 'category'], { unique: true })
