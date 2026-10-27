@@ -9,7 +9,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { DOMAIN_EVENTS } from '../common/events.js';
+import { GamesService } from '../games/games.service.js';
+import { PresenceService } from '../presence/presence.service.js';
+import type { User } from '../users/entities/user.entity.js';
 import { UsersService } from '../users/users.service.js';
+import {
+  type FriendDto,
+  type FriendRequestDto,
+  toFriendDto,
+} from './dto/friend.dto.js';
 import { Friendship } from './entities/friendship.entity.js';
 
 export interface FriendRequestEvent {
@@ -22,8 +30,78 @@ export class FriendsService {
     @InjectRepository(Friendship)
     private readonly friendships: Repository<Friendship>,
     private readonly usersService: UsersService,
+    private readonly gamesService: GamesService,
+    private readonly presenceService: PresenceService,
     private readonly events: EventEmitter2,
   ) {}
+
+  /** Users as FriendDtos: whether they're online or playing, and ratings. */
+  async describe(users: User[]): Promise<FriendDto[]> {
+    const ids = users.map((user) => user.id);
+    const [online, playing, ratings] = await Promise.all([
+      this.presenceService.onlineUserIds(ids),
+      this.gamesService.activeGameIdsFor(ids),
+      this.usersService.getRatingsForUsers(ids),
+    ]);
+    return users.map((user) =>
+      toFriendDto(user, {
+        online: online.has(user.id),
+        playingGameId: playing.get(user.id) ?? null,
+        ratings: ratings.get(user.id) ?? [],
+      }),
+    );
+  }
+
+  async describeRequests(
+    requests: Friendship[],
+    otherUser: (request: Friendship) => User,
+  ): Promise<FriendRequestDto[]> {
+    const users = await this.describe(requests.map(otherUser));
+    return requests.map((request, index) => ({
+      id: request.id,
+      user: users[index],
+      createdAt: request.createdAt,
+    }));
+  }
+
+  async describeIncomingRequest(
+    friendship: Friendship,
+  ): Promise<FriendRequestDto> {
+    const requester = await this.usersService.findByIdOrThrow(
+      friendship.requesterId,
+    );
+    const [request] = await this.describeRequests(
+      [friendship],
+      () => requester,
+    );
+    return request;
+  }
+
+  async areFriends(userAId: string, userBId: string): Promise<boolean> {
+    const friendship = await this.findBetween(userAId, userBId);
+    return friendship?.status === 'accepted';
+  }
+
+  /** The friendship or request between two users, if there is one. */
+  findBetweenUsers(
+    userAId: string,
+    userBId: string,
+  ): Promise<Friendship | null> {
+    return this.findBetween(userAId, userBId);
+  }
+
+  async friendIds(userId: string): Promise<string[]> {
+    const rows = await this.friendships.find({
+      select: { requesterId: true, addresseeId: true },
+      where: [
+        { requesterId: userId, status: 'accepted' },
+        { addresseeId: userId, status: 'accepted' },
+      ],
+    });
+    return rows.map((row) =>
+      row.requesterId === userId ? row.addresseeId : row.requesterId,
+    );
+  }
 
   private async findBetween(
     userAId: string,
@@ -112,10 +190,12 @@ export class FriendsService {
     request.status = accept ? 'accepted' : 'declined';
     request.respondedAt = new Date();
     const saved = await this.friendships.save(request);
-    if (accept)
-      this.events.emit(DOMAIN_EVENTS.FRIEND_REQUEST_ACCEPTED, {
-        friendship: saved,
-      } satisfies FriendRequestEvent);
+    this.events.emit(
+      accept
+        ? DOMAIN_EVENTS.FRIEND_REQUEST_ACCEPTED
+        : DOMAIN_EVENTS.FRIEND_REQUEST_DECLINED,
+      { friendship: saved } satisfies FriendRequestEvent,
+    );
     return saved;
   }
 
@@ -131,6 +211,9 @@ export class FriendsService {
       throw new NotFoundException('Friend request not found');
     }
     await this.friendships.softRemove(request);
+    this.events.emit(DOMAIN_EVENTS.FRIEND_REQUEST_CANCELLED, {
+      friendship: request,
+    } satisfies FriendRequestEvent);
   }
 
   async removeFriend(userId: string, friendUsername: string): Promise<void> {
@@ -141,9 +224,12 @@ export class FriendsService {
       throw new NotFoundException('Not friends with this user');
     }
     await this.friendships.softRemove(existing);
+    this.events.emit(DOMAIN_EVENTS.FRIEND_REMOVED, {
+      friendship: existing,
+    } satisfies FriendRequestEvent);
   }
 
-  async listFriends(userId: string) {
+  async listFriends(userId: string): Promise<User[]> {
     const rows = await this.friendships.find({
       where: [
         { requesterId: userId, status: 'accepted' },

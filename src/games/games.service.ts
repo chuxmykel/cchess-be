@@ -13,7 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { PieceSymbol, Square } from 'chess.js';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 
 import { ClusterBus } from '../cluster/cluster-bus.js';
 import { isMine, ownerIndex } from '../cluster/cluster.util.js';
@@ -388,6 +388,24 @@ export class GamesService implements OnModuleDestroy {
 
   countActiveGames(): Promise<number> {
     return this.games.count({ where: { status: 'active' } });
+  }
+
+  /** Each of these users' game in progress, keyed by user id. */
+  async activeGameIdsFor(userIds: string[]): Promise<Map<string, string>> {
+    if (userIds.length === 0) return new Map();
+    const games = await this.games.find({
+      select: { id: true, whiteId: true, blackId: true },
+      where: [
+        { status: 'active', whiteId: In(userIds) },
+        { status: 'active', blackId: In(userIds) },
+      ],
+    });
+    const byUser = new Map<string, string>();
+    for (const game of games) {
+      byUser.set(game.whiteId, game.id);
+      byUser.set(game.blackId, game.id);
+    }
+    return byUser;
   }
 
   async getGameWithMoves(gameId: string): Promise<Game> {

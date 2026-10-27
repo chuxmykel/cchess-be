@@ -14,6 +14,9 @@ import { typeOrmModule } from './database/typeorm.module.js';
 import { FriendsModule } from './friends/friends.module.js';
 import { GamesModule } from './games/games.module.js';
 import { MatchmakingModule } from './matchmaking/matchmaking.module.js';
+import { MessagesModule } from './messages/messages.module.js';
+import { PresenceModule } from './presence/presence.module.js';
+import { ProfilesModule } from './profiles/profiles.module.js';
 import { RealtimeModule } from './realtime/realtime.module.js';
 import { UsersModule } from './users/users.module.js';
 
@@ -22,10 +25,14 @@ import { UsersModule } from './users/users.module.js';
     ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
     EventEmitterModule.forRoot(),
     ClusterModule,
+    PresenceModule,
     typeOrmModule,
     AuthModule,
     UsersModule,
+    // After UsersModule, so GET /users/me is matched before /users/:username.
+    ProfilesModule,
     FriendsModule,
+    MessagesModule,
     GamesModule,
     MatchmakingModule,
     ChallengesModule,

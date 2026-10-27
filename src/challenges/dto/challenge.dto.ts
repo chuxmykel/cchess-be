@@ -1,5 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
 
+import {
+  classifyTimeControl,
+  type GameType,
+} from '../../chess/time-control.js';
+import type { User } from '../../users/entities/user.entity.js';
+import { challengeExpiresAt } from '../challenge-expiry.js';
+
 import type {
   Challenge,
   ChallengeStatus,
@@ -15,6 +22,9 @@ export class ChallengeUserDto {
 
   @ApiProperty()
   displayName!: string;
+
+  @ApiProperty()
+  avatarColor!: string;
 }
 
 export class ChallengeDto {
@@ -33,10 +43,18 @@ export class ChallengeDto {
   @ApiProperty()
   incrementSeconds!: number;
 
+  @ApiProperty({ enum: ['bullet', 'blitz', 'rapid', 'classical'] })
+  gameType!: GameType;
+
+  @ApiProperty()
+  rated!: boolean;
+
   @ApiProperty({ enum: ['white', 'black', 'random'] })
   challengerColor!: ColorPreference;
 
-  @ApiProperty({ enum: ['pending', 'accepted', 'declined', 'cancelled'] })
+  @ApiProperty({
+    enum: ['pending', 'accepted', 'declined', 'cancelled', 'expired'],
+  })
   status!: ChallengeStatus;
 
   @ApiProperty({ nullable: true })
@@ -44,26 +62,33 @@ export class ChallengeDto {
 
   @ApiProperty()
   createdAt!: Date;
+
+  @ApiProperty({ description: 'When an unanswered challenge expires' })
+  expiresAt!: Date;
+}
+
+function toChallengeUserDto(user: User): ChallengeUserDto {
+  return {
+    id: user.id,
+    username: user.username,
+    displayName: user.displayName,
+    avatarColor: user.avatarColor,
+  };
 }
 
 export function toChallengeDto(challenge: Challenge): ChallengeDto {
   return {
     id: challenge.id,
-    challenger: {
-      id: challenge.challenger.id,
-      username: challenge.challenger.username,
-      displayName: challenge.challenger.displayName,
-    },
-    opponent: {
-      id: challenge.opponent.id,
-      username: challenge.opponent.username,
-      displayName: challenge.opponent.displayName,
-    },
+    challenger: toChallengeUserDto(challenge.challenger),
+    opponent: toChallengeUserDto(challenge.opponent),
     minutes: challenge.minutes,
     incrementSeconds: challenge.incrementSeconds,
+    gameType: classifyTimeControl(challenge),
+    rated: challenge.rated,
     challengerColor: challenge.challengerColor,
     status: challenge.status,
     gameId: challenge.gameId,
     createdAt: challenge.createdAt,
+    expiresAt: challengeExpiresAt(challenge),
   };
 }

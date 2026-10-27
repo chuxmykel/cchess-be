@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryFailedError, Repository } from 'typeorm';
+import { In, QueryFailedError, Repository } from 'typeorm';
 
 import type { GameType } from '../chess/time-control.js';
 import {
@@ -228,6 +228,14 @@ export class UsersService {
 
   async getRatings(userId: string): Promise<Rating[]> {
     return this.ratings.find({ where: { userId } });
+  }
+
+  async getRatingsForUsers(userIds: string[]): Promise<Map<string, Rating[]>> {
+    const byUser = new Map<string, Rating[]>(userIds.map((id) => [id, []]));
+    if (userIds.length === 0) return byUser;
+    const rows = await this.ratings.find({ where: { userId: In(userIds) } });
+    for (const row of rows) byUser.get(row.userId)?.push(row);
+    return byUser;
   }
 
   async getRatingsByUsername(username: string): Promise<Rating[]> {

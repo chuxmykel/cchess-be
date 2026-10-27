@@ -2,23 +2,28 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  GoneException,
   Injectable,
   NotFoundException,
+  type OnModuleDestroy,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { MoreThan, Repository } from 'typeorm';
 
 import { isValidTimeControl, type TimeControl } from '../chess/time-control.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
+import { FriendsService } from '../friends/friends.service.js';
 import { Game } from '../games/entities/game.entity.js';
 import { GamesService } from '../games/games.service.js';
 import { UsersService } from '../users/users.service.js';
 import type { User } from '../users/entities/user.entity.js';
 import {
   Challenge,
+  type ChallengeStatus,
   type ColorPreference,
 } from './entities/challenge.entity.js';
+import { challengeTtlMs, isChallengeExpired } from './challenge-expiry.js';
 
 const RELATIONS = { challenger: true, opponent: true } as const;
 
@@ -33,21 +38,33 @@ export interface ChallengeResolvedEvent {
   challenge: Challenge;
 }
 
+export interface ChallengeOptions {
+  color?: ColorPreference;
+  rated?: boolean;
+}
+
 @Injectable()
-export class ChallengesService {
+export class ChallengesService implements OnModuleDestroy {
+  private readonly expiryTimers = new Map<string, NodeJS.Timeout>();
+
   constructor(
     @InjectRepository(Challenge)
     private readonly challenges: Repository<Challenge>,
     private readonly usersService: UsersService,
     private readonly gamesService: GamesService,
+    private readonly friendsService: FriendsService,
     private readonly events: EventEmitter2,
   ) {}
+
+  onModuleDestroy(): void {
+    for (const timer of this.expiryTimers.values()) clearTimeout(timer);
+  }
 
   async create(
     challenger: User,
     opponentUsername: string,
     tc: TimeControl,
-    color: ColorPreference = 'random',
+    { color = 'random', rated = true }: ChallengeOptions = {},
   ): Promise<Challenge> {
     if (!isValidTimeControl(tc))
       throw new BadRequestException('Invalid time control');
@@ -56,6 +73,10 @@ export class ChallengesService {
     if (!opponent) throw new NotFoundException('User not found');
     if (opponent.id === challenger.id)
       throw new BadRequestException("You can't challenge yourself");
+    if (!(await this.friendsService.areFriends(challenger.id, opponent.id)))
+      throw new ForbiddenException('You can only challenge friends');
+
+    await this.cancelPendingBetween(challenger.id, opponent.id);
 
     const challenge = await this.challenges.save(
       this.challenges.create({
@@ -66,15 +87,78 @@ export class ChallengesService {
         minutes: tc.minutes,
         incrementSeconds: tc.incrementSeconds,
         challengerColor: color,
+        rated,
         status: 'pending',
         gameId: null,
       }),
     );
 
+    this.scheduleExpiry(challenge.id);
     this.events.emit(DOMAIN_EVENTS.CHALLENGE_CREATED, {
       challenge,
     } satisfies ChallengeCreatedEvent);
     return challenge;
+  }
+
+  private async cancelPendingBetween(
+    challengerId: string,
+    opponentId: string,
+  ): Promise<void> {
+    const pending = await this.challenges.find({
+      where: { challengerId, opponentId, status: 'pending' },
+      relations: RELATIONS,
+    });
+    for (const challenge of pending) {
+      await this.resolve(
+        challenge,
+        'cancelled',
+        DOMAIN_EVENTS.CHALLENGE_CANCELLED,
+      );
+    }
+  }
+
+  private scheduleExpiry(challengeId: string): void {
+    const timer = setTimeout(() => {
+      this.expiryTimers.delete(challengeId);
+      void this.expireIfPending(challengeId);
+    }, challengeTtlMs());
+    timer.unref?.();
+    this.expiryTimers.set(challengeId, timer);
+  }
+
+  private async expireIfPending(challengeId: string): Promise<void> {
+    const challenge = await this.challenges.findOne({
+      where: { id: challengeId },
+      relations: RELATIONS,
+    });
+    if (challenge?.status === 'pending') {
+      await this.resolve(challenge, 'expired', DOMAIN_EVENTS.CHALLENGE_EXPIRED);
+    }
+  }
+
+  private async resolve(
+    challenge: Challenge,
+    status: Exclude<ChallengeStatus, 'pending' | 'accepted'>,
+    event: string,
+  ): Promise<Challenge> {
+    const timer = this.expiryTimers.get(challenge.id);
+    if (timer) clearTimeout(timer);
+    this.expiryTimers.delete(challenge.id);
+    challenge.status = status;
+    challenge.respondedAt = new Date();
+    await this.challenges.save(challenge);
+    this.events.emit(event, { challenge } satisfies ChallengeResolvedEvent);
+    return challenge;
+  }
+
+  /** Throws unless the challenge is still waiting for an answer. */
+  private async assertPending(challenge: Challenge): Promise<void> {
+    if (challenge.status !== 'pending')
+      throw new ConflictException('Challenge already resolved');
+    if (isChallengeExpired(challenge)) {
+      await this.resolve(challenge, 'expired', DOMAIN_EVENTS.CHALLENGE_EXPIRED);
+      throw new GoneException('Challenge expired');
+    }
   }
 
   async accept(
@@ -84,8 +168,7 @@ export class ChallengesService {
     const challenge = await this.getOrThrow(challengeId);
     if (challenge.opponentId !== userId)
       throw new ForbiddenException('Not your challenge to accept');
-    if (challenge.status !== 'pending')
-      throw new ConflictException('Challenge already resolved');
+    await this.assertPending(challenge);
 
     const challengerWhite =
       challenge.challengerColor === 'random'
@@ -102,9 +185,12 @@ export class ChallengesService {
         minutes: challenge.minutes,
         incrementSeconds: challenge.incrementSeconds,
       },
-      true,
+      challenge.rated,
     );
 
+    const timer = this.expiryTimers.get(challenge.id);
+    if (timer) clearTimeout(timer);
+    this.expiryTimers.delete(challenge.id);
     challenge.status = 'accepted';
     challenge.gameId = game.id;
     challenge.respondedAt = new Date();
@@ -121,37 +207,29 @@ export class ChallengesService {
     const challenge = await this.getOrThrow(challengeId);
     if (challenge.opponentId !== userId)
       throw new ForbiddenException('Not your challenge to decline');
-    if (challenge.status !== 'pending')
-      throw new ConflictException('Challenge already resolved');
-
-    challenge.status = 'declined';
-    challenge.respondedAt = new Date();
-    await this.challenges.save(challenge);
-    this.events.emit(DOMAIN_EVENTS.CHALLENGE_DECLINED, {
+    await this.assertPending(challenge);
+    return this.resolve(
       challenge,
-    } satisfies ChallengeResolvedEvent);
-    return challenge;
+      'declined',
+      DOMAIN_EVENTS.CHALLENGE_DECLINED,
+    );
   }
 
   async cancel(userId: string, challengeId: string): Promise<Challenge> {
     const challenge = await this.getOrThrow(challengeId);
     if (challenge.challengerId !== userId)
       throw new ForbiddenException('Not your challenge to cancel');
-    if (challenge.status !== 'pending')
-      throw new ConflictException('Challenge already resolved');
-
-    challenge.status = 'cancelled';
-    challenge.respondedAt = new Date();
-    await this.challenges.save(challenge);
-    this.events.emit(DOMAIN_EVENTS.CHALLENGE_CANCELLED, {
+    await this.assertPending(challenge);
+    return this.resolve(
       challenge,
-    } satisfies ChallengeResolvedEvent);
-    return challenge;
+      'cancelled',
+      DOMAIN_EVENTS.CHALLENGE_CANCELLED,
+    );
   }
 
   async listIncoming(userId: string): Promise<Challenge[]> {
     return this.challenges.find({
-      where: { opponentId: userId, status: 'pending' },
+      where: { opponentId: userId, status: 'pending', ...this.unexpired() },
       relations: RELATIONS,
       order: { createdAt: 'DESC' },
     });
@@ -159,10 +237,14 @@ export class ChallengesService {
 
   async listOutgoing(userId: string): Promise<Challenge[]> {
     return this.challenges.find({
-      where: { challengerId: userId, status: 'pending' },
+      where: { challengerId: userId, status: 'pending', ...this.unexpired() },
       relations: RELATIONS,
       order: { createdAt: 'DESC' },
     });
+  }
+
+  private unexpired() {
+    return { createdAt: MoreThan(new Date(Date.now() - challengeTtlMs())) };
   }
 
   private async getOrThrow(id: string): Promise<Challenge> {

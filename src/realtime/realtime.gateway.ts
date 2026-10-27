@@ -32,15 +32,22 @@ import {
 } from '../games/game-chat.service.js';
 import { toChatMessageDto } from '../games/dto/chat-message.dto.js';
 import { firstMoveDeadline } from '../games/first-move.js';
-import type { FriendRequestEvent } from '../friends/friends.service.js';
+import {
+  FriendsService,
+  type FriendRequestEvent,
+} from '../friends/friends.service.js';
 import { MatchmakingService } from '../matchmaking/matchmaking.service.js';
+import { toDirectMessageDto } from '../messages/dto/direct-message.dto.js';
+import type { DirectMessageEvent } from '../messages/messages.service.js';
+import { PresenceService, userRoom } from '../presence/presence.service.js';
 import type { SeekRequest } from '../matchmaking/seek-matching.js';
 import { UsersService } from '../users/users.service.js';
 import type { AuthenticatedUser } from '../auth/types.js';
 import { verifySocketToken } from './ws-auth.util.js';
 
-function userRoom(userId: string): string {
-  return `user:${userId}`;
+/** Sockets watching a game they aren't playing in. */
+function watchRoom(gameId: string): string {
+  return `game:${gameId}:watch`;
 }
 
 /** Sockets with a seek waiting for an opponent, who get `lobby:stats`. */
@@ -108,6 +115,9 @@ export class RealtimeGateway
   private readonly logger = new Logger(RealtimeGateway.name);
   private readonly abandonmentTimers = new Map<string, NodeJS.Timeout>();
   private lobbyStatsTimer: NodeJS.Timeout | null = null;
+  // Nest closes the database before the sockets on shutdown, so the
+  // disconnects that follow have nothing left to record.
+  private shuttingDown = false;
 
   @WebSocketServer()
   server!: Server;
@@ -119,9 +129,12 @@ export class RealtimeGateway
     private readonly gameChatService: GameChatService,
     private readonly matchmakingService: MatchmakingService,
     private readonly usersService: UsersService,
+    private readonly friendsService: FriendsService,
+    private readonly presenceService: PresenceService,
   ) {}
 
   afterInit(): void {
+    this.presenceService.attach(this.server);
     if (CLUSTERING_ENABLED && WORKER_INDEX !== LOBBY_STATS_WORKER) return;
     this.lobbyStatsTimer = setInterval(() => {
       void this.sendLobbyStats().catch((error) => {
@@ -132,6 +145,7 @@ export class RealtimeGateway
   }
 
   onModuleDestroy(): void {
+    this.shuttingDown = true;
     if (this.lobbyStatsTimer) clearInterval(this.lobbyStatsTimer);
   }
 
@@ -163,6 +177,10 @@ export class RealtimeGateway
       (socket.data as SocketData).joinedGames = new Map();
       await socket.join(userRoom(user.userId));
       await this.usersService.touchLastSeen(user.userId);
+      const sockets = await this.server
+        .in(userRoom(user.userId))
+        .fetchSockets();
+      if (sockets.length === 1) await this.sendFriendStatus(user.userId);
       this.logger.debug(
         `socket connected: ${socket.id} (user ${user.username})`,
       );
@@ -174,14 +192,12 @@ export class RealtimeGateway
     }
   }
 
-  handleDisconnect(socket: Socket): void {
+  async handleDisconnect(socket: Socket): Promise<void> {
     const data = socket.data as Partial<SocketData>;
-    if (!data.user) return;
+    if (!data.user || this.shuttingDown) return;
 
     const userId = data.user.userId;
-    const stillConnectedElsewhere =
-      (this.server.sockets.adapter.rooms.get(userRoom(userId))?.size ?? 0) > 0;
-    if (stillConnectedElsewhere) return;
+    if (await this.presenceService.isOnline(userId)) return;
 
     this.matchmakingService.cancelSeek(userId);
 
@@ -191,6 +207,29 @@ export class RealtimeGateway
     for (const [gameId, opponentId] of data.joinedGames ?? []) {
       this.scheduleAbandonmentForfeit(gameId, userId, graceMs);
       this.sendPresence(opponentId, gameId, userId, false);
+    }
+    await this.usersService.touchLastSeen(userId);
+    await this.sendFriendStatus(userId);
+  }
+
+  /** Tells the user's friends whether they're online and playing. */
+  private async sendFriendStatus(userId: string): Promise<void> {
+    try {
+      const friendIds = await this.friendsService.friendIds(userId);
+      if (friendIds.length === 0) return;
+      const [online, playing] = await Promise.all([
+        this.presenceService.isOnline(userId),
+        this.gamesService.activeGameIdsFor([userId]),
+      ]);
+      this.server.to(friendIds.map(userRoom)).emit(WS_EVENTS.FRIEND_STATUS, {
+        userId,
+        online,
+        playingGameId: playing.get(userId) ?? null,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `friend status for ${userId} failed: ${(error as Error).message}`,
+      );
     }
   }
 
@@ -237,11 +276,6 @@ export class RealtimeGateway
       .emit(WS_EVENTS.GAME_PRESENCE, { gameId, userId, online });
   }
 
-  private async isConnected(userId: string): Promise<boolean> {
-    const sockets = await this.server.in(userRoom(userId)).fetchSockets();
-    return sockets.length > 0;
-  }
-
   @SubscribeMessage(WS_EVENTS.PING)
   onPing(@MessageBody() clientTime: number): number {
     return clientTime;
@@ -265,8 +299,33 @@ export class RealtimeGateway
     socket.emit(WS_EVENTS.GAME_PRESENCE, {
       gameId: payload.gameId,
       userId: opponentId,
-      online: await this.isConnected(opponentId),
+      online: await this.presenceService.isOnline(opponentId),
     });
+  }
+
+  @SubscribeMessage(WS_EVENTS.GAME_WATCH)
+  async onWatchGame(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() payload: { gameId: string },
+  ) {
+    await this.runGameAction(
+      socket,
+      WS_EVENTS.GAME_WATCH,
+      payload.gameId,
+      async () => {
+        const game = await this.gamesService.getGameWithMoves(payload.gameId);
+        await socket.join(watchRoom(payload.gameId));
+        socket.emit(WS_EVENTS.GAME_STATE, toGameStateDto(game));
+      },
+    );
+  }
+
+  @SubscribeMessage(WS_EVENTS.GAME_UNWATCH)
+  async onUnwatchGame(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() payload: { gameId: string },
+  ) {
+    await socket.leave(watchRoom(payload.gameId));
   }
 
   @SubscribeMessage(WS_EVENTS.GAME_LEAVE)
@@ -460,6 +519,8 @@ export class RealtimeGateway
       .to(userRoom(game.whiteId))
       .to(userRoom(game.blackId))
       .emit(WS_EVENTS.GAME_CREATED, dto);
+    void this.sendFriendStatus(game.whiteId);
+    void this.sendFriendStatus(game.blackId);
   }
 
   @OnEvent(DOMAIN_EVENTS.GAME_MOVE)
@@ -467,6 +528,7 @@ export class RealtimeGateway
     this.server
       .to(userRoom(game.whiteId))
       .to(userRoom(game.blackId))
+      .to(watchRoom(game.id))
       .emit(WS_EVENTS.GAME_MOVE, {
         gameId: game.id,
         move: toMoveDto(move),
@@ -483,7 +545,10 @@ export class RealtimeGateway
     this.server
       .to(userRoom(game.whiteId))
       .to(userRoom(game.blackId))
+      .to(watchRoom(game.id))
       .emit(WS_EVENTS.GAME_OVER, toGameStateDto(game));
+    void this.sendFriendStatus(game.whiteId);
+    void this.sendFriendStatus(game.blackId);
   }
 
   @OnEvent(DOMAIN_EVENTS.GAME_DRAW_OFFERED)
@@ -531,6 +596,7 @@ export class RealtimeGateway
   // a single dotted event name, not as a list of events.
   @OnEvent(DOMAIN_EVENTS.CHALLENGE_DECLINED)
   @OnEvent(DOMAIN_EVENTS.CHALLENGE_CANCELLED)
+  @OnEvent(DOMAIN_EVENTS.CHALLENGE_EXPIRED)
   onChallengeResolved({ challenge }: ChallengeResolvedEvent) {
     this.server
       .to(userRoom(challenge.challengerId))
@@ -539,13 +605,12 @@ export class RealtimeGateway
   }
 
   @OnEvent(DOMAIN_EVENTS.FRIEND_REQUEST_CREATED)
-  onFriendRequestCreated({ friendship }: FriendRequestEvent) {
+  async onFriendRequestCreated({ friendship }: FriendRequestEvent) {
+    const request =
+      await this.friendsService.describeIncomingRequest(friendship);
     this.server
       .to(userRoom(friendship.addresseeId))
-      .emit(WS_EVENTS.FRIEND_REQUEST_RECEIVED, {
-        id: friendship.id,
-        from: friendship.requesterId,
-      });
+      .emit(WS_EVENTS.FRIEND_REQUEST_RECEIVED, request);
   }
 
   @OnEvent(DOMAIN_EVENTS.FRIEND_REQUEST_ACCEPTED)
@@ -554,5 +619,32 @@ export class RealtimeGateway
       .to(userRoom(friendship.requesterId))
       .to(userRoom(friendship.addresseeId))
       .emit(WS_EVENTS.FRIEND_REQUEST_ACCEPTED, { id: friendship.id });
+  }
+
+  @OnEvent(DOMAIN_EVENTS.FRIEND_REQUEST_DECLINED)
+  @OnEvent(DOMAIN_EVENTS.FRIEND_REQUEST_CANCELLED)
+  onFriendRequestResolved({ friendship }: FriendRequestEvent) {
+    this.server
+      .to(userRoom(friendship.requesterId))
+      .to(userRoom(friendship.addresseeId))
+      .emit(WS_EVENTS.FRIEND_REQUEST_RESOLVED, { id: friendship.id });
+  }
+
+  @OnEvent(DOMAIN_EVENTS.FRIEND_REMOVED)
+  onFriendRemoved({ friendship }: FriendRequestEvent) {
+    this.server
+      .to(userRoom(friendship.requesterId))
+      .to(userRoom(friendship.addresseeId))
+      .emit(WS_EVENTS.FRIEND_REMOVED, {
+        userIds: [friendship.requesterId, friendship.addresseeId],
+      });
+  }
+
+  @OnEvent(DOMAIN_EVENTS.DIRECT_MESSAGE_SENT)
+  onDirectMessage({ message }: DirectMessageEvent) {
+    this.server
+      .to(userRoom(message.senderId))
+      .to(userRoom(message.recipientId))
+      .emit(WS_EVENTS.DIRECT_MESSAGE, toDirectMessageDto(message));
   }
 }

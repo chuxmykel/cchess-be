@@ -25,8 +25,13 @@ export const DOMAIN_EVENTS = {
   CHALLENGE_ACCEPTED: 'challenge.accepted',
   CHALLENGE_DECLINED: 'challenge.declined',
   CHALLENGE_CANCELLED: 'challenge.cancelled',
+  CHALLENGE_EXPIRED: 'challenge.expired',
   FRIEND_REQUEST_CREATED: 'friend.requestCreated',
   FRIEND_REQUEST_ACCEPTED: 'friend.requestAccepted',
+  FRIEND_REQUEST_DECLINED: 'friend.requestDeclined',
+  FRIEND_REQUEST_CANCELLED: 'friend.requestCancelled',
+  FRIEND_REMOVED: 'friend.removed',
+  DIRECT_MESSAGE_SENT: 'directMessage.sent',
 } as const;
 
 export const WS_EVENTS = {
@@ -41,6 +46,8 @@ export const WS_EVENTS = {
   GAME_DRAW_RESPOND: 'game:drawRespond',
   GAME_CHAT: 'game:chat',
   GAME_CHAT_HISTORY: 'game:chatHistory',
+  GAME_WATCH: 'game:watch',
+  GAME_UNWATCH: 'game:unwatch',
   MATCHMAKING_SEEK: 'matchmaking:seek',
   MATCHMAKING_CANCEL: 'matchmaking:cancel',
 
@@ -59,4 +66,8 @@ export const WS_EVENTS = {
   CHALLENGE_RESOLVED: 'challenge:resolved',
   FRIEND_REQUEST_RECEIVED: 'friend:requestReceived',
   FRIEND_REQUEST_ACCEPTED: 'friend:requestAccepted',
+  FRIEND_REQUEST_RESOLVED: 'friend:requestResolved',
+  FRIEND_REMOVED: 'friend:removed',
+  FRIEND_STATUS: 'friend:status',
+  DIRECT_MESSAGE: 'dm:message',
 } as const;

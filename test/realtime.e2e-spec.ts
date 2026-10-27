@@ -1,45 +1,14 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { io, type Socket } from 'socket.io-client';
+import { io } from 'socket.io-client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { createListeningTestApp, registerUser } from './utils/app.js';
-
-function connect(baseUrl: string, accessToken: string): Promise<Socket> {
-  return new Promise((resolve, reject) => {
-    const socket = io(baseUrl, {
-      auth: { token: accessToken },
-      transports: ['websocket'],
-      reconnection: false,
-    });
-    const timer = setTimeout(() => reject(new Error('connect timeout')), 5000);
-    socket.once('connect', () => {
-      clearTimeout(timer);
-      resolve(socket);
-    });
-    socket.once('connect_error', (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-  });
-}
-
-function waitForEvent<T = unknown>(
-  socket: Socket,
-  event: string,
-  timeoutMs = 5000,
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(`timed out waiting for "${event}"`)),
-      timeoutMs,
-    );
-    socket.once(event, (payload: T) => {
-      clearTimeout(timer);
-      resolve(payload);
-    });
-  });
-}
+import {
+  createListeningTestApp,
+  makeFriends,
+  registerUser,
+} from './utils/app.js';
+import { connect, waitForEvent } from './utils/socket.js';
 
 describe('Realtime gateway (e2e)', () => {
   let app: INestApplication;
@@ -72,6 +41,7 @@ describe('Realtime gateway (e2e)', () => {
   it('authenticates, joins a game room, and broadcasts moves to both players', async () => {
     const ivan = await registerUser(app, 'ivan_rt');
     const judy = await registerUser(app, 'judy_rt');
+    await makeFriends(app, ivan, judy);
 
     const challenge = await request(app.getHttpServer())
       .post('/challenges')
@@ -149,6 +119,7 @@ describe('Realtime gateway (e2e)', () => {
   it('rejects an illegal move with a game:error event instead of crashing', async () => {
     const kim = await registerUser(app, 'kim_rt');
     const liam = await registerUser(app, 'liam_rt');
+    await makeFriends(app, kim, liam);
 
     const challenge = await request(app.getHttpServer())
       .post('/challenges')
@@ -186,6 +157,7 @@ describe('Realtime gateway (e2e)', () => {
   it('tells each player whether the other is connected', async () => {
     const pia = await registerUser(app, 'pia_rt');
     const quin = await registerUser(app, 'quin_rt');
+    await makeFriends(app, pia, quin);
     const challenge = await request(app.getHttpServer())
       .post('/challenges')
       .set('Authorization', `Bearer ${pia.accessToken}`)
@@ -240,6 +212,7 @@ describe('Realtime gateway (e2e)', () => {
     async function startGame(whiteName: string, blackName: string) {
       const white = await registerUser(app, whiteName);
       const black = await registerUser(app, blackName);
+      await makeFriends(app, white, black);
       const challenge = await request(app.getHttpServer())
         .post('/challenges')
         .set('Authorization', `Bearer ${white.accessToken}`)
