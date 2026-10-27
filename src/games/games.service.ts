@@ -272,7 +272,7 @@ export class GamesService implements OnModuleDestroy {
   ): Promise<Game> {
     const gameType = classifyTimeControl(tc);
     const clockMs = toClockMs(tc);
-    const [whiteRating, blackRating] = await Promise.all([
+    const [whiteRatingAtStart, blackRatingAtStart] = await Promise.all([
       this.ratingAtStart(white, gameType),
       this.ratingAtStart(black, gameType),
     ]);
@@ -287,8 +287,8 @@ export class GamesService implements OnModuleDestroy {
       incrementSeconds: tc.incrementSeconds,
       gameType,
       rated: rated && !white.isGuest && !black.isGuest,
-      whiteRating,
-      blackRating,
+      whiteRatingAtStart,
+      blackRatingAtStart,
       whiteRatingDiff: null,
       blackRatingDiff: null,
       status: 'active',
@@ -1003,16 +1003,10 @@ export class GamesService implements OnModuleDestroy {
       );
     }
 
-    // Worked out before the save so the game row records what it did to
-    // both ratings, then applied to the players' ratings after it.
     const ratingChanges =
       status === 'completed' && game.rated && result
-        ? await this.computeRatingChanges(game, result)
+        ? await this.recordRatingChanges(game, result)
         : null;
-    if (ratingChanges) {
-      game.whiteRatingDiff = ratingChanges.whiteDelta;
-      game.blackRatingDiff = ratingChanges.blackDelta;
-    }
 
     await this.games.save(game);
 
@@ -1023,12 +1017,7 @@ export class GamesService implements OnModuleDestroy {
     this.events.emit(DOMAIN_EVENTS.GAME_ENDED, { game } satisfies GameEvent);
   }
 
-  /**
-   * Rates the game from the ratings its players started it with - the ones
-   * shown beside their names - falling back to their current ratings only
-   * for a game created before those were recorded.
-   */
-  private async computeRatingChanges(
+  private async recordRatingChanges(
     game: Game,
     result: Exclude<GameResult, null>,
   ): Promise<EloUpdateResult> {
@@ -1037,13 +1026,16 @@ export class GamesService implements OnModuleDestroy {
       this.usersService.getOrCreateRating(game.blackId, game.gameType),
     ]);
 
-    return computeGameEloDeltas({
-      whiteRating: game.whiteRating ?? whiteRating.rating,
+    const changes = computeGameEloDeltas({
+      whiteRating: game.whiteRatingAtStart ?? whiteRating.rating,
       whiteGamesPlayed: whiteRating.gamesPlayed,
-      blackRating: game.blackRating ?? blackRating.rating,
+      blackRating: game.blackRatingAtStart ?? blackRating.rating,
       blackGamesPlayed: blackRating.gamesPlayed,
       result,
     });
+    game.whiteRatingDiff = changes.whiteDelta;
+    game.blackRatingDiff = changes.blackDelta;
+    return changes;
   }
 
   private async applyRatingChanges(

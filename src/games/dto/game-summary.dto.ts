@@ -84,7 +84,9 @@ export function toGameSummaryDto(game: Game, viewerId: string): GameSummaryDto {
     resultReason: game.resultReason,
     opponentUsername: opponent.username,
     opponentDisplayName: opponent.displayName,
-    opponentRating: playedAsWhite ? game.blackRating : game.whiteRating,
+    opponentRating: playedAsWhite
+      ? game.blackRatingAtStart
+      : game.whiteRatingAtStart,
     ratingDiff: playedAsWhite ? game.whiteRatingDiff : game.blackRatingDiff,
     playedAsWhite,
     createdAt: game.createdAt,

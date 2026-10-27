@@ -178,8 +178,8 @@ export class InitialSchema1791550933491 implements MigrationInterface {
           { name: 'incrementSeconds', type: 'int' },
           { name: 'gameType', type: 'varchar', length: '16' },
           { name: 'rated', type: 'boolean', default: true },
-          { name: 'whiteRating', type: 'int', isNullable: true },
-          { name: 'blackRating', type: 'int', isNullable: true },
+          { name: 'whiteRatingAtStart', type: 'int', isNullable: true },
+          { name: 'blackRatingAtStart', type: 'int', isNullable: true },
           { name: 'whiteRatingDiff', type: 'int', isNullable: true },
           { name: 'blackRatingDiff', type: 'int', isNullable: true },
           {

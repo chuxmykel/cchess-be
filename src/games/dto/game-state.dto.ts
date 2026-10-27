@@ -168,8 +168,8 @@ export function toMoveDto(move: Move): MoveDto {
 export function toGameStateDto(game: Game): GameStateDto {
   return {
     id: game.id,
-    white: toPlayerDto(game.white, game.whiteRating),
-    black: toPlayerDto(game.black, game.blackRating),
+    white: toPlayerDto(game.white, game.whiteRatingAtStart),
+    black: toPlayerDto(game.black, game.blackRatingAtStart),
     minutes: game.minutes,
     incrementSeconds: game.incrementSeconds,
     gameType: game.gameType,

@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { STARTING_RATING } from '../src/users/entities/rating.entity.js';
 import { createTestApp, registerUser } from './utils/app.js';
 
+const EQUAL_RATINGS_PROVISIONAL_SWING = 20;
+
 describe('Games via challenges (e2e)', () => {
   let app: INestApplication;
 
@@ -74,16 +76,17 @@ describe('Games via challenges (e2e)', () => {
       .expect(200);
     expect(history.body).toHaveLength(1);
     expect(history.body[0].result).toBe('win');
-    // Equal ratings, provisional K-factor: 20 points either way (elo.ts).
     expect(history.body[0].opponentRating).toBe(STARTING_RATING);
-    expect(history.body[0].ratingDiff).toBe(20);
+    expect(history.body[0].ratingDiff).toBe(EQUAL_RATINGS_PROVISIONAL_SWING);
 
     const loserHistory = await request(app.getHttpServer())
       .get('/games')
       .set('Authorization', `Bearer ${ivan.accessToken}`)
       .expect(200);
     expect(loserHistory.body[0].result).toBe('loss');
-    expect(loserHistory.body[0].ratingDiff).toBe(-20);
+    expect(loserHistory.body[0].ratingDiff).toBe(
+      -EQUAL_RATINGS_PROVISIONAL_SWING,
+    );
 
     const pgn = await request(app.getHttpServer())
       .get(`/games/${gameId}/pgn`)

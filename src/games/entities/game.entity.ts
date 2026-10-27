@@ -67,17 +67,12 @@ export class Game {
   @Column({ type: 'boolean', default: true })
   rated!: boolean;
 
-  // Each player's rating in this game's category when it started - null
-  // for guests, who have none. Recorded for casual games too, so a game's
-  // players can always be shown with the ratings they had at the time.
   @Column({ type: 'int', nullable: true })
-  whiteRating!: number | null;
+  whiteRatingAtStart!: number | null;
 
   @Column({ type: 'int', nullable: true })
-  blackRating!: number | null;
+  blackRatingAtStart!: number | null;
 
-  // What a rated, completed game did to each rating - null otherwise
-  // (casual, aborted, or still in progress).
   @Column({ type: 'int', nullable: true })
   whiteRatingDiff!: number | null;
 

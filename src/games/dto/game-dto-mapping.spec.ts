@@ -28,8 +28,8 @@ function makeFinishedGame(overrides: Partial<Game> = {}): Game {
     incrementSeconds: 0,
     gameType: 'blitz',
     rated: true,
-    whiteRating: 1620,
-    blackRating: 1480,
+    whiteRatingAtStart: 1620,
+    blackRatingAtStart: 1480,
     whiteRatingDiff: -12,
     blackRatingDiff: 12,
     status: 'completed',
@@ -64,7 +64,7 @@ describe('toGameStateDto', () => {
   });
 
   it('leaves a guest without a rating', () => {
-    const dto = toGameStateDto(makeFinishedGame({ blackRating: null }));
+    const dto = toGameStateDto(makeFinishedGame({ blackRatingAtStart: null }));
 
     expect(dto.black.rating).toBeNull();
   });

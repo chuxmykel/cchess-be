@@ -126,7 +126,7 @@ access 'X' before initialization` at runtime for any circular entity
   places - a guest simply has no `Rating` row, which is how e.g. a game
   records a null rating for them.
 - **Games record their players' ratings.** `createGame` stores each
-  player's category rating at the start (`whiteRating`/`blackRating`, also
+  player's category rating at the start (`whiteRatingAtStart`/`blackRatingAtStart`, also
   for casual games), and `finalize` stores what a rated, completed game did
   to them (`whiteRatingDiff`/`blackRatingDiff`) on the game row before
   applying it to the `Rating` rows. Elo is computed from those starting
