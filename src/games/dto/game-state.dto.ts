@@ -22,6 +22,14 @@ export class GamePlayerDto {
 
   @ApiProperty()
   avatarColor!: string;
+
+  @ApiProperty({
+    type: Number,
+    nullable: true,
+    description:
+      "The player's rating in this category when the game started; null for guests",
+  })
+  rating!: number | null;
 }
 
 export class MoveDto {
@@ -78,6 +86,20 @@ export class GameStateDto {
   @ApiProperty()
   rated!: boolean;
 
+  @ApiProperty({
+    type: Number,
+    nullable: true,
+    description: "What a rated, completed game did to white's rating",
+  })
+  whiteRatingDiff!: number | null;
+
+  @ApiProperty({
+    type: Number,
+    nullable: true,
+    description: "What a rated, completed game did to black's rating",
+  })
+  blackRatingDiff!: number | null;
+
   @ApiProperty({ enum: ['active', 'completed', 'aborted'] })
   status!: GameStatus;
 
@@ -115,12 +137,16 @@ export class GameStateDto {
   endedAt!: Date | null;
 }
 
-function toPlayerDto(user: Game['white']): GamePlayerDto {
+function toPlayerDto(
+  user: Game['white'],
+  rating: number | null,
+): GamePlayerDto {
   return {
     id: user.id,
     username: user.username,
     displayName: user.displayName,
     avatarColor: user.avatarColor,
+    rating,
   };
 }
 
@@ -142,12 +168,14 @@ export function toMoveDto(move: Move): MoveDto {
 export function toGameStateDto(game: Game): GameStateDto {
   return {
     id: game.id,
-    white: toPlayerDto(game.white),
-    black: toPlayerDto(game.black),
+    white: toPlayerDto(game.white, game.whiteRating),
+    black: toPlayerDto(game.black, game.blackRating),
     minutes: game.minutes,
     incrementSeconds: game.incrementSeconds,
     gameType: game.gameType,
     rated: game.rated,
+    whiteRatingDiff: game.whiteRatingDiff,
+    blackRatingDiff: game.blackRatingDiff,
     status: game.status,
     result: game.result,
     resultReason: game.resultReason,

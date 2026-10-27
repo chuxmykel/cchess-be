@@ -40,6 +40,20 @@ export class GameSummaryDto {
   @ApiProperty()
   opponentDisplayName!: string;
 
+  @ApiProperty({
+    type: Number,
+    nullable: true,
+    description: "The opponent's rating when the game started; null for guests",
+  })
+  opponentRating!: number | null;
+
+  @ApiProperty({
+    type: Number,
+    nullable: true,
+    description: "What the game did to the viewer's rating, if it was rated",
+  })
+  ratingDiff!: number | null;
+
   @ApiProperty()
   playedAsWhite!: boolean;
 
@@ -70,6 +84,8 @@ export function toGameSummaryDto(game: Game, viewerId: string): GameSummaryDto {
     resultReason: game.resultReason,
     opponentUsername: opponent.username,
     opponentDisplayName: opponent.displayName,
+    opponentRating: playedAsWhite ? game.blackRating : game.whiteRating,
+    ratingDiff: playedAsWhite ? game.whiteRatingDiff : game.blackRatingDiff,
     playedAsWhite,
     createdAt: game.createdAt,
     endedAt: game.endedAt,
