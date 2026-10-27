@@ -74,6 +74,12 @@ export class Game {
   blackRatingAtStart!: number | null;
 
   @Column({ type: 'int', nullable: true })
+  whiteDeviationAtStart!: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  blackDeviationAtStart!: number | null;
+
+  @Column({ type: 'int', nullable: true })
   whiteRatingDiff!: number | null;
 
   @Column({ type: 'int', nullable: true })

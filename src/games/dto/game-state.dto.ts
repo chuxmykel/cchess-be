@@ -9,6 +9,7 @@ import type {
   GameStatus,
 } from '../entities/game.entity.js';
 import type { Move } from '../entities/move.entity.js';
+import { isProvisional } from '../../users/entities/rating.entity.js';
 
 export class GamePlayerDto {
   @ApiProperty()
@@ -30,6 +31,12 @@ export class GamePlayerDto {
       "The player's rating in this category when the game started; null for guests",
   })
   rating!: number | null;
+
+  @ApiProperty({
+    description:
+      'Whether that rating was still uncertain (rating deviation above 110)',
+  })
+  provisional!: boolean;
 }
 
 export class MoveDto {
@@ -140,6 +147,7 @@ export class GameStateDto {
 function toPlayerDto(
   user: Game['white'],
   rating: number | null,
+  deviation: number | null,
 ): GamePlayerDto {
   return {
     id: user.id,
@@ -147,6 +155,7 @@ function toPlayerDto(
     displayName: user.displayName,
     avatarColor: user.avatarColor,
     rating,
+    provisional: isProvisional(deviation),
   };
 }
 
@@ -168,8 +177,16 @@ export function toMoveDto(move: Move): MoveDto {
 export function toGameStateDto(game: Game): GameStateDto {
   return {
     id: game.id,
-    white: toPlayerDto(game.white, game.whiteRatingAtStart),
-    black: toPlayerDto(game.black, game.blackRatingAtStart),
+    white: toPlayerDto(
+      game.white,
+      game.whiteRatingAtStart,
+      game.whiteDeviationAtStart,
+    ),
+    black: toPlayerDto(
+      game.black,
+      game.blackRatingAtStart,
+      game.blackDeviationAtStart,
+    ),
     minutes: game.minutes,
     incrementSeconds: game.incrementSeconds,
     gameType: game.gameType,

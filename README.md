@@ -88,11 +88,11 @@ Each domain is its own Nest module under `src/`:
 auth/          Register/login/guest/refresh/logout. Access JWT (short-lived) +
                opaque refresh token (random, stored only as an HMAC hash, rotated
                on every use - see token.util.ts).
-users/         Profile CRUD + per-category Elo ratings (bullet/blitz/rapid/classical).
+users/         Profile CRUD + per-category Glicko-2 ratings (bullet/blitz/rapid/classical).
 friends/       Friend requests as a single self-referencing table with a status
                (pending/accepted/declined), not a separate "friends" table.
 games/         The chess authority: Game/Move entities, GamesService (moves, clocks,
-               resign/draw/abort, PGN export), Elo updates on completion.
+               resign/draw/abort, PGN export), Glicko-2 rating updates on completion.
 matchmaking/   An in-memory seek queue (see "Known limitations" below) that pairs
                players wanting the same time control, nearest rating first.
 challenges/    Direct user-to-user challenges (accept -> creates a Game).
@@ -117,8 +117,8 @@ or the realtime gateway (`game:move`) - goes through the same
 3. Persists the `Move` row and updated `Game` row, then reschedules a
    `setTimeout` flag-fall for whoever's turn it now is.
 4. Checks `chess.js` for checkmate/stalemate/insufficient
-   material/threefold/fifty-move and finalizes the game if so (including Elo
-   updates for rated games, recorded on the game row as each player's
+   material/threefold/fifty-move and finalizes the game if so (including
+   Glicko-2 rating updates for rated games, recorded on the game row as each player's
    rating change alongside the ratings they started with).
 
 A per-game `KeyedMutex` (`src/common/keyed-mutex.ts`) serializes all of

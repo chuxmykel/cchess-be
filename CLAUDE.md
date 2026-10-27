@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project
 
 A real-time chess game server built with NestJS 12 (TypeScript, ESM): auth
-(including guest accounts), user profiles with per-category Elo ratings,
+(including guest accounts), user profiles with per-category Glicko-2 ratings,
 friends, matchmaking, direct challenges, and fully rules-enforced games
 (`chess.js` 1.4.0 - same version as the client) served over REST and a
 Socket.IO gateway. It's the backend for the React Native app at
@@ -125,15 +125,27 @@ access 'X' before initialization` at runtime for any circular entity
   either side is a guest. Don't special-case guests outside of those two
   places - a guest simply has no `Rating` row, which is how e.g. a game
   records a null rating for them.
+- **Ratings are Glicko-2** (`src/games/glicko2.ts`, Glickman's paper
+  linked at its top): each `Rating` row holds a `rating`, a `deviation`
+  (RD, how uncertain it is) and a `volatility`, plus `lastRatedAt`. The
+  paper rates games in batches ("rating periods"); here each rated game is
+  rated on its own as it ends (`rateGame`), with the player's RD first
+  grown for the rating periods (`RATING_PERIOD_DAYS`) since their last
+  rated game, then kept between `MIN_DEVIATION` and the starting 350.
+  `updateRating` is the paper's steps 2-8 unchanged, and is tested against
+  its worked example. A rating is provisional while its RD is above 110
+  (`isProvisional`, next to the `Rating` entity).
 - **Games record their players' ratings.** `createGame` stores each
-  player's category rating at the start (`whiteRatingAtStart`/`blackRatingAtStart`, also
-  for casual games), and `finalize` stores what a rated, completed game did
-  to them (`whiteRatingDiff`/`blackRatingDiff`) on the game row before
-  applying it to the `Rating` rows. Elo is computed from those starting
-  ratings, the ones shown beside the players, not whatever the ratings
-  have become since. They reach clients as `rating` on each player in
-  `GameStateDto` (so `game:state`/`game:created`/`game:over`), the two
-  diffs on it, and `opponentRating`/`ratingDiff` in `GET /games`.
+  player's rounded rating and RD at the start
+  (`white`/`blackRatingAtStart`, `white`/`blackDeviationAtStart`, also for
+  casual games), and `finalize` rates a rated, completed game from the
+  players' current `Rating` rows, storing the change in their rounded
+  ratings (`whiteRatingDiff`/`blackRatingDiff`) on the game row before
+  applying the new ratings. They reach clients as `rating`/`provisional`
+  on each player in `GameStateDto` (so `game:state`/`game:created`/
+  `game:over`), the two diffs on it, `rating`/`provisional` on profile
+  ratings, and `opponentRating`/`opponentProvisional`/`ratingDiff` in
+  `GET /games`.
 - **Matchmaking's seek queue and `GamesService`'s per-game clock
   timers/engine cache are all in-process memory**, not persisted - don't
   assume they survive a restart. Under `CLUSTER_WORKERS > 1` they're made
@@ -282,7 +294,7 @@ two things worth knowing before you add a test:
 Otherwise:
 
 - `src/**/*.spec.ts` - colocated with the code. Pure logic
-  (`time-control.spec.ts`, `elo.spec.ts`, `chess-engine.spec.ts`) needs no
+  (`time-control.spec.ts`, `glicko2.spec.ts`, `chess-engine.spec.ts`) needs no
   DB. `games.service.spec.ts` is an integration test against Postgres, built
   via a local `Test.createTestingModule` (not full `AppModule`) registering
   just the entities it needs.

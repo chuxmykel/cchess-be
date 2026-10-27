@@ -2,10 +2,22 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { STARTING_RATING } from '../src/users/entities/rating.entity.js';
+import { rateGame } from '../src/games/glicko2.js';
+import {
+  STARTING_DEVIATION,
+  STARTING_RATING,
+  STARTING_VOLATILITY,
+} from '../src/users/entities/rating.entity.js';
 import { createTestApp, registerUser } from './utils/app.js';
 
-const EQUAL_RATINGS_PROVISIONAL_SWING = 20;
+const NEW_PLAYER = {
+  rating: STARTING_RATING,
+  deviation: STARTING_DEVIATION,
+  volatility: STARTING_VOLATILITY,
+};
+const NEW_PLAYER_WIN = Math.round(
+  rateGame(NEW_PLAYER, NEW_PLAYER, 1, 1).rating - STARTING_RATING,
+);
 
 describe('Games via challenges (e2e)', () => {
   let app: INestApplication;
@@ -43,6 +55,7 @@ describe('Games via challenges (e2e)', () => {
     expect(accepted.body.black.username).toBe(judy.username);
     expect(accepted.body.white.rating).toBe(STARTING_RATING);
     expect(accepted.body.black.rating).toBe(STARTING_RATING);
+    expect(accepted.body.black.provisional).toBe(true);
 
     await request(app.getHttpServer())
       .post(`/games/${gameId}/moves`)
@@ -77,16 +90,14 @@ describe('Games via challenges (e2e)', () => {
     expect(history.body).toHaveLength(1);
     expect(history.body[0].result).toBe('win');
     expect(history.body[0].opponentRating).toBe(STARTING_RATING);
-    expect(history.body[0].ratingDiff).toBe(EQUAL_RATINGS_PROVISIONAL_SWING);
+    expect(history.body[0].ratingDiff).toBe(NEW_PLAYER_WIN);
 
     const loserHistory = await request(app.getHttpServer())
       .get('/games')
       .set('Authorization', `Bearer ${ivan.accessToken}`)
       .expect(200);
     expect(loserHistory.body[0].result).toBe('loss');
-    expect(loserHistory.body[0].ratingDiff).toBe(
-      -EQUAL_RATINGS_PROVISIONAL_SWING,
-    );
+    expect(loserHistory.body[0].ratingDiff).toBe(-NEW_PLAYER_WIN);
 
     const pgn = await request(app.getHttpServer())
       .get(`/games/${gameId}/pgn`)

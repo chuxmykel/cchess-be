@@ -6,6 +6,7 @@ import type {
   GameResultReason,
   GameStatus,
 } from '../entities/game.entity.js';
+import { isProvisional } from '../../users/entities/rating.entity.js';
 
 export type PerspectiveResult = 'win' | 'loss' | 'draw' | null;
 
@@ -48,6 +49,11 @@ export class GameSummaryDto {
   opponentRating!: number | null;
 
   @ApiProperty({
+    description: "Whether the opponent's rating was still uncertain",
+  })
+  opponentProvisional!: boolean;
+
+  @ApiProperty({
     type: Number,
     nullable: true,
     description: "What the game did to the viewer's rating, if it was rated",
@@ -87,6 +93,9 @@ export function toGameSummaryDto(game: Game, viewerId: string): GameSummaryDto {
     opponentRating: playedAsWhite
       ? game.blackRatingAtStart
       : game.whiteRatingAtStart,
+    opponentProvisional: isProvisional(
+      playedAsWhite ? game.blackDeviationAtStart : game.whiteDeviationAtStart,
+    ),
     ratingDiff: playedAsWhite ? game.whiteRatingDiff : game.blackRatingDiff,
     playedAsWhite,
     createdAt: game.createdAt,

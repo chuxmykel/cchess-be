@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 import type { GameType } from '../../chess/time-control.js';
-import type { Rating } from '../entities/rating.entity.js';
+import { isProvisional, type Rating } from '../entities/rating.entity.js';
 import type { User } from '../entities/user.entity.js';
 
 export class RatingDto {
@@ -13,6 +13,12 @@ export class RatingDto {
 
   @ApiProperty()
   gamesPlayed!: number;
+
+  @ApiProperty({
+    description:
+      'Whether the rating is still uncertain (rating deviation above 110)',
+  })
+  provisional!: boolean;
 }
 
 export class ProfileDto {
@@ -49,8 +55,9 @@ export class MeDto extends ProfileDto {
 export function toRatingDto(rating: Rating): RatingDto {
   return {
     category: rating.category,
-    rating: rating.rating,
+    rating: Math.round(rating.rating),
     gamesPlayed: rating.gamesPlayed,
+    provisional: isProvisional(rating.deviation),
   };
 }
 
