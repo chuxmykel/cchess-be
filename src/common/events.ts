@@ -20,6 +20,7 @@ export const DOMAIN_EVENTS = {
   GAME_ENDED: 'game.ended',
   GAME_DRAW_OFFERED: 'game.drawOffered',
   GAME_DRAW_DECLINED: 'game.drawDeclined',
+  GAME_CHAT_MESSAGE: 'game.chatMessage',
   CHALLENGE_CREATED: 'challenge.created',
   CHALLENGE_ACCEPTED: 'challenge.accepted',
   CHALLENGE_DECLINED: 'challenge.declined',
@@ -38,6 +39,8 @@ export const WS_EVENTS = {
   GAME_ABORT: 'game:abort',
   GAME_DRAW_OFFER: 'game:drawOffer',
   GAME_DRAW_RESPOND: 'game:drawRespond',
+  GAME_CHAT: 'game:chat',
+  GAME_CHAT_HISTORY: 'game:chatHistory',
   MATCHMAKING_SEEK: 'matchmaking:seek',
   MATCHMAKING_CANCEL: 'matchmaking:cancel',
 

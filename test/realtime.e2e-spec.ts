@@ -236,6 +236,115 @@ describe('Realtime gateway (e2e)', () => {
     piaSocket.disconnect();
   });
 
+  describe('chat', () => {
+    async function startGame(whiteName: string, blackName: string) {
+      const white = await registerUser(app, whiteName);
+      const black = await registerUser(app, blackName);
+      const challenge = await request(app.getHttpServer())
+        .post('/challenges')
+        .set('Authorization', `Bearer ${white.accessToken}`)
+        .send({
+          opponentUsername: black.username,
+          minutes: 5,
+          incrementSeconds: 0,
+          color: 'white',
+        })
+        .expect(201);
+      const accepted = await request(app.getHttpServer())
+        .post(`/challenges/${challenge.body.id}/accept`)
+        .set('Authorization', `Bearer ${black.accessToken}`)
+        .expect(201);
+      const whiteSocket = await connect(baseUrl, white.accessToken);
+      const blackSocket = await connect(baseUrl, black.accessToken);
+      return {
+        gameId: accepted.body.id as string,
+        whiteId: accepted.body.white.id as string,
+        whiteSocket,
+        blackSocket,
+      };
+    }
+
+    it('sends a message to both players and keeps it for later joins', async () => {
+      const { gameId, whiteId, whiteSocket, blackSocket } = await startGame(
+        'rita_rt',
+        'sven_rt',
+      );
+
+      const seenByBlack = waitForEvent(blackSocket, 'game:chat');
+      const seenByWhite = waitForEvent(whiteSocket, 'game:chat');
+      whiteSocket.emit('game:chat', { gameId, text: '  good luck!  ' });
+
+      const expected = { gameId, userId: whiteId, text: 'good luck!' };
+      await expect(seenByBlack).resolves.toMatchObject(expected);
+      await expect(seenByWhite).resolves.toMatchObject(expected);
+
+      const history = waitForEvent<{ messages: unknown[] }>(
+        blackSocket,
+        'game:chatHistory',
+      );
+      blackSocket.emit('game:chatHistory', { gameId });
+      await expect(history).resolves.toMatchObject({
+        gameId,
+        messages: [expected],
+      });
+
+      whiteSocket.disconnect();
+      blackSocket.disconnect();
+    });
+
+    it('rejects an empty message, and one from outside the game', async () => {
+      const { gameId, whiteSocket, blackSocket } = await startGame(
+        'tess_rt',
+        'umar_rt',
+      );
+      const outsider = await registerUser(app, 'vera_rt');
+      const outsiderSocket = await connect(baseUrl, outsider.accessToken);
+
+      const emptyRejected = waitForEvent(whiteSocket, 'game:error');
+      whiteSocket.emit('game:chat', { gameId, text: '   ' });
+      await expect(emptyRejected).resolves.toMatchObject({
+        gameId,
+        message: 'Message is empty',
+      });
+
+      const outsiderRejected = waitForEvent(outsiderSocket, 'game:error');
+      outsiderSocket.emit('game:chat', { gameId, text: 'hi' });
+      await expect(outsiderRejected).resolves.toMatchObject({
+        message: 'You are not a player in this game',
+      });
+
+      whiteSocket.disconnect();
+      blackSocket.disconnect();
+      outsiderSocket.disconnect();
+    });
+
+    it('slows down a player sending too many messages', async () => {
+      const { gameId, whiteSocket, blackSocket } = await startGame(
+        'wade_rt',
+        'xena_rt',
+      );
+
+      const rejected = waitForEvent(whiteSocket, 'game:error');
+      const delivered = new Promise<void>((resolve) => {
+        let count = 0;
+        blackSocket.on('game:chat', () => {
+          count += 1;
+          if (count === 5) resolve();
+        });
+      });
+      for (let i = 0; i < 6; i++) {
+        whiteSocket.emit('game:chat', { gameId, text: `message ${i}` });
+      }
+
+      await expect(rejected).resolves.toMatchObject({
+        message: 'Slow down - too many messages',
+      });
+      await delivered;
+      whiteSocket.disconnect();
+      blackSocket.disconnect();
+    });
+  });
+
   describe('lobby stats', () => {
     const fiveMinutes = { minutes: 5, incrementSeconds: 0 };
 

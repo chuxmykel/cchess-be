@@ -26,6 +26,11 @@ import type {
 import { toGameStateDto, toMoveDto } from '../games/dto/game-state.dto.js';
 import type { GameEvent, GameMoveEvent } from '../games/games.service.js';
 import { GamesService } from '../games/games.service.js';
+import {
+  GameChatService,
+  type GameChatEvent,
+} from '../games/game-chat.service.js';
+import { toChatMessageDto } from '../games/dto/chat-message.dto.js';
 import { firstMoveDeadline } from '../games/first-move.js';
 import type { FriendRequestEvent } from '../friends/friends.service.js';
 import { MatchmakingService } from '../matchmaking/matchmaking.service.js';
@@ -111,6 +116,7 @@ export class RealtimeGateway
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService<AppConfig, true>,
     private readonly gamesService: GamesService,
+    private readonly gameChatService: GameChatService,
     private readonly matchmakingService: MatchmakingService,
     private readonly usersService: UsersService,
   ) {}
@@ -343,6 +349,42 @@ export class RealtimeGateway
     );
   }
 
+  @SubscribeMessage(WS_EVENTS.GAME_CHAT)
+  async onChat(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() payload: { gameId: string; text: string },
+  ) {
+    await this.runGameAction(socket, WS_EVENTS.GAME_CHAT, payload.gameId, () =>
+      this.gameChatService.send(
+        payload.gameId,
+        this.userId(socket),
+        payload.text,
+      ),
+    );
+  }
+
+  @SubscribeMessage(WS_EVENTS.GAME_CHAT_HISTORY)
+  async onChatHistory(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() payload: { gameId: string },
+  ) {
+    await this.runGameAction(
+      socket,
+      WS_EVENTS.GAME_CHAT_HISTORY,
+      payload.gameId,
+      async () => {
+        const messages = await this.gameChatService.history(
+          payload.gameId,
+          this.userId(socket),
+        );
+        socket.emit(WS_EVENTS.GAME_CHAT_HISTORY, {
+          gameId: payload.gameId,
+          messages: messages.map(toChatMessageDto),
+        });
+      },
+    );
+  }
+
   @SubscribeMessage(WS_EVENTS.MATCHMAKING_SEEK)
   async onSeek(
     @ConnectedSocket() socket: Socket,
@@ -461,6 +503,14 @@ export class RealtimeGateway
       .to(userRoom(game.whiteId))
       .to(userRoom(game.blackId))
       .emit(WS_EVENTS.GAME_DRAW_DECLINED, { gameId: game.id });
+  }
+
+  @OnEvent(DOMAIN_EVENTS.GAME_CHAT_MESSAGE)
+  onChatMessage({ game, message }: GameChatEvent) {
+    this.server
+      .to(userRoom(game.whiteId))
+      .to(userRoom(game.blackId))
+      .emit(WS_EVENTS.GAME_CHAT, toChatMessageDto(message));
   }
 
   @OnEvent(DOMAIN_EVENTS.CHALLENGE_CREATED)
