@@ -26,6 +26,7 @@ import type {
 import { toGameStateDto, toMoveDto } from '../games/dto/game-state.dto.js';
 import type { GameEvent, GameMoveEvent } from '../games/games.service.js';
 import { GamesService } from '../games/games.service.js';
+import { firstMoveDeadline } from '../games/first-move.js';
 import type { FriendRequestEvent } from '../friends/friends.service.js';
 import { MatchmakingService } from '../matchmaking/matchmaking.service.js';
 import type { SeekRequest } from '../matchmaking/seek-matching.js';
@@ -404,6 +405,7 @@ export class RealtimeGateway
         turn: game.turn,
         whiteTimeRemainingMs: game.whiteTimeRemainingMs,
         blackTimeRemainingMs: game.blackTimeRemainingMs,
+        firstMoveDeadline: firstMoveDeadline(game),
       });
   }
 
