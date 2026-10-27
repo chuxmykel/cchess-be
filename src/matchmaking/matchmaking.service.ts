@@ -17,8 +17,14 @@ import { MM_RPC } from '../cluster/rpc-channels.js';
 import { Game } from '../games/entities/game.entity.js';
 import { GamesService } from '../games/games.service.js';
 import { UsersService } from '../users/users.service.js';
-import { STARTING_RATING } from '../users/entities/rating.entity.js';
 import type { User } from '../users/entities/user.entity.js';
+import {
+  findBestOpponent,
+  isValidRatingRange,
+  type RatingRange,
+  type SeekCriteria,
+  type SeekRequest,
+} from './seek-matching.js';
 
 /** The handful of `User` fields `seekLocal`/`createGame` actually read, sent
  * over `ClusterBus` instead of a full `User` row (password hash included)
@@ -41,13 +47,9 @@ function toWireSeekUser(user: User): WireSeekUser {
   };
 }
 
-interface Seek {
-  userId: string;
+interface Seek extends SeekCriteria {
   user: User;
-  minutes: number;
-  incrementSeconds: number;
   gameType: GameType;
-  rating: number;
   createdAt: number;
 }
 
@@ -61,10 +63,13 @@ type SeekStatus = {
   seeking: boolean;
   minutes?: number;
   incrementSeconds?: number;
+  rated?: boolean;
+  ratingRange?: RatingRange | null;
 };
 
 /**
- * In-memory seek pool: pairs up players wanting the same time control.
+ * In-memory seek pool: pairs up players whose seeks agree (see
+ * seek-matching.ts).
  * Single-process by default (fine for one Nest instance / SQLite). Under
  * clustering (see src/cluster/) it's pinned to worker 0 instead of made
  * fully distributed - every other worker forwards `seek`/`cancelSeek`/
@@ -97,11 +102,11 @@ export class MatchmakingService {
 
   private async handleSeekRequest(payload: {
     user: WireSeekUser;
-    tc: TimeControl;
+    request: SeekRequest;
   }) {
     const result = await this.seekLocal(
       payload.user as unknown as User,
-      payload.tc,
+      payload.request,
     );
     return result.status === 'matched'
       ? { status: 'matched', game: toWireGame(result.game) }
@@ -160,19 +165,29 @@ export class MatchmakingService {
     return undefined;
   }
 
-  async seek(user: User, tc: TimeControl): Promise<SeekResult> {
+  async seek(user: User, request: SeekRequest): Promise<SeekResult> {
     return this.runMatchmakerRouted<SeekResult, WireSeekResult>(
       MM_RPC.SEEK,
-      { user: toWireSeekUser(user), tc },
+      { user: toWireSeekUser(user), request },
       // eslint-disable-next-line typescript/unbound-method
       this.seekResultFromWire,
-      this.seekLocal.bind(this, user, tc),
+      this.seekLocal.bind(this, user, request),
     );
   }
 
-  private async seekLocal(user: User, tc: TimeControl): Promise<SeekResult> {
+  private async seekLocal(
+    user: User,
+    request: SeekRequest,
+  ): Promise<SeekResult> {
+    const tc: TimeControl = {
+      minutes: request.minutes,
+      incrementSeconds: request.incrementSeconds,
+    };
     if (!isValidTimeControl(tc)) {
       throw new BadRequestException('Invalid time control');
+    }
+    if (request.ratingRange && !isValidRatingRange(request.ratingRange)) {
+      throw new BadRequestException('Invalid rating range');
     }
     if (this.seeksByUser.has(user.id)) {
       throw new ConflictException(
@@ -181,24 +196,25 @@ export class MatchmakingService {
     }
 
     const gameType = classifyTimeControl(tc);
-    // Guests never get a persisted Rating row (their games are always
-    // unrated) - use the starting rating as a pairing placeholder instead
-    // of writing a row that will never be updated.
+    // Guests never get a Rating row: their games are always casual, so a
+    // row would never be updated.
     const rating = user.isGuest
-      ? STARTING_RATING
+      ? null
       : (await this.usersService.getOrCreateRating(user.id, gameType)).rating;
+    const seek: Seek = {
+      userId: user.id,
+      user,
+      ...tc,
+      rated: request.rated !== false && !user.isGuest,
+      rating,
+      ratingRange: request.ratingRange ?? null,
+      gameType,
+      createdAt: Date.now(),
+    };
 
-    const opponentSeek = this.findCompatibleSeek(user.id, tc, rating);
+    const opponentSeek = findBestOpponent(seek, this.seeksByUser.values());
     if (!opponentSeek) {
-      this.seeksByUser.set(user.id, {
-        userId: user.id,
-        user,
-        minutes: tc.minutes,
-        incrementSeconds: tc.incrementSeconds,
-        gameType,
-        rating,
-        createdAt: Date.now(),
-      });
+      this.seeksByUser.set(user.id, seek);
       return { status: 'queued' };
     }
 
@@ -210,7 +226,12 @@ export class MatchmakingService {
 
     // createGame handles its own ownership routing (see games.service.ts) -
     // the new game need not be owned by this (the matchmaker) worker.
-    const game = await this.gamesService.createGame(white, black, tc, true);
+    const game = await this.gamesService.createGame(
+      white,
+      black,
+      tc,
+      seek.rated,
+    );
     return { status: 'matched', game };
   }
 
@@ -248,32 +269,8 @@ export class MatchmakingService {
       seeking: true,
       minutes: seek.minutes,
       incrementSeconds: seek.incrementSeconds,
+      rated: seek.rated,
+      ratingRange: seek.ratingRange,
     };
-  }
-
-  private findCompatibleSeek(
-    userId: string,
-    tc: TimeControl,
-    rating: number,
-  ): Seek | undefined {
-    const RATING_WINDOW = 400;
-    let best: Seek | undefined;
-    let bestDiff = Infinity;
-
-    for (const seek of this.seeksByUser.values()) {
-      if (seek.userId === userId) continue;
-      if (
-        seek.minutes !== tc.minutes ||
-        seek.incrementSeconds !== tc.incrementSeconds
-      )
-        continue;
-      const diff = Math.abs(seek.rating - rating);
-      if (diff > RATING_WINDOW) continue;
-      if (diff < bestDiff) {
-        best = seek;
-        bestDiff = diff;
-      }
-    }
-    return best;
   }
 }

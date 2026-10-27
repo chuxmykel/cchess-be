@@ -140,4 +140,91 @@ describe('Games via challenges (e2e)', () => {
       .expect(200);
     expect(aborted.body.status).toBe('aborted');
   });
+
+  describe('seek options', () => {
+    function seek(accessToken: string, body: object) {
+      return request(app.getHttpServer())
+        .post('/matchmaking/seek')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send(body);
+    }
+
+    const fiveMinutes = { minutes: 5, incrementSeconds: 0 };
+
+    it('plays casual seeks as unrated games', async () => {
+      const mia = await registerUser(app, 'mia_seeks');
+      const noah = await registerUser(app, 'noah_seeks');
+
+      await seek(mia.accessToken, { ...fiveMinutes, rated: false }).expect(201);
+      const matched = await seek(noah.accessToken, {
+        ...fiveMinutes,
+        rated: false,
+      }).expect(201);
+
+      expect(matched.body.status).toBe('matched');
+      expect(matched.body.game.rated).toBe(false);
+    });
+
+    it('keeps rated and casual seeks apart', async () => {
+      const olga = await registerUser(app, 'olga_seeks');
+      const paul = await registerUser(app, 'paul_seeks');
+
+      await seek(olga.accessToken, { ...fiveMinutes, rated: true });
+      const second = await seek(paul.accessToken, {
+        ...fiveMinutes,
+        rated: false,
+      }).expect(201);
+
+      expect(second.body.status).toBe('queued');
+    });
+
+    it("pairs only when each rating is in the other's range", async () => {
+      const quinn = await registerUser(app, 'quinn_seeks');
+      const rosa = await registerUser(app, 'rosa_seeks');
+
+      await seek(quinn.accessToken, {
+        ...fiveMinutes,
+        ratingRange: { below: 0, above: 0 },
+      });
+      const matched = await seek(rosa.accessToken, {
+        ...fiveMinutes,
+        ratingRange: { below: 100, above: 100 },
+      }).expect(201);
+
+      expect(matched.body.status).toBe('matched');
+      expect(matched.body.game.rated).toBe(true);
+      await request(app.getHttpServer())
+        .get('/matchmaking/status')
+        .set('Authorization', `Bearer ${quinn.accessToken}`)
+        .expect(200)
+        .expect(({ body }) => expect(body.seeking).toBe(false));
+    });
+
+    it('accepts a rating range with an open side', async () => {
+      const tara = await registerUser(app, 'tara_seeks');
+
+      await seek(tara.accessToken, {
+        ...fiveMinutes,
+        ratingRange: { below: null, above: 200 },
+      })
+        .expect(201)
+        .expect(({ body }) => expect(body.status).toBe('queued'));
+      await request(app.getHttpServer())
+        .get('/matchmaking/status')
+        .set('Authorization', `Bearer ${tara.accessToken}`)
+        .expect(200)
+        .expect(({ body }) =>
+          expect(body.ratingRange).toEqual({ below: null, above: 200 }),
+        );
+    });
+
+    it('rejects a rating range outside the allowed deltas', async () => {
+      const sam = await registerUser(app, 'sam_seeks');
+
+      await seek(sam.accessToken, {
+        ...fiveMinutes,
+        ratingRange: { below: -50, above: 100 },
+      }).expect(400);
+    });
+  });
 });
