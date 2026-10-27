@@ -20,10 +20,13 @@ export class BookmarksService {
 
   async bookmark(userId: string, gameId: string): Promise<void> {
     await this.gamesService.getGameOrThrow(gameId);
-    await this.bookmarks.upsert({ userId, gameId }, ['userId', 'gameId']);
+    await this.bookmarks.upsert({ userId, gameId, deletedAt: null }, [
+      'userId',
+      'gameId',
+    ]);
   }
 
   async unbookmark(userId: string, gameId: string): Promise<void> {
-    await this.bookmarks.delete({ userId, gameId });
+    await this.bookmarks.softDelete({ userId, gameId });
   }
 }

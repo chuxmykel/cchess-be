@@ -1,10 +1,12 @@
 import {
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   JoinColumn,
   ManyToOne,
   PrimaryColumn,
   type Relation,
+  UpdateDateColumn,
 } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity.js';
@@ -28,4 +30,10 @@ export class Bookmark {
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
+
+  @UpdateDateColumn({ type: 'timestamptz' })
+  updatedAt!: Date;
+
+  @DeleteDateColumn({ type: 'timestamptz' })
+  deletedAt!: Date | null;
 }

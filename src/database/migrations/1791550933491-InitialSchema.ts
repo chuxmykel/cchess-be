@@ -270,6 +270,8 @@ export class InitialSchema1791550933491 implements MigrationInterface {
           { name: 'userId', type: 'uuid' },
           { name: 'text', type: 'varchar', length: '140' },
           { name: 'createdAt', type: 'timestamptz', default: 'now()' },
+          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
+          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
         ],
       }),
     );
@@ -288,6 +290,8 @@ export class InitialSchema1791550933491 implements MigrationInterface {
           { name: 'userId', type: 'uuid', isPrimary: true },
           { name: 'gameId', type: 'uuid', isPrimary: true },
           { name: 'createdAt', type: 'timestamptz', default: 'now()' },
+          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
+          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
         ],
       }),
     );

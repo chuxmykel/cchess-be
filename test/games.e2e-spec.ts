@@ -228,7 +228,7 @@ describe('Games via challenges (e2e)', () => {
     });
   });
 
-  it('bookmarks a game and removes the bookmark', async () => {
+  it('bookmarks a game, removes the bookmark and adds it back', async () => {
     const yara = await registerUser(app, 'yara_games');
     const zane = await registerUser(app, 'zane_games');
     const challenge = await request(app.getHttpServer())
@@ -267,6 +267,9 @@ describe('Games via challenges (e2e)', () => {
       .expect({ bookmarked: false });
     await asYara(request(app.getHttpServer()).get(bookmarkUrl)).expect({
       bookmarked: false,
+    });
+    await asYara(request(app.getHttpServer()).put(bookmarkUrl)).expect({
+      bookmarked: true,
     });
   });
 
