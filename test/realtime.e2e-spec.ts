@@ -182,4 +182,39 @@ describe('Realtime gateway (e2e)', () => {
 
     whiteSocket.disconnect();
   });
+
+  describe('lobby stats', () => {
+    const fiveMinutes = { minutes: 5, incrementSeconds: 0 };
+
+    it('sends players online and games in play once a seek is queued', async () => {
+      const mona = await registerUser(app, 'mona_rt');
+      const nils = await registerUser(app, 'nils_rt');
+      const idleSocket = await connect(baseUrl, nils.accessToken);
+      const seekingSocket = await connect(baseUrl, mona.accessToken);
+
+      const stats = waitForEvent(seekingSocket, 'lobby:stats');
+      seekingSocket.emit('matchmaking:seek', fiveMinutes);
+
+      await expect(stats).resolves.toEqual({
+        playersOnline: 2,
+        gamesInPlay: 0,
+      });
+      seekingSocket.disconnect();
+      idleSocket.disconnect();
+    });
+
+    it('keeps sending stats while the seek waits', async () => {
+      const otto = await registerUser(app, 'otto_rt');
+      const socket = await connect(baseUrl, otto.accessToken);
+
+      const first = waitForEvent(socket, 'lobby:stats');
+      socket.emit('matchmaking:seek', fiveMinutes);
+      await first;
+
+      await expect(
+        waitForEvent(socket, 'lobby:stats', 7000),
+      ).resolves.toMatchObject({ playersOnline: 1 });
+      socket.disconnect();
+    }, 10_000);
+  });
 });

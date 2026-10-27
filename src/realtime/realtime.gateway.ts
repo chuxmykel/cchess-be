@@ -1,4 +1,4 @@
-import { HttpException, Logger } from '@nestjs/common';
+import { HttpException, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
@@ -6,6 +6,7 @@ import {
   ConnectedSocket,
   MessageBody,
   type OnGatewayConnection,
+  type OnGatewayInit,
   type OnGatewayDisconnect,
   SubscribeMessage,
   WebSocketGateway,
@@ -14,6 +15,7 @@ import {
 import type { Server, Socket } from 'socket.io';
 
 import type { AppConfig } from '../config/configuration.js';
+import { CLUSTERING_ENABLED, WORKER_INDEX } from '../cluster/cluster.util.js';
 import { DOMAIN_EVENTS, WS_EVENTS } from '../common/events.js';
 import { toChallengeDto } from '../challenges/dto/challenge.dto.js';
 import type {
@@ -33,6 +35,18 @@ import { verifySocketToken } from './ws-auth.util.js';
 
 function userRoom(userId: string): string {
   return `user:${userId}`;
+}
+
+/** Sockets with a seek waiting for an opponent, who get `lobby:stats`. */
+const LOBBY_ROOM = 'lobby';
+const LOBBY_STATS_INTERVAL_MS = 5_000;
+// One worker is enough to send the stats to the whole cluster's lobby room,
+// the same one matchmaking runs on.
+const LOBBY_STATS_WORKER = 0;
+
+export interface LobbyStats {
+  playersOnline: number;
+  gamesInPlay: number;
 }
 
 // Composite key for `abandonmentTimers` - scoped per game+user pair, since
@@ -78,10 +92,15 @@ const PING_TIMEOUT_MS = 60_000;
   transports: ['websocket'],
 })
 export class RealtimeGateway
-  implements OnGatewayConnection, OnGatewayDisconnect
+  implements
+    OnGatewayInit,
+    OnGatewayConnection,
+    OnGatewayDisconnect,
+    OnModuleDestroy
 {
   private readonly logger = new Logger(RealtimeGateway.name);
   private readonly abandonmentTimers = new Map<string, NodeJS.Timeout>();
+  private lobbyStatsTimer: NodeJS.Timeout | null = null;
 
   @WebSocketServer()
   server!: Server;
@@ -93,6 +112,41 @@ export class RealtimeGateway
     private readonly matchmakingService: MatchmakingService,
     private readonly usersService: UsersService,
   ) {}
+
+  afterInit(): void {
+    if (CLUSTERING_ENABLED && WORKER_INDEX !== LOBBY_STATS_WORKER) return;
+    this.lobbyStatsTimer = setInterval(() => {
+      void this.sendLobbyStats().catch((error) => {
+        this.logger.warn(`lobby stats failed: ${(error as Error).message}`);
+      });
+    }, LOBBY_STATS_INTERVAL_MS);
+    this.lobbyStatsTimer.unref?.();
+  }
+
+  onModuleDestroy(): void {
+    if (this.lobbyStatsTimer) clearInterval(this.lobbyStatsTimer);
+  }
+
+  private async lobbyStats(): Promise<LobbyStats> {
+    const [sockets, gamesInPlay] = await Promise.all([
+      this.server.fetchSockets(),
+      this.gamesService.countActiveGames(),
+    ]);
+    const onlineUserIds = new Set(
+      sockets
+        .map((socket) => (socket.data as Partial<SocketData>).user?.userId)
+        .filter((userId) => userId !== undefined),
+    );
+    return { playersOnline: onlineUserIds.size, gamesInPlay };
+  }
+
+  private async sendLobbyStats(): Promise<void> {
+    const seekers = await this.server.in(LOBBY_ROOM).fetchSockets();
+    if (seekers.length === 0) return;
+    this.server
+      .to(LOBBY_ROOM)
+      .emit(WS_EVENTS.LOBBY_STATS, await this.lobbyStats());
+  }
 
   async handleConnection(socket: Socket): Promise<void> {
     try {
@@ -268,7 +322,11 @@ export class RealtimeGateway
   ) {
     const user = await this.usersService.findByIdOrThrow(this.userId(socket));
     try {
-      await this.matchmakingService.seek(user, payload);
+      const result = await this.matchmakingService.seek(user, payload);
+      if (result.status === 'queued') {
+        await socket.join(LOBBY_ROOM);
+        socket.emit(WS_EVENTS.LOBBY_STATS, await this.lobbyStats());
+      }
     } catch (error) {
       this.logIfUnexpected('matchmaking:seek', error);
       socket.emit(WS_EVENTS.MATCHMAKING_ERROR, {
@@ -278,8 +336,9 @@ export class RealtimeGateway
   }
 
   @SubscribeMessage(WS_EVENTS.MATCHMAKING_CANCEL)
-  onCancelSeek(@ConnectedSocket() socket: Socket) {
+  async onCancelSeek(@ConnectedSocket() socket: Socket) {
     this.matchmakingService.cancelSeek(this.userId(socket));
+    await socket.leave(LOBBY_ROOM);
   }
 
   private userId(socket: Socket): string {
@@ -323,6 +382,10 @@ export class RealtimeGateway
   @OnEvent(DOMAIN_EVENTS.GAME_CREATED)
   onGameCreated({ game }: GameEvent) {
     const dto = toGameStateDto(game);
+    this.server
+      .in(userRoom(game.whiteId))
+      .in(userRoom(game.blackId))
+      .socketsLeave(LOBBY_ROOM);
     this.server
       .to(userRoom(game.whiteId))
       .to(userRoom(game.blackId))

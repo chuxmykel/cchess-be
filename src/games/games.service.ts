@@ -368,6 +368,10 @@ export class GamesService implements OnModuleDestroy {
     return game;
   }
 
+  countActiveGames(): Promise<number> {
+    return this.games.count({ where: { status: 'active' } });
+  }
+
   async getGameWithMoves(gameId: string): Promise<Game> {
     // Ownership-routed like every mutating method below, NOT just a DB
     // read fanned out to whichever worker happens to receive the HTTP
