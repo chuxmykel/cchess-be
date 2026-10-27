@@ -267,6 +267,10 @@ caller's wins, draws and losses against them (`null` on their own).
 `GET /users/:username/activity` groups their last 30 days of finished games
 by UTC day and category, and `GET /users/:username/games` lists their games
 like `GET /games` does yours (`limit`, `before`).
+`GET /users?search=<term>&limit=` finds registered players (never guests,
+never the caller) whose username or display name contains the term, any
+case: an exact username first, then names starting with it, then the rest
+(`limit` 1-20, default 10).
 
 Direct messages are between friends: `POST /messages/:username { text }`
 (1-500 characters after trimming, at most 10 per 10 seconds), and
