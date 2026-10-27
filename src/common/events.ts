@@ -50,6 +50,7 @@ export const WS_EVENTS = {
   GAME_DRAW_DECLINED: 'game:drawDeclined',
   MATCHMAKING_ERROR: 'matchmaking:error',
   LOBBY_STATS: 'lobby:stats',
+  GAME_PRESENCE: 'game:presence',
   CHALLENGE_RECEIVED: 'challenge:received',
   CHALLENGE_ACCEPTED: 'challenge:accepted',
   CHALLENGE_RESOLVED: 'challenge:resolved',

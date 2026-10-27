@@ -183,6 +183,59 @@ describe('Realtime gateway (e2e)', () => {
     whiteSocket.disconnect();
   });
 
+  it('tells each player whether the other is connected', async () => {
+    const pia = await registerUser(app, 'pia_rt');
+    const quin = await registerUser(app, 'quin_rt');
+    const challenge = await request(app.getHttpServer())
+      .post('/challenges')
+      .set('Authorization', `Bearer ${pia.accessToken}`)
+      .send({
+        opponentUsername: quin.username,
+        minutes: 5,
+        incrementSeconds: 0,
+        color: 'white',
+      })
+      .expect(201);
+    const accepted = await request(app.getHttpServer())
+      .post(`/challenges/${challenge.body.id}/accept`)
+      .set('Authorization', `Bearer ${quin.accessToken}`)
+      .expect(201);
+    const gameId = accepted.body.id;
+    const quinId = accepted.body.black.id;
+    const piaId = accepted.body.white.id;
+
+    const quinSocket = await connect(baseUrl, quin.accessToken);
+    const piaSocket = await connect(baseUrl, pia.accessToken);
+
+    const piaJoinedSeenByQuin = waitForEvent(quinSocket, 'game:presence');
+    const quinSeenByPia = waitForEvent(piaSocket, 'game:presence');
+    piaSocket.emit('game:join', { gameId });
+
+    await expect(piaJoinedSeenByQuin).resolves.toEqual({
+      gameId,
+      userId: piaId,
+      online: true,
+    });
+    await expect(quinSeenByPia).resolves.toEqual({
+      gameId,
+      userId: quinId,
+      online: true,
+    });
+
+    const quinJoinedSeenByPia = waitForEvent(piaSocket, 'game:presence');
+    quinSocket.emit('game:join', { gameId });
+    await quinJoinedSeenByPia;
+    const quinLeft = waitForEvent(piaSocket, 'game:presence');
+    quinSocket.disconnect();
+
+    await expect(quinLeft).resolves.toEqual({
+      gameId,
+      userId: quinId,
+      online: false,
+    });
+    piaSocket.disconnect();
+  });
+
   describe('lobby stats', () => {
     const fiveMinutes = { minutes: 5, incrementSeconds: 0 };
 

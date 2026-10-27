@@ -59,7 +59,8 @@ function abandonmentTimerKey(gameId: string, userId: string): string {
 
 interface SocketData {
   user: AuthenticatedUser;
-  joinedGames: Set<string>;
+  /** Each game this socket joined, mapped to the opponent's user id. */
+  joinedGames: Map<string, string>;
 }
 
 // Wildcard origin, no credentials - WS auth travels in the handshake's own
@@ -153,7 +154,7 @@ export class RealtimeGateway
     try {
       const user = verifySocketToken(this.jwtService, socket);
       (socket.data as SocketData).user = user;
-      (socket.data as SocketData).joinedGames = new Set();
+      (socket.data as SocketData).joinedGames = new Map();
       await socket.join(userRoom(user.userId));
       await this.usersService.touchLastSeen(user.userId);
       this.logger.debug(
@@ -181,8 +182,9 @@ export class RealtimeGateway
     const graceMs = this.configService.get('game.disconnectGraceMs', {
       infer: true,
     });
-    for (const gameId of data.joinedGames ?? []) {
+    for (const [gameId, opponentId] of data.joinedGames ?? []) {
       this.scheduleAbandonmentForfeit(gameId, userId, graceMs);
+      this.sendPresence(opponentId, gameId, userId, false);
     }
   }
 
@@ -218,6 +220,22 @@ export class RealtimeGateway
     }
   }
 
+  private sendPresence(
+    toUserId: string,
+    gameId: string,
+    userId: string,
+    online: boolean,
+  ): void {
+    this.server
+      .to(userRoom(toUserId))
+      .emit(WS_EVENTS.GAME_PRESENCE, { gameId, userId, online });
+  }
+
+  private async isConnected(userId: string): Promise<boolean> {
+    const sockets = await this.server.in(userRoom(userId)).fetchSockets();
+    return sockets.length > 0;
+  }
+
   @SubscribeMessage(WS_EVENTS.PING)
   onPing(@MessageBody() clientTime: number): number {
     return clientTime;
@@ -229,11 +247,20 @@ export class RealtimeGateway
     @MessageBody() payload: { gameId: string },
   ) {
     const user = (socket.data as SocketData).user;
-    (socket.data as SocketData).joinedGames.add(payload.gameId);
     this.cancelAbandonmentForfeit(payload.gameId, user.userId);
 
     const game = await this.gamesService.getGameWithMoves(payload.gameId);
+    const opponentId =
+      game.whiteId === user.userId ? game.blackId : game.whiteId;
+    (socket.data as SocketData).joinedGames.set(payload.gameId, opponentId);
     socket.emit(WS_EVENTS.GAME_STATE, toGameStateDto(game));
+
+    this.sendPresence(opponentId, payload.gameId, user.userId, true);
+    socket.emit(WS_EVENTS.GAME_PRESENCE, {
+      gameId: payload.gameId,
+      userId: opponentId,
+      online: await this.isConnected(opponentId),
+    });
   }
 
   @SubscribeMessage(WS_EVENTS.GAME_LEAVE)
