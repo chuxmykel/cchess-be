@@ -96,18 +96,18 @@ aren't obvious from reading one file in isolation.
   `typeorm`), not the bare class, e.g. `white!: Relation<User>;`. This repo
   is ESM, and TypeScript's `emitDecoratorMetadata` otherwise emits the raw
   class reference as `design:type`, which throws `ReferenceError: Cannot
-  access 'X' before initialization` at runtime for any circular entity
+access 'X' before initialization` at runtime for any circular entity
   pair (`Game` <-> `Move` is the one that actually cycles today, but every
   entity relation here uses `Relation<T>` defensively). If you add a new
   `@ManyToOne`/`@OneToOne` and skip this, it may work in this module but
   break the moment something imports it circularly - just always do it.
 - **All relative imports need an explicit `.js` extension** (e.g. `from
-  './games.service.js'` even though the file is `games.service.ts`) - this
+'./games.service.js'` even though the file is `games.service.ts`) - this
   is a `"module": "nodenext"` ESM project, not the usual Nest CommonJS
   setup. `tsc` will fail loudly if you forget.
 - **TypeORM `relations` options take the object form**, not a string array
   - `relations: { white: true, black: true }`, not `['white', 'black']`.
-  This version of TypeORM (1.x) dropped the array shorthand.
+    This version of TypeORM (1.x) dropped the array shorthand.
 - **Per-game mutex**: `GamesService` serializes `applyMove`/`resign`/
   `offerDraw`/`respondDraw`/`abort`/flag-fall-timeout per game id through
   `KeyedMutex` (`src/common/keyed-mutex.ts`). Any new game-mutating method
@@ -117,17 +117,27 @@ aren't obvious from reading one file in isolation.
   events via `EventEmitter2` (`game.created`, `game.move`, `game.ended`,
   `challenge.*`, `friend.*`) and only `RealtimeGateway` listens
   (`@OnEvent`) and pushes to Socket.IO rooms. Keep it this way; it's what
-  lets e.g. a matchmaking pairing notify the *other* player, who isn't the
+  lets e.g. a matchmaking pairing notify the _other_ player, who isn't the
   one making the current request.
 - **Guests are real `User` rows** (`isGuest: true`, `POST /auth/guest`),
   not a separate concept - they just never get `Rating` rows, and
   `GamesService.createGame` automatically marks a game `rated: false` if
   either side is a guest. Don't special-case guests outside of those two
-  places.
+  places - a guest simply has no `Rating` row, which is how e.g. a game
+  records a null rating for them.
+- **Games record their players' ratings.** `createGame` stores each
+  player's category rating at the start (`whiteRating`/`blackRating`, also
+  for casual games), and `finalize` stores what a rated, completed game did
+  to them (`whiteRatingDiff`/`blackRatingDiff`) on the game row before
+  applying it to the `Rating` rows. Elo is computed from those starting
+  ratings, the ones shown beside the players, not whatever the ratings
+  have become since. They reach clients as `rating` on each player in
+  `GameStateDto` (so `game:state`/`game:created`/`game:over`), the two
+  diffs on it, and `opponentRating`/`ratingDiff` in `GET /games`.
 - **Matchmaking's seek queue and `GamesService`'s per-game clock
   timers/engine cache are all in-process memory**, not persisted - don't
   assume they survive a restart. Under `CLUSTER_WORKERS > 1` they're made
-  *routable* across worker processes (see below) rather than moved out of
+  _routable_ across worker processes (see below) rather than moved out of
   memory entirely; a bare restart still loses them the same as today.
 - **Multi-process sharding (`src/cluster/`, opt-in via `CLUSTER_WORKERS`)**
   parallelizes the one thing that actually needed it - `GamesService`'s
@@ -155,7 +165,7 @@ aren't obvious from reading one file in isolation.
   **A related gotcha if you ever add a new broadcast target**: game events
   go to the players' `user:{id}` rooms (permanent, joined at
   `handleConnection`), not a per-game room joined on `game:join` - this
-  means a socket can be listening for a game's moves *before* its own
+  means a socket can be listening for a game's moves _before_ its own
   client has processed `game:created`/`game:join` for that game, so a
   client-side move counter must track the server's own ply number
   idempotently (ignore a `ply` at or below what you've already applied),
@@ -169,7 +179,7 @@ aren't obvious from reading one file in isolation.
   machine across several concurrency levels (100/500/1000 simultaneous
   bullet games) consistently found `CLUSTER_WORKERS=4` as the latency
   sweet spot: throughput improves from 1 to ~4 workers, then p95/p99
-  latency gets *worse* past 4, not just flatter, as cross-worker
+  latency gets _worse_ past 4, not just flatter, as cross-worker
   coordination overhead (the `ClusterBus` IPC relay through the primary,
   the Redis publish/subscribe hop) grows faster than the per-worker CPU
   relief is worth. The same total-worker-count ceiling holds whether it's
@@ -182,7 +192,7 @@ aren't obvious from reading one file in isolation.
   owns** (`gameCache`/`movesCache`, alongside the existing `engines`
   cache) - `getGameOrThrow`/`getGameWithMoves` read from these first,
   falling back to the DB only on a cold cache (e.g. just after a worker
-  restart). `applyMove` also broadcasts the `game.move` event *before*
+  restart). `applyMove` also broadcasts the `game.move` event _before_
   awaiting its own DB write, not after - `EventEmitter2`'s dispatch into
   `RealtimeGateway`'s listener is synchronous, so the socket.io frame is
   already queued on the OS socket before the DB transaction's `await` even

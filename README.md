@@ -112,13 +112,14 @@ or the realtime gateway (`game:move`) - goes through the same
 
 1. Re-validates the move against `ServerChessEngine` (never trusts the client).
 2. Computes elapsed time since the last move and deducts it from the mover's
-   clock *before* applying the move, so a move submitted after the flag fell
+   clock _before_ applying the move, so a move submitted after the flag fell
    is rejected as a time forfeit instead of silently succeeding.
 3. Persists the `Move` row and updated `Game` row, then reschedules a
    `setTimeout` flag-fall for whoever's turn it now is.
 4. Checks `chess.js` for checkmate/stalemate/insufficient
    material/threefold/fifty-move and finalizes the game if so (including Elo
-   updates for rated games).
+   updates for rated games, recorded on the game row as each player's
+   rating change alongside the ratings they started with).
 
 A per-game `KeyedMutex` (`src/common/keyed-mutex.ts`) serializes all of
 `applyMove`/`resign`/`offerDraw`/`respondDraw`/`abort`/the flag-fall timer for
@@ -140,12 +141,12 @@ is the only thing that listens and pushes to the right Socket.IO room
 got matched" or "you were challenged"). This is what lets e.g. matchmaking
 pair two players who are never in the same request: the second player's
 HTTP/socket call creates the game and emits `game.created`, which the gateway
-pushes to *both* players' personal rooms.
+pushes to _both_ players' personal rooms.
 
 ### Time control -> game type
 
 `src/chess/time-control.ts` classifies any `{ minutes, incrementSeconds }`
-pair into bullet/blitz/rapid/classical by *estimated game duration*
+pair into bullet/blitz/rapid/classical by _estimated game duration_
 (`minutes + incrementSeconds * 40 / 60`), the same method Lichess uses - not
 a fixed lookup table. This is what makes "any time control", not just the
 cchess app's 16 presets, a trivial case: the thresholds (3 / 10 / 25 minutes)
@@ -179,17 +180,17 @@ an origin restriction would protect. This stops being true the moment any
 client authenticates via a cookie instead (e.g. a future browser client) -
 revisit `origin`/`credentials` together if that ever happens.
 
-| Client -> Server | Payload | Server -> Client | Payload |
-| --- | --- | --- | --- |
-| `game:join` | `{ gameId }` | `game:state` | Full `GameStateDto` |
-| `game:move` | `{ gameId, from, to, promotion? }` | `game:move` | `{ gameId, move, fen, turn, whiteTimeRemainingMs, blackTimeRemainingMs }` |
-| `game:resign` | `{ gameId }` | `game:over` | Full `GameStateDto` (also sent on checkmate/timeout/draw/abort) |
-| `game:abort` | `{ gameId }` | `game:drawOffered` | `{ gameId, by }` |
-| `game:drawOffer` | `{ gameId }` | `game:drawDeclined` | `{ gameId }` |
-| `game:drawRespond` | `{ gameId, accept }` | `game:created` | Full `GameStateDto` - pushed to both players, e.g. on a matchmaking pair |
-| `matchmaking:seek` | `{ minutes, incrementSeconds }` | `game:error` / `matchmaking:error` | `{ message }` (and `{ gameId, message }` for game errors) |
-| `matchmaking:cancel` | - | `challenge:received` / `challenge:accepted` / `challenge:resolved` | `ChallengeDto` |
-| `game:leave` | `{ gameId }` | `friend:requestReceived` / `friend:requestAccepted` | `{ id, from? }` |
+| Client -> Server     | Payload                            | Server -> Client                                                   | Payload                                                                   |
+| -------------------- | ---------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| `game:join`          | `{ gameId }`                       | `game:state`                                                       | Full `GameStateDto`                                                       |
+| `game:move`          | `{ gameId, from, to, promotion? }` | `game:move`                                                        | `{ gameId, move, fen, turn, whiteTimeRemainingMs, blackTimeRemainingMs }` |
+| `game:resign`        | `{ gameId }`                       | `game:over`                                                        | Full `GameStateDto` (also sent on checkmate/timeout/draw/abort)           |
+| `game:abort`         | `{ gameId }`                       | `game:drawOffered`                                                 | `{ gameId, by }`                                                          |
+| `game:drawOffer`     | `{ gameId }`                       | `game:drawDeclined`                                                | `{ gameId }`                                                              |
+| `game:drawRespond`   | `{ gameId, accept }`               | `game:created`                                                     | Full `GameStateDto` - pushed to both players, e.g. on a matchmaking pair  |
+| `matchmaking:seek`   | `{ minutes, incrementSeconds }`    | `game:error` / `matchmaking:error`                                 | `{ message }` (and `{ gameId, message }` for game errors)                 |
+| `matchmaking:cancel` | -                                  | `challenge:received` / `challenge:accepted` / `challenge:resolved` | `ChallengeDto`                                                            |
+| `game:leave`         | `{ gameId }`                       | `friend:requestReceived` / `friend:requestAccepted`                | `{ id, from? }`                                                           |
 
 `ping` isn't part of the broadcast protocol above - it's a plain Socket.IO
 acknowledgement (payload: the client's own timestamp as a number), echoed
@@ -238,7 +239,7 @@ game's processing too, regardless of how unrelated they were; Postgres's
 async driver lets the event loop interleave many games' work during I/O wait
 instead.
 
-Per-move *latency* (not just aggregate throughput) was the more important
+Per-move _latency_ (not just aggregate throughput) was the more important
 number once concurrency got high: both SQLite and Postgres degrade roughly
 linearly as concurrent games increase, because every game's move logic runs
 on the one Node event loop regardless of DB backend - a few hundred
@@ -258,7 +259,7 @@ touches it.
 **Don't just set this to the core count.** Load testing at several
 concurrency levels (100/500/1000 simultaneous bullet games) on a 10-core
 machine found `CLUSTER_WORKERS=4` to be the latency sweet spot - both
-median and tail (p95/p99) latency got *worse* past 4 workers, not just
+median and tail (p95/p99) latency got _worse_ past 4 workers, not just
 flatter, as cross-worker coordination overhead (the cluster-bus IPC relay,
 the Redis pub/sub hop) grew faster than the extra parallelism was worth.
 This held up whether those workers ran in one process or were split
@@ -290,7 +291,7 @@ default is conservative because it assumes they're colocated.
 - **Matchmaking's seek queue is pinned to worker 0 under clustering**
   (not fully distributed) - fine, since matching is cheap and infrequent
   relative to per-move traffic, but still a single point for that one
-  operation. A truly multi-*machine* deployment (not just multi-process on
+  operation. A truly multi-_machine_ deployment (not just multi-process on
   one box) would need it in a shared store (e.g. Redis) instead.
 - **No bot opponent** - the client's "Play Stockfish" stub is intentionally
   out of scope for this phase.
