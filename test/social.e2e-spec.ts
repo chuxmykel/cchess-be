@@ -295,9 +295,14 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
   });
 
   describe('challenges', () => {
-    it('only lets friends challenge each other', async () => {
+    it("lets anyone challenge a player they aren't friends with", async () => {
       const lea = await registerUser(app, 'lea_social');
       const max = await registerUser(app, 'max_social');
+      const maxSocket = await connectAs(max);
+      const received = waitForEvent<{ challenger: { username: string } }>(
+        maxSocket,
+        'challenge:received',
+      );
 
       await as(lea)
         .post('/challenges')
@@ -306,7 +311,9 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
           minutes: 5,
           incrementSeconds: 0,
         })
-        .expect(403);
+        .expect(201);
+
+      expect((await received).challenger.username).toBe(lea.username);
     });
 
     it('starts a casual game when the challenge is casual', async () => {

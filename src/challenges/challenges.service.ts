@@ -13,7 +13,6 @@ import { MoreThan, Repository } from 'typeorm';
 
 import { isValidTimeControl, type TimeControl } from '../chess/time-control.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
-import { FriendsService } from '../friends/friends.service.js';
 import { Game } from '../games/entities/game.entity.js';
 import { GamesService } from '../games/games.service.js';
 import { UsersService } from '../users/users.service.js';
@@ -52,7 +51,6 @@ export class ChallengesService implements OnModuleDestroy {
     private readonly challenges: Repository<Challenge>,
     private readonly usersService: UsersService,
     private readonly gamesService: GamesService,
-    private readonly friendsService: FriendsService,
     private readonly events: EventEmitter2,
   ) {}
 
@@ -73,8 +71,6 @@ export class ChallengesService implements OnModuleDestroy {
     if (!opponent) throw new NotFoundException('User not found');
     if (opponent.id === challenger.id)
       throw new BadRequestException("You can't challenge yourself");
-    if (!(await this.friendsService.areFriends(challenger.id, opponent.id)))
-      throw new ForbiddenException('You can only challenge friends');
 
     await this.cancelPendingBetween(challenger.id, opponent.id);
 
