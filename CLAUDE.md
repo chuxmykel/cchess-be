@@ -6,7 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A real-time chess game server built with NestJS 12 (TypeScript, ESM): auth
 (including guest accounts), user profiles with per-category Glicko-2 ratings,
-friends, matchmaking, direct challenges, and fully rules-enforced games
+friends and direct messages, matchmaking, challenges between friends, and
+fully rules-enforced games
 (`chess.js` 1.4.0 - same version as the client) served over REST and a
 Socket.IO gateway. It's the backend for the React Native app at
 `../cchess` - see that repo's own CLAUDE.md for the client side.
@@ -119,6 +120,19 @@ access 'X' before initialization` at runtime for any circular entity
   (`@OnEvent`) and pushes to Socket.IO rooms. Keep it this way; it's what
   lets e.g. a matchmaking pairing notify the _other_ player, who isn't the
   one making the current request.
+- **One `@OnEvent` per event name.** EventEmitter2 reads an array as the
+  parts of a single dotted name, so `@OnEvent([a, b])` listens for `a.b`
+  and never fires - that silently broke the challenge decline/cancel pushes
+  until it was caught. Stack one decorator per event on the handler instead.
+- **"Is this user online?" goes through `PresenceService`**
+  (`src/presence/`, a global module the gateway hands its server to on
+  init), not the gateway itself - so friends and profiles can ask without a
+  dependency on `RealtimeGateway`. It reads the `user:{id}` rooms through
+  the Socket.IO adapter, so it sees every cluster worker.
+- **`GET /users/:username` lives in `ProfilesModule`**, not `UsersModule` -
+  it needs games, friends and presence, which `UsersModule` can't import
+  without a cycle. `app.module.ts` registers it after `UsersModule` so
+  `GET /users/me` is matched first.
 - **Guests are real `User` rows** (`isGuest: true`, `POST /auth/guest`),
   not a separate concept - they just never get `Rating` rows, and
   `GamesService.createGame` automatically marks a game `rated: false` if
