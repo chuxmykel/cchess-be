@@ -69,3 +69,7 @@ export function toWireMove(move: Move): Record<string, unknown> {
 export function fromWireMove(wire: Record<string, unknown>): Move {
   return reviveDates(wire as unknown as Move, ['createdAt']);
 }
+
+export function wireToVoid(): undefined {
+  return undefined;
+}

@@ -22,6 +22,7 @@ import {
   fromWireMove,
   toWireGame,
   toWireMove,
+  wireToVoid,
 } from '../cluster/cluster-wire.js';
 import { GAMES_RPC } from '../cluster/rpc-channels.js';
 import { KeyedMutex } from '../common/keyed-mutex.js';
@@ -54,6 +55,7 @@ import {
   type GameResultReason,
   type GameStatus,
 } from './entities/game.entity.js';
+import { firstMoveDeadline, isAwaitingFirstMove } from './first-move.js';
 import { Move } from './entities/move.entity.js';
 import { buildPgnText } from './pgn.util.js';
 
@@ -83,6 +85,22 @@ function scoreFor(
 
 function roundedChange(before: Glicko2Rating, after: Glicko2Rating): number {
   return Math.round(after.rating) - Math.round(before.rating);
+}
+
+function gameWithMovesFromWire(wire: {
+  game: Record<string, unknown>;
+  moves: Record<string, unknown>[];
+}): Game {
+  const game = fromWireGame(wire.game);
+  game.moves = wire.moves.map(fromWireMove);
+  return game;
+}
+
+function applyMoveFromWire(wire: {
+  game: Record<string, unknown>;
+  move: Record<string, unknown>;
+}): { game: Game; move: Move } {
+  return { game: fromWireGame(wire.game), move: fromWireMove(wire.move) };
 }
 
 @Injectable()
@@ -368,6 +386,10 @@ export class GamesService implements OnModuleDestroy {
     return game;
   }
 
+  countActiveGames(): Promise<number> {
+    return this.games.count({ where: { status: 'active' } });
+  }
+
   async getGameWithMoves(gameId: string): Promise<Game> {
     // Ownership-routed like every mutating method below, NOT just a DB
     // read fanned out to whichever worker happens to receive the HTTP
@@ -383,19 +405,9 @@ export class GamesService implements OnModuleDestroy {
       gameId,
       GAMES_RPC.GET_WITH_MOVES,
       { gameId },
-      // eslint-disable-next-line typescript/unbound-method
-      this.gameWithMovesFromWire,
+      gameWithMovesFromWire,
       this.getGameWithMovesLocal.bind(this, gameId),
     );
-  }
-
-  private gameWithMovesFromWire(wire: {
-    game: Record<string, unknown>;
-    moves: Record<string, unknown>[];
-  }): Game {
-    const game = fromWireGame(wire.game);
-    game.moves = wire.moves.map(fromWireMove);
-    return game;
   }
 
   private async getGameWithMovesLocal(gameId: string): Promise<Game> {
@@ -471,17 +483,9 @@ export class GamesService implements OnModuleDestroy {
       gameId,
       GAMES_RPC.APPLY_MOVE,
       { gameId, userId, from, to, promotion },
-      // eslint-disable-next-line typescript/unbound-method
-      this.applyMoveFromWire,
+      applyMoveFromWire,
       this.applyMoveLocal.bind(this, gameId, userId, from, to, promotion),
     );
-  }
-
-  private applyMoveFromWire(wire: {
-    game: Record<string, unknown>;
-    move: Record<string, unknown>;
-  }): { game: Game; move: Move } {
-    return { game: fromWireGame(wire.game), move: fromWireMove(wire.move) };
   }
 
   private async applyMoveLocal(
@@ -503,18 +507,22 @@ export class GamesService implements OnModuleDestroy {
       this.assertPlayersTurn(game, color);
 
       const now = Date.now();
-      const remainingAfterElapsed = await this.enforceClock(game, color, now);
+      const isFirstMove = isAwaitingFirstMove(game);
+      const remainingAfterElapsed = isFirstMove
+        ? await this.enforceFirstMoveDeadline(game, color, now)
+        : await this.enforceClock(game, color, now);
 
       const engine = await this.getOrBuildEngine(game);
       const outcome = this.attemptMoveOrThrow(engine, from, to, promotion);
 
       const ply = engine.history().length;
-      const newRemaining =
-        remainingAfterElapsed +
-        incrementMs({
-          minutes: game.minutes,
-          incrementSeconds: game.incrementSeconds,
-        });
+      const newRemaining = isFirstMove
+        ? remainingAfterElapsed
+        : remainingAfterElapsed +
+          incrementMs({
+            minutes: game.minutes,
+            incrementSeconds: game.incrementSeconds,
+          });
 
       this.applyMoveToGameState(game, outcome, color, newRemaining, now);
       const move = this.buildMoveEntity(game, outcome, ply, newRemaining, now);
@@ -549,6 +557,24 @@ export class GamesService implements OnModuleDestroy {
     if (game.turn !== color) throw new ConflictException("It's not your turn");
   }
 
+  /** A side's first move doesn't run its clock, but it must come before
+   * firstMoveDeadline - a later one aborts the game and throws instead.
+   * Returns the mover's untouched remaining time. */
+  private async enforceFirstMoveDeadline(
+    game: Game,
+    color: 'w' | 'b',
+    now: number,
+  ): Promise<number> {
+    const deadline = firstMoveDeadline(game);
+    if (deadline && now > deadline.getTime()) {
+      await this.finalize(game, null, 'abort', 'aborted');
+      throw new ConflictException('Too late for the first move');
+    }
+    return color === 'w'
+      ? game.whiteTimeRemainingMs
+      : game.blackTimeRemainingMs;
+  }
+
   /** Deducts elapsed time from the mover's clock; if that leaves none,
    * finalizes the game as a timeout loss and throws - never applies a move
    * submitted after the flag already fell. Returns the mover's remaining
@@ -559,9 +585,7 @@ export class GamesService implements OnModuleDestroy {
     color: 'w' | 'b',
     now: number,
   ): Promise<number> {
-    const sinceLastMove = game.lastMoveAt
-      ? now - game.lastMoveAt.getTime()
-      : now - game.createdAt.getTime();
+    const sinceLastMove = game.lastMoveAt ? now - game.lastMoveAt.getTime() : 0;
     const remainingBefore =
       color === 'w' ? game.whiteTimeRemainingMs : game.blackTimeRemainingMs;
     const remainingAfterElapsed = remainingBefore - Math.max(sinceLastMove, 0);
@@ -866,14 +890,9 @@ export class GamesService implements OnModuleDestroy {
       gameId,
       GAMES_RPC.FORFEIT_BY_ABANDONMENT,
       { gameId, userId },
-      // eslint-disable-next-line typescript/unbound-method
-      this.wireToVoid,
+      wireToVoid,
       this.forfeitByAbandonmentLocal.bind(this, gameId, userId),
     );
-  }
-
-  private wireToVoid(): undefined {
-    return undefined;
   }
 
   private forfeitByAbandonmentLocal(
@@ -918,10 +937,16 @@ export class GamesService implements OnModuleDestroy {
     return engine;
   }
 
+  /** Schedules whatever ends the game if the side to move does nothing:
+   * missing the first-move deadline, or running out of time. */
   private scheduleFlagFall(game: Game): void {
     this.clearFlagFallTimer(game.id);
-    const remaining =
-      game.turn === 'w' ? game.whiteTimeRemainingMs : game.blackTimeRemainingMs;
+    const deadline = firstMoveDeadline(game);
+    const remaining = deadline
+      ? deadline.getTime() - Date.now()
+      : game.turn === 'w'
+        ? game.whiteTimeRemainingMs
+        : game.blackTimeRemainingMs;
     const timer = setTimeout(
       () => {
         void this.handleFlagFall(game.id);
@@ -945,9 +970,19 @@ export class GamesService implements OnModuleDestroy {
       const game = await this.getGameOrThrow(gameId);
       if (game.status !== 'active') return;
 
+      const deadline = firstMoveDeadline(game);
+      if (deadline) {
+        if (Date.now() < deadline.getTime()) {
+          this.scheduleFlagFall(game);
+          return;
+        }
+        await this.finalize(game, null, 'abort', 'aborted');
+        return;
+      }
+
       const elapsedSinceLastMove = game.lastMoveAt
         ? Date.now() - game.lastMoveAt.getTime()
-        : Date.now() - game.createdAt.getTime();
+        : 0;
       const remaining =
         game.turn === 'w'
           ? game.whiteTimeRemainingMs

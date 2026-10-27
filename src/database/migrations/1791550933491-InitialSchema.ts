@@ -256,6 +256,46 @@ export class InitialSchema1791550933491 implements MigrationInterface {
       }),
     );
 
+    await queryRunner.createTable(
+      new Table({
+        name: 'game_chat_messages',
+        columns: [
+          {
+            name: 'id',
+            type: 'uuid',
+            isPrimary: true,
+            default: 'uuid_generate_v4()',
+          },
+          { name: 'gameId', type: 'uuid' },
+          { name: 'userId', type: 'uuid' },
+          { name: 'text', type: 'varchar', length: '140' },
+          { name: 'createdAt', type: 'timestamptz', default: 'now()' },
+          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
+          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
+        ],
+      }),
+    );
+    await queryRunner.createIndex(
+      'game_chat_messages',
+      new TableIndex({
+        name: 'IDX_game_chat_messages_game_created',
+        columnNames: ['gameId', 'createdAt'],
+      }),
+    );
+
+    await queryRunner.createTable(
+      new Table({
+        name: 'bookmarks',
+        columns: [
+          { name: 'userId', type: 'uuid', isPrimary: true },
+          { name: 'gameId', type: 'uuid', isPrimary: true },
+          { name: 'createdAt', type: 'timestamptz', default: 'now()' },
+          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
+          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
+        ],
+      }),
+    );
+
     await queryRunner.createForeignKey(
       'ratings',
       new TableForeignKey({
@@ -337,9 +377,31 @@ export class InitialSchema1791550933491 implements MigrationInterface {
         onDelete: 'CASCADE',
       }),
     );
+    for (const table of ['game_chat_messages', 'bookmarks']) {
+      await queryRunner.createForeignKey(
+        table,
+        new TableForeignKey({
+          columnNames: ['gameId'],
+          referencedTableName: 'games',
+          referencedColumnNames: ['id'],
+          onDelete: 'CASCADE',
+        }),
+      );
+      await queryRunner.createForeignKey(
+        table,
+        new TableForeignKey({
+          columnNames: ['userId'],
+          referencedTableName: 'users',
+          referencedColumnNames: ['id'],
+          onDelete: 'CASCADE',
+        }),
+      );
+    }
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.dropTable('bookmarks', true, true, true);
+    await queryRunner.dropTable('game_chat_messages', true, true, true);
     await queryRunner.dropTable('moves', true, true, true);
     await queryRunner.dropTable('games', true, true, true);
     await queryRunner.dropTable('friendships', true, true, true);

@@ -12,7 +12,11 @@ import {
 } from '../chess/time-control.js';
 import { ClusterBus } from '../cluster/cluster-bus.js';
 import { CLUSTERING_ENABLED, WORKER_INDEX } from '../cluster/cluster.util.js';
-import { fromWireGame, toWireGame } from '../cluster/cluster-wire.js';
+import {
+  fromWireGame,
+  toWireGame,
+  wireToVoid,
+} from '../cluster/cluster-wire.js';
 import { MM_RPC } from '../cluster/rpc-channels.js';
 import { Game } from '../games/entities/game.entity.js';
 import { GamesService } from '../games/games.service.js';
@@ -66,6 +70,16 @@ type SeekStatus = {
   rated?: boolean;
   ratingRange?: RatingRange | null;
 };
+
+function seekResultFromWire(wire: WireSeekResult): SeekResult {
+  return wire.status === 'matched'
+    ? { status: 'matched', game: fromWireGame(wire.game) }
+    : wire;
+}
+
+function statusFromWire(wire: SeekStatus): SeekStatus {
+  return wire;
+}
 
 /**
  * In-memory seek pool: pairs up players whose seeks agree (see
@@ -151,26 +165,11 @@ export class MatchmakingService {
     return fromWire(wire);
   }
 
-  private seekResultFromWire(wire: WireSeekResult): SeekResult {
-    return wire.status === 'matched'
-      ? { status: 'matched', game: fromWireGame(wire.game) }
-      : wire;
-  }
-
-  private statusFromWire(wire: SeekStatus): SeekStatus {
-    return wire;
-  }
-
-  private wireToVoid(): undefined {
-    return undefined;
-  }
-
   async seek(user: User, request: SeekRequest): Promise<SeekResult> {
     return this.runMatchmakerRouted<SeekResult, WireSeekResult>(
       MM_RPC.SEEK,
       { user: toWireSeekUser(user), request },
-      // eslint-disable-next-line typescript/unbound-method
-      this.seekResultFromWire,
+      seekResultFromWire,
       this.seekLocal.bind(this, user, request),
     );
   }
@@ -242,8 +241,7 @@ export class MatchmakingService {
     void this.runMatchmakerRouted(
       MM_RPC.CANCEL,
       { userId },
-      // eslint-disable-next-line typescript/unbound-method
-      this.wireToVoid,
+      wireToVoid,
       this.cancelSeekLocal.bind(this, userId),
     ).catch(() => {});
   }
@@ -253,11 +251,10 @@ export class MatchmakingService {
   }
 
   async getStatus(userId: string): Promise<SeekStatus> {
-    // eslint-disable-next-line typescript/unbound-method
     return this.runMatchmakerRouted(
       MM_RPC.STATUS,
       { userId },
-      this.statusFromWire,
+      statusFromWire,
       this.getStatusLocal.bind(this, userId),
     );
   }

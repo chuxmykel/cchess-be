@@ -10,6 +10,7 @@ import type {
 } from '../entities/game.entity.js';
 import type { Move } from '../entities/move.entity.js';
 import { isProvisional } from '../../users/entities/rating.entity.js';
+import { firstMoveDeadline } from '../first-move.js';
 
 export class GamePlayerDto {
   @ApiProperty()
@@ -134,6 +135,14 @@ export class GameStateDto {
   @ApiProperty({ nullable: true })
   drawOfferedBy!: DrawOfferBy;
 
+  @ApiProperty({
+    type: Date,
+    nullable: true,
+    description:
+      'When the side to move must have played its first move by, or the game is aborted; null once both sides have moved',
+  })
+  firstMoveDeadline!: Date | null;
+
   @ApiProperty({ type: [MoveDto] })
   moves!: MoveDto[];
 
@@ -202,6 +211,7 @@ export function toGameStateDto(game: Game): GameStateDto {
     blackTimeRemainingMs: game.blackTimeRemainingMs,
     lastMoveAt: game.lastMoveAt,
     drawOfferedBy: game.drawOfferedBy,
+    firstMoveDeadline: firstMoveDeadline(game),
     moves: (game.moves ?? []).map(toMoveDto),
     createdAt: game.createdAt,
     endedAt: game.endedAt,

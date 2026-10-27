@@ -227,4 +227,58 @@ describe('Games via challenges (e2e)', () => {
       }).expect(400);
     });
   });
+
+  it('bookmarks a game, removes the bookmark and adds it back', async () => {
+    const yara = await registerUser(app, 'yara_games');
+    const zane = await registerUser(app, 'zane_games');
+    const challenge = await request(app.getHttpServer())
+      .post('/challenges')
+      .set('Authorization', `Bearer ${yara.accessToken}`)
+      .send({
+        opponentUsername: zane.username,
+        minutes: 5,
+        incrementSeconds: 0,
+      })
+      .expect(201);
+    const accepted = await request(app.getHttpServer())
+      .post(`/challenges/${challenge.body.id}/accept`)
+      .set('Authorization', `Bearer ${zane.accessToken}`)
+      .expect(201);
+    const bookmarkUrl = `/games/${accepted.body.id}/bookmark`;
+    const asYara = (call: request.Test) =>
+      call.set('Authorization', `Bearer ${yara.accessToken}`);
+
+    await asYara(request(app.getHttpServer()).get(bookmarkUrl))
+      .expect(200)
+      .expect({ bookmarked: false });
+    await asYara(request(app.getHttpServer()).put(bookmarkUrl))
+      .expect(200)
+      .expect({ bookmarked: true });
+    await asYara(request(app.getHttpServer()).put(bookmarkUrl)).expect(200);
+    await asYara(request(app.getHttpServer()).get(bookmarkUrl)).expect({
+      bookmarked: true,
+    });
+    await request(app.getHttpServer())
+      .get(bookmarkUrl)
+      .set('Authorization', `Bearer ${zane.accessToken}`)
+      .expect({ bookmarked: false });
+    await asYara(request(app.getHttpServer()).delete(bookmarkUrl))
+      .expect(200)
+      .expect({ bookmarked: false });
+    await asYara(request(app.getHttpServer()).get(bookmarkUrl)).expect({
+      bookmarked: false,
+    });
+    await asYara(request(app.getHttpServer()).put(bookmarkUrl)).expect({
+      bookmarked: true,
+    });
+  });
+
+  it('refuses to bookmark a game that does not exist', async () => {
+    const abby = await registerUser(app, 'abby_games');
+
+    await request(app.getHttpServer())
+      .put('/games/00000000-0000-4000-8000-000000000000/bookmark')
+      .set('Authorization', `Bearer ${abby.accessToken}`)
+      .expect(404);
+  });
 });

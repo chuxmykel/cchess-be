@@ -1,4 +1,4 @@
-import { HttpException, Logger } from '@nestjs/common';
+import { HttpException, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
@@ -6,6 +6,7 @@ import {
   ConnectedSocket,
   MessageBody,
   type OnGatewayConnection,
+  type OnGatewayInit,
   type OnGatewayDisconnect,
   SubscribeMessage,
   WebSocketGateway,
@@ -14,6 +15,7 @@ import {
 import type { Server, Socket } from 'socket.io';
 
 import type { AppConfig } from '../config/configuration.js';
+import { CLUSTERING_ENABLED, WORKER_INDEX } from '../cluster/cluster.util.js';
 import { DOMAIN_EVENTS, WS_EVENTS } from '../common/events.js';
 import { toChallengeDto } from '../challenges/dto/challenge.dto.js';
 import type {
@@ -24,6 +26,12 @@ import type {
 import { toGameStateDto, toMoveDto } from '../games/dto/game-state.dto.js';
 import type { GameEvent, GameMoveEvent } from '../games/games.service.js';
 import { GamesService } from '../games/games.service.js';
+import {
+  GameChatService,
+  type GameChatEvent,
+} from '../games/game-chat.service.js';
+import { toChatMessageDto } from '../games/dto/chat-message.dto.js';
+import { firstMoveDeadline } from '../games/first-move.js';
 import type { FriendRequestEvent } from '../friends/friends.service.js';
 import { MatchmakingService } from '../matchmaking/matchmaking.service.js';
 import type { SeekRequest } from '../matchmaking/seek-matching.js';
@@ -35,6 +43,18 @@ function userRoom(userId: string): string {
   return `user:${userId}`;
 }
 
+/** Sockets with a seek waiting for an opponent, who get `lobby:stats`. */
+const LOBBY_ROOM = 'lobby';
+const LOBBY_STATS_INTERVAL_MS = 5_000;
+// One worker is enough to send the stats to the whole cluster's lobby room,
+// the same one matchmaking runs on.
+const LOBBY_STATS_WORKER = 0;
+
+export interface LobbyStats {
+  playersOnline: number;
+  gamesInPlay: number;
+}
+
 // Composite key for `abandonmentTimers` - scoped per game+user pair, since
 // a disconnecting socket only threatens forfeiture of the games it
 // actually joined, not every game that player is in.
@@ -44,7 +64,8 @@ function abandonmentTimerKey(gameId: string, userId: string): string {
 
 interface SocketData {
   user: AuthenticatedUser;
-  joinedGames: Set<string>;
+  /** Each game this socket joined, mapped to the opponent's user id. */
+  joinedGames: Map<string, string>;
 }
 
 // Wildcard origin, no credentials - WS auth travels in the handshake's own
@@ -78,10 +99,15 @@ const PING_TIMEOUT_MS = 60_000;
   transports: ['websocket'],
 })
 export class RealtimeGateway
-  implements OnGatewayConnection, OnGatewayDisconnect
+  implements
+    OnGatewayInit,
+    OnGatewayConnection,
+    OnGatewayDisconnect,
+    OnModuleDestroy
 {
   private readonly logger = new Logger(RealtimeGateway.name);
   private readonly abandonmentTimers = new Map<string, NodeJS.Timeout>();
+  private lobbyStatsTimer: NodeJS.Timeout | null = null;
 
   @WebSocketServer()
   server!: Server;
@@ -90,15 +116,51 @@ export class RealtimeGateway
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService<AppConfig, true>,
     private readonly gamesService: GamesService,
+    private readonly gameChatService: GameChatService,
     private readonly matchmakingService: MatchmakingService,
     private readonly usersService: UsersService,
   ) {}
+
+  afterInit(): void {
+    if (CLUSTERING_ENABLED && WORKER_INDEX !== LOBBY_STATS_WORKER) return;
+    this.lobbyStatsTimer = setInterval(() => {
+      void this.sendLobbyStats().catch((error) => {
+        this.logger.warn(`lobby stats failed: ${(error as Error).message}`);
+      });
+    }, LOBBY_STATS_INTERVAL_MS);
+    this.lobbyStatsTimer.unref?.();
+  }
+
+  onModuleDestroy(): void {
+    if (this.lobbyStatsTimer) clearInterval(this.lobbyStatsTimer);
+  }
+
+  private async lobbyStats(): Promise<LobbyStats> {
+    const [sockets, gamesInPlay] = await Promise.all([
+      this.server.fetchSockets(),
+      this.gamesService.countActiveGames(),
+    ]);
+    const onlineUserIds = new Set(
+      sockets
+        .map((socket) => (socket.data as Partial<SocketData>).user?.userId)
+        .filter((userId) => userId !== undefined),
+    );
+    return { playersOnline: onlineUserIds.size, gamesInPlay };
+  }
+
+  private async sendLobbyStats(): Promise<void> {
+    const seekers = await this.server.in(LOBBY_ROOM).fetchSockets();
+    if (seekers.length === 0) return;
+    this.server
+      .to(LOBBY_ROOM)
+      .emit(WS_EVENTS.LOBBY_STATS, await this.lobbyStats());
+  }
 
   async handleConnection(socket: Socket): Promise<void> {
     try {
       const user = verifySocketToken(this.jwtService, socket);
       (socket.data as SocketData).user = user;
-      (socket.data as SocketData).joinedGames = new Set();
+      (socket.data as SocketData).joinedGames = new Map();
       await socket.join(userRoom(user.userId));
       await this.usersService.touchLastSeen(user.userId);
       this.logger.debug(
@@ -126,8 +188,9 @@ export class RealtimeGateway
     const graceMs = this.configService.get('game.disconnectGraceMs', {
       infer: true,
     });
-    for (const gameId of data.joinedGames ?? []) {
+    for (const [gameId, opponentId] of data.joinedGames ?? []) {
       this.scheduleAbandonmentForfeit(gameId, userId, graceMs);
+      this.sendPresence(opponentId, gameId, userId, false);
     }
   }
 
@@ -163,6 +226,22 @@ export class RealtimeGateway
     }
   }
 
+  private sendPresence(
+    toUserId: string,
+    gameId: string,
+    userId: string,
+    online: boolean,
+  ): void {
+    this.server
+      .to(userRoom(toUserId))
+      .emit(WS_EVENTS.GAME_PRESENCE, { gameId, userId, online });
+  }
+
+  private async isConnected(userId: string): Promise<boolean> {
+    const sockets = await this.server.in(userRoom(userId)).fetchSockets();
+    return sockets.length > 0;
+  }
+
   @SubscribeMessage(WS_EVENTS.PING)
   onPing(@MessageBody() clientTime: number): number {
     return clientTime;
@@ -174,11 +253,20 @@ export class RealtimeGateway
     @MessageBody() payload: { gameId: string },
   ) {
     const user = (socket.data as SocketData).user;
-    (socket.data as SocketData).joinedGames.add(payload.gameId);
     this.cancelAbandonmentForfeit(payload.gameId, user.userId);
 
     const game = await this.gamesService.getGameWithMoves(payload.gameId);
+    const opponentId =
+      game.whiteId === user.userId ? game.blackId : game.whiteId;
+    (socket.data as SocketData).joinedGames.set(payload.gameId, opponentId);
     socket.emit(WS_EVENTS.GAME_STATE, toGameStateDto(game));
+
+    this.sendPresence(opponentId, payload.gameId, user.userId, true);
+    socket.emit(WS_EVENTS.GAME_PRESENCE, {
+      gameId: payload.gameId,
+      userId: opponentId,
+      online: await this.isConnected(opponentId),
+    });
   }
 
   @SubscribeMessage(WS_EVENTS.GAME_LEAVE)
@@ -261,6 +349,42 @@ export class RealtimeGateway
     );
   }
 
+  @SubscribeMessage(WS_EVENTS.GAME_CHAT)
+  async onChat(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() payload: { gameId: string; text: string },
+  ) {
+    await this.runGameAction(socket, WS_EVENTS.GAME_CHAT, payload.gameId, () =>
+      this.gameChatService.send(
+        payload.gameId,
+        this.userId(socket),
+        payload.text,
+      ),
+    );
+  }
+
+  @SubscribeMessage(WS_EVENTS.GAME_CHAT_HISTORY)
+  async onChatHistory(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() payload: { gameId: string },
+  ) {
+    await this.runGameAction(
+      socket,
+      WS_EVENTS.GAME_CHAT_HISTORY,
+      payload.gameId,
+      async () => {
+        const messages = await this.gameChatService.history(
+          payload.gameId,
+          this.userId(socket),
+        );
+        socket.emit(WS_EVENTS.GAME_CHAT_HISTORY, {
+          gameId: payload.gameId,
+          messages: messages.map(toChatMessageDto),
+        });
+      },
+    );
+  }
+
   @SubscribeMessage(WS_EVENTS.MATCHMAKING_SEEK)
   async onSeek(
     @ConnectedSocket() socket: Socket,
@@ -268,7 +392,11 @@ export class RealtimeGateway
   ) {
     const user = await this.usersService.findByIdOrThrow(this.userId(socket));
     try {
-      await this.matchmakingService.seek(user, payload);
+      const result = await this.matchmakingService.seek(user, payload);
+      if (result.status === 'queued') {
+        await socket.join(LOBBY_ROOM);
+        socket.emit(WS_EVENTS.LOBBY_STATS, await this.lobbyStats());
+      }
     } catch (error) {
       this.logIfUnexpected('matchmaking:seek', error);
       socket.emit(WS_EVENTS.MATCHMAKING_ERROR, {
@@ -278,8 +406,9 @@ export class RealtimeGateway
   }
 
   @SubscribeMessage(WS_EVENTS.MATCHMAKING_CANCEL)
-  onCancelSeek(@ConnectedSocket() socket: Socket) {
+  async onCancelSeek(@ConnectedSocket() socket: Socket) {
     this.matchmakingService.cancelSeek(this.userId(socket));
+    await socket.leave(LOBBY_ROOM);
   }
 
   private userId(socket: Socket): string {
@@ -324,6 +453,10 @@ export class RealtimeGateway
   onGameCreated({ game }: GameEvent) {
     const dto = toGameStateDto(game);
     this.server
+      .in(userRoom(game.whiteId))
+      .in(userRoom(game.blackId))
+      .socketsLeave(LOBBY_ROOM);
+    this.server
       .to(userRoom(game.whiteId))
       .to(userRoom(game.blackId))
       .emit(WS_EVENTS.GAME_CREATED, dto);
@@ -341,6 +474,7 @@ export class RealtimeGateway
         turn: game.turn,
         whiteTimeRemainingMs: game.whiteTimeRemainingMs,
         blackTimeRemainingMs: game.blackTimeRemainingMs,
+        firstMoveDeadline: firstMoveDeadline(game),
       });
   }
 
@@ -369,6 +503,14 @@ export class RealtimeGateway
       .to(userRoom(game.whiteId))
       .to(userRoom(game.blackId))
       .emit(WS_EVENTS.GAME_DRAW_DECLINED, { gameId: game.id });
+  }
+
+  @OnEvent(DOMAIN_EVENTS.GAME_CHAT_MESSAGE)
+  onChatMessage({ game, message }: GameChatEvent) {
+    this.server
+      .to(userRoom(game.whiteId))
+      .to(userRoom(game.blackId))
+      .emit(WS_EVENTS.GAME_CHAT, toChatMessageDto(message));
   }
 
   @OnEvent(DOMAIN_EVENTS.CHALLENGE_CREATED)

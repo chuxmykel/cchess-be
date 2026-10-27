@@ -377,11 +377,11 @@ describe('GamesService', () => {
       timeControl,
       true,
     );
+    const gameEnded = waitForGameEnded(ctx.eventEmitter, game.id);
+    await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
+    await ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5');
 
-    const { game: finalGame } = await waitForGameEnded(
-      ctx.eventEmitter,
-      game.id,
-    );
+    const { game: finalGame } = await gameEnded;
 
     expect(finalGame.status).toBe('completed');
     expect(finalGame.result).toBe('black');
@@ -418,33 +418,112 @@ describe('GamesService', () => {
         { minutes: 1, incrementSeconds: 0 },
         true,
       );
-      const { game: gameAfterWhiteMove } = await ctx.gamesService.applyMove(
+      await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
+      const { game: gameAfterBlackMove } = await ctx.gamesService.applyMove(
         game.id,
-        white.id,
-        'e2',
-        'e4',
+        black.id,
+        'e7',
+        'e5',
       );
 
       dateSpy.mockReturnValue(Date.now() + 61_000);
 
       await expect(
-        ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5'),
+        ctx.gamesService.applyMove(game.id, white.id, 'g1', 'f3'),
       ).rejects.toThrow('Flagged on time');
 
       dateSpy.mockRestore();
 
       const finalGame = await ctx.gamesService.getGameOrThrow(game.id);
       expect(finalGame.status).toBe('completed');
-      expect(finalGame.result).toBe('white');
+      expect(finalGame.result).toBe('black');
       expect(finalGame.resultReason).toBe('timeout');
-      expect(finalGame.blackTimeRemainingMs).toBe(0);
-      // Only the loser's clock is forced to 0 - white's (whatever it was
+      expect(finalGame.whiteTimeRemainingMs).toBe(0);
+      // Only the loser's clock is forced to 0 - black's (whatever it was
       // left at after their own move) is untouched by the fix.
-      expect(finalGame.whiteTimeRemainingMs).toBe(
-        gameAfterWhiteMove.whiteTimeRemainingMs,
+      expect(finalGame.blackTimeRemainingMs).toBe(
+        gameAfterBlackMove.blackTimeRemainingMs,
       );
     } finally {
       dateSpy.mockRestore();
+    }
+  });
+
+  it("doesn't run either clock until both sides have moved", async () => {
+    const white = await makeUser('white8f');
+    const black = await makeUser('black8f');
+    const fiveMinutes = toClockMs({ minutes: 5, incrementSeconds: 3 });
+    const dateSpy = vi.spyOn(Date, 'now');
+    try {
+      const game = await ctx.gamesService.createGame(
+        white,
+        black,
+        { minutes: 5, incrementSeconds: 3 },
+        true,
+      );
+      dateSpy.mockReturnValue(Date.now() + 10_000);
+      await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
+      dateSpy.mockReturnValue(Date.now() + 10_000);
+      const { game: afterBoth } = await ctx.gamesService.applyMove(
+        game.id,
+        black.id,
+        'e7',
+        'e5',
+      );
+
+      expect(afterBoth.whiteTimeRemainingMs).toBe(fiveMinutes);
+      expect(afterBoth.blackTimeRemainingMs).toBe(fiveMinutes);
+    } finally {
+      dateSpy.mockRestore();
+    }
+  });
+
+  it('aborts a game whose first move comes too late', async () => {
+    const white = await makeUser('white8g');
+    const black = await makeUser('black8g');
+    const dateSpy = vi.spyOn(Date, 'now');
+    try {
+      const game = await ctx.gamesService.createGame(
+        white,
+        black,
+        { minutes: 5, incrementSeconds: 0 },
+        true,
+      );
+      dateSpy.mockReturnValue(Date.now() + 31_000);
+
+      await expect(
+        ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4'),
+      ).rejects.toThrow('Too late for the first move');
+
+      dateSpy.mockRestore();
+      const finalGame = await ctx.gamesService.getGameOrThrow(game.id);
+      expect(finalGame.status).toBe('aborted');
+      expect(finalGame.resultReason).toBe('abort');
+    } finally {
+      dateSpy.mockRestore();
+    }
+  });
+
+  it('aborts a game by itself once the first-move deadline passes', async () => {
+    process.env.GAME_FIRST_MOVE_TIMEOUT_MS = '100';
+    try {
+      const white = await makeUser('white8h');
+      const black = await makeUser('black8h');
+      const game = await ctx.gamesService.createGame(
+        white,
+        black,
+        { minutes: 5, incrementSeconds: 0 },
+        true,
+      );
+      const gameEnded = waitForGameEnded(ctx.eventEmitter, game.id);
+      await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
+
+      const { game: finalGame } = await gameEnded;
+
+      expect(finalGame.status).toBe('aborted');
+      expect(finalGame.resultReason).toBe('abort');
+    } finally {
+      delete process.env.GAME_FIRST_MOVE_TIMEOUT_MS;
     }
   });
 

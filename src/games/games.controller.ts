@@ -1,15 +1,22 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Param,
   Post,
+  Put,
   Query,
   Res,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiProperty,
+  ApiTags,
+} from '@nestjs/swagger';
 import type { Response } from 'express';
 
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
@@ -19,13 +26,22 @@ import { GameStateDto, toGameStateDto } from './dto/game-state.dto.js';
 import { GameSummaryDto, toGameSummaryDto } from './dto/game-summary.dto.js';
 import { ListGamesQuery } from './dto/list-games.query.js';
 import { MakeMoveDto } from './dto/make-move.dto.js';
+import { BookmarksService } from './bookmarks.service.js';
 import { GamesService } from './games.service.js';
+
+class BookmarkStateDto {
+  @ApiProperty()
+  bookmarked!: boolean;
+}
 
 @ApiTags('games')
 @ApiBearerAuth()
 @Controller('games')
 export class GamesController {
-  constructor(private readonly gamesService: GamesService) {}
+  constructor(
+    private readonly gamesService: GamesService,
+    private readonly bookmarksService: BookmarksService,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -44,6 +60,37 @@ export class GamesController {
   async getOne(@Param('id') id: string): Promise<GameStateDto> {
     const game = await this.gamesService.getGameWithMoves(id);
     return toGameStateDto(game);
+  }
+
+  @Get(':id/bookmark')
+  @ApiOperation({ summary: 'Whether you have bookmarked this game' })
+  async getBookmark(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<BookmarkStateDto> {
+    return {
+      bookmarked: await this.bookmarksService.isBookmarked(user.userId, id),
+    };
+  }
+
+  @Put(':id/bookmark')
+  @ApiOperation({ summary: 'Bookmark a game' })
+  async bookmark(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<BookmarkStateDto> {
+    await this.bookmarksService.bookmark(user.userId, id);
+    return { bookmarked: true };
+  }
+
+  @Delete(':id/bookmark')
+  @ApiOperation({ summary: 'Remove a bookmark' })
+  async unbookmark(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<BookmarkStateDto> {
+    await this.bookmarksService.unbookmark(user.userId, id);
+    return { bookmarked: false };
   }
 
   @Get(':id/pgn')

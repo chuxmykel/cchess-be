@@ -182,4 +182,201 @@ describe('Realtime gateway (e2e)', () => {
 
     whiteSocket.disconnect();
   });
+
+  it('tells each player whether the other is connected', async () => {
+    const pia = await registerUser(app, 'pia_rt');
+    const quin = await registerUser(app, 'quin_rt');
+    const challenge = await request(app.getHttpServer())
+      .post('/challenges')
+      .set('Authorization', `Bearer ${pia.accessToken}`)
+      .send({
+        opponentUsername: quin.username,
+        minutes: 5,
+        incrementSeconds: 0,
+        color: 'white',
+      })
+      .expect(201);
+    const accepted = await request(app.getHttpServer())
+      .post(`/challenges/${challenge.body.id}/accept`)
+      .set('Authorization', `Bearer ${quin.accessToken}`)
+      .expect(201);
+    const gameId = accepted.body.id;
+    const quinId = accepted.body.black.id;
+    const piaId = accepted.body.white.id;
+
+    const quinSocket = await connect(baseUrl, quin.accessToken);
+    const piaSocket = await connect(baseUrl, pia.accessToken);
+
+    const piaJoinedSeenByQuin = waitForEvent(quinSocket, 'game:presence');
+    const quinSeenByPia = waitForEvent(piaSocket, 'game:presence');
+    piaSocket.emit('game:join', { gameId });
+
+    await expect(piaJoinedSeenByQuin).resolves.toEqual({
+      gameId,
+      userId: piaId,
+      online: true,
+    });
+    await expect(quinSeenByPia).resolves.toEqual({
+      gameId,
+      userId: quinId,
+      online: true,
+    });
+
+    const quinJoinedSeenByPia = waitForEvent(piaSocket, 'game:presence');
+    quinSocket.emit('game:join', { gameId });
+    await quinJoinedSeenByPia;
+    const quinLeft = waitForEvent(piaSocket, 'game:presence');
+    quinSocket.disconnect();
+
+    await expect(quinLeft).resolves.toEqual({
+      gameId,
+      userId: quinId,
+      online: false,
+    });
+    piaSocket.disconnect();
+  });
+
+  describe('chat', () => {
+    async function startGame(whiteName: string, blackName: string) {
+      const white = await registerUser(app, whiteName);
+      const black = await registerUser(app, blackName);
+      const challenge = await request(app.getHttpServer())
+        .post('/challenges')
+        .set('Authorization', `Bearer ${white.accessToken}`)
+        .send({
+          opponentUsername: black.username,
+          minutes: 5,
+          incrementSeconds: 0,
+          color: 'white',
+        })
+        .expect(201);
+      const accepted = await request(app.getHttpServer())
+        .post(`/challenges/${challenge.body.id}/accept`)
+        .set('Authorization', `Bearer ${black.accessToken}`)
+        .expect(201);
+      const whiteSocket = await connect(baseUrl, white.accessToken);
+      const blackSocket = await connect(baseUrl, black.accessToken);
+      return {
+        gameId: accepted.body.id as string,
+        whiteId: accepted.body.white.id as string,
+        whiteSocket,
+        blackSocket,
+      };
+    }
+
+    it('sends a message to both players and keeps it for later joins', async () => {
+      const { gameId, whiteId, whiteSocket, blackSocket } = await startGame(
+        'rita_rt',
+        'sven_rt',
+      );
+
+      const seenByBlack = waitForEvent(blackSocket, 'game:chat');
+      const seenByWhite = waitForEvent(whiteSocket, 'game:chat');
+      whiteSocket.emit('game:chat', { gameId, text: '  good luck!  ' });
+
+      const expected = { gameId, userId: whiteId, text: 'good luck!' };
+      await expect(seenByBlack).resolves.toMatchObject(expected);
+      await expect(seenByWhite).resolves.toMatchObject(expected);
+
+      const history = waitForEvent<{ messages: unknown[] }>(
+        blackSocket,
+        'game:chatHistory',
+      );
+      blackSocket.emit('game:chatHistory', { gameId });
+      await expect(history).resolves.toMatchObject({
+        gameId,
+        messages: [expected],
+      });
+
+      whiteSocket.disconnect();
+      blackSocket.disconnect();
+    });
+
+    it('rejects an empty message, and one from outside the game', async () => {
+      const { gameId, whiteSocket, blackSocket } = await startGame(
+        'tess_rt',
+        'umar_rt',
+      );
+      const outsider = await registerUser(app, 'vera_rt');
+      const outsiderSocket = await connect(baseUrl, outsider.accessToken);
+
+      const emptyRejected = waitForEvent(whiteSocket, 'game:error');
+      whiteSocket.emit('game:chat', { gameId, text: '   ' });
+      await expect(emptyRejected).resolves.toMatchObject({
+        gameId,
+        message: 'Message is empty',
+      });
+
+      const outsiderRejected = waitForEvent(outsiderSocket, 'game:error');
+      outsiderSocket.emit('game:chat', { gameId, text: 'hi' });
+      await expect(outsiderRejected).resolves.toMatchObject({
+        message: 'You are not a player in this game',
+      });
+
+      whiteSocket.disconnect();
+      blackSocket.disconnect();
+      outsiderSocket.disconnect();
+    });
+
+    it('slows down a player sending too many messages', async () => {
+      const { gameId, whiteSocket, blackSocket } = await startGame(
+        'wade_rt',
+        'xena_rt',
+      );
+
+      const rejected = waitForEvent(whiteSocket, 'game:error');
+      const delivered = new Promise<void>((resolve) => {
+        let count = 0;
+        blackSocket.on('game:chat', () => {
+          count += 1;
+          if (count === 5) resolve();
+        });
+      });
+      for (let i = 0; i < 6; i++) {
+        whiteSocket.emit('game:chat', { gameId, text: `message ${i}` });
+      }
+
+      await expect(rejected).resolves.toMatchObject({
+        message: 'Slow down - too many messages',
+      });
+      await delivered;
+      whiteSocket.disconnect();
+      blackSocket.disconnect();
+    });
+  });
+
+  describe('lobby stats', () => {
+    const fiveMinutes = { minutes: 5, incrementSeconds: 0 };
+
+    it('sends players online and games in play once a seek is queued', async () => {
+      const mona = await registerUser(app, 'mona_rt');
+      const nils = await registerUser(app, 'nils_rt');
+      const idleSocket = await connect(baseUrl, nils.accessToken);
+      const seekingSocket = await connect(baseUrl, mona.accessToken);
+
+      const stats = waitForEvent(seekingSocket, 'lobby:stats');
+      seekingSocket.emit('matchmaking:seek', fiveMinutes);
+
+      await expect(stats).resolves.toEqual({
+        playersOnline: 2,
+        gamesInPlay: 0,
+      });
+      seekingSocket.disconnect();
+      idleSocket.disconnect();
+    });
+
+    it('keeps sending stats while the seek waits', async () => {
+      const otto = await registerUser(app, 'otto_rt');
+      const socket = await connect(baseUrl, otto.accessToken);
+
+      const first = waitForEvent(socket, 'lobby:stats');
+      socket.emit('matchmaking:seek', fiveMinutes);
+      await first;
+
+      await expect(
+        waitForEvent(socket, 'lobby:stats', 7000),
+      ).resolves.toMatchObject({ playersOnline: 1 });
+      socket.disconnect();
+    }, 10_000);
+  });
 });

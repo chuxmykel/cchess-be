@@ -181,24 +181,50 @@ an origin restriction would protect. This stops being true the moment any
 client authenticates via a cookie instead (e.g. a future browser client) -
 revisit `origin`/`credentials` together if that ever happens.
 
-| Client -> Server     | Payload                                               | Server -> Client                                                   | Payload                                                                   |
-| -------------------- | ----------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------- |
-| `game:join`          | `{ gameId }`                                          | `game:state`                                                       | Full `GameStateDto`                                                       |
-| `game:move`          | `{ gameId, from, to, promotion? }`                    | `game:move`                                                        | `{ gameId, move, fen, turn, whiteTimeRemainingMs, blackTimeRemainingMs }` |
-| `game:resign`        | `{ gameId }`                                          | `game:over`                                                        | Full `GameStateDto` (also sent on checkmate/timeout/draw/abort)           |
-| `game:abort`         | `{ gameId }`                                          | `game:drawOffered`                                                 | `{ gameId, by }`                                                          |
-| `game:drawOffer`     | `{ gameId }`                                          | `game:drawDeclined`                                                | `{ gameId }`                                                              |
-| `game:drawRespond`   | `{ gameId, accept }`                                  | `game:created`                                                     | Full `GameStateDto` - pushed to both players, e.g. on a matchmaking pair  |
-| `matchmaking:seek`   | `{ minutes, incrementSeconds, rated?, ratingRange? }` | `game:error` / `matchmaking:error`                                 | `{ message }` (and `{ gameId, message }` for game errors)                 |
-| `matchmaking:cancel` | -                                                     | `challenge:received` / `challenge:accepted` / `challenge:resolved` | `ChallengeDto`                                                            |
-| `game:leave`         | `{ gameId }`                                          | `friend:requestReceived` / `friend:requestAccepted`                | `{ id, from? }`                                                           |
+| Client -> Server     | Payload                                               | Server -> Client                                                   | Payload                                                                                      |
+| -------------------- | ----------------------------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| `game:join`          | `{ gameId }`                                          | `game:state`                                                       | Full `GameStateDto`                                                                          |
+| `game:move`          | `{ gameId, from, to, promotion? }`                    | `game:move`                                                        | `{ gameId, move, fen, turn, whiteTimeRemainingMs, blackTimeRemainingMs, firstMoveDeadline }` |
+| `game:resign`        | `{ gameId }`                                          | `game:over`                                                        | Full `GameStateDto` (also sent on checkmate/timeout/draw/abort)                              |
+| `game:abort`         | `{ gameId }`                                          | `game:drawOffered`                                                 | `{ gameId, by }`                                                                             |
+| `game:drawOffer`     | `{ gameId }`                                          | `game:drawDeclined`                                                | `{ gameId }`                                                                                 |
+| `game:drawRespond`   | `{ gameId, accept }`                                  | `game:created`                                                     | Full `GameStateDto` - pushed to both players, e.g. on a matchmaking pair                     |
+| `matchmaking:seek`   | `{ minutes, incrementSeconds, rated?, ratingRange? }` | `game:error` / `matchmaking:error`                                 | `{ message }` (and `{ gameId, message }` for game errors)                                    |
+| `matchmaking:cancel` | -                                                     | `challenge:received` / `challenge:accepted` / `challenge:resolved` | `ChallengeDto`                                                                               |
+| `game:leave`         | `{ gameId }`                                          | `friend:requestReceived` / `friend:requestAccepted`                | `{ id, from? }`                                                                              |
+| `game:chat`          | `{ gameId, text }`                                    | `game:chat`                                                        | `{ id, gameId, userId, text, createdAt }` - to both players                                  |
+| `game:chatHistory`   | `{ gameId }`                                          | `game:chatHistory`                                                 | `{ gameId, messages }` - to the player who asked                                             |
+| -                    | -                                                     | `game:presence`                                                    | `{ gameId, userId, online }`                                                                 |
+| -                    | -                                                     | `lobby:stats`                                                      | `{ playersOnline, gamesInPlay }`                                                             |
 
 A seek (here or `POST /matchmaking/seek`) is rated unless `rated: false`;
 guests' seeks are always casual. `ratingRange: { below, above }` (whole
 numbers from 0 to 1000) limits opponents to that far below and above your
 rating in the time control's category, and both players' ranges must hold.
-A `null` side has no limit; leave the whole range out to accept any rating. Guests have no rating, so ranges don't
-apply to them.
+A `null` side has no limit; leave the whole range out to accept any rating.
+Guests have no rating, so ranges don't apply to them.
+
+While a seek waits, its socket gets `lobby:stats` straight away and then
+every 5 seconds: `playersOnline` counts users with a connected socket and
+`gamesInPlay` counts active games. Under clustering, worker 0 sends them.
+
+Neither clock runs until both sides have played a move. Until then the side
+to move has `GAME_FIRST_MOVE_TIMEOUT_MS` (default 30s) to play its first
+move - from the start of the game for white, from white's first move for
+black - or the game is aborted. `firstMoveDeadline` (in `GameStateDto` and
+the `game:move` push) says when, and is `null` once both sides have moved.
+
+Joining a game sends the joiner a `game:presence` for their opponent
+(connected or not) and tells the opponent the joiner is online; a player
+whose last socket disconnects is reported offline to their opponents.
+
+Chat is between a game's two players only. A message is trimmed and must be
+1-140 characters, and each player can send at most 5 per 10 seconds; a
+rejected one comes back as `game:error`. Messages are kept, and
+`game:chatHistory` returns them oldest first.
+
+Any user can bookmark any game: `GET`, `PUT` and `DELETE
+/games/:id/bookmark` each answer `{ bookmarked }`.
 
 `ping` isn't part of the broadcast protocol above - it's a plain Socket.IO
 acknowledgement (payload: the client's own timestamp as a number), echoed
