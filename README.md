@@ -101,7 +101,7 @@ games/         The chess authority: Game/Move entities, GamesService (moves, clo
 matchmaking/   An in-memory seek queue (see "Known limitations" below) that pairs
                players whose time control, rated choice and rating ranges all
                agree, nearest rating first.
-challenges/    Challenges between friends (accept -> creates a Game).
+challenges/    Challenges to any player (accept -> creates a Game).
 realtime/      One Socket.IO gateway for everything live: moves, clocks, draw/resign/
                abort, matchmaking pushes, challenge + friend-request notifications.
 chess/         Framework-free: time control classification, and ServerChessEngine,
@@ -252,9 +252,9 @@ push keeps that current - on a user's first connect and last disconnect,
 and when their games start or end. Only one friendship or request can be
 live between two users.
 
-Challenges are between friends only. `POST /challenges` takes
+Anyone can challenge any player, friend or not. `POST /challenges` takes
 `{ opponentUsername, minutes, incrementSeconds, color?, rated? }` (rated
-unless `rated: false`), replaces any pending challenge to the same friend,
+unless `rated: false`), replaces any pending challenge to the same player,
 and expires after `CHALLENGE_TTL_MS` (default 2 minutes; `expiresAt` in
 `ChallengeDto`). Expiry is pushed as `challenge:resolved` with status
 `expired`, and accepting an expired one fails.

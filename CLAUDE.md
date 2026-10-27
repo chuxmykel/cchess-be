@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A real-time chess game server built with NestJS 12 (TypeScript, ESM): auth
 (including guest accounts), user profiles with per-category Glicko-2 ratings,
-friends and direct messages, matchmaking, challenges between friends, and
+friends and direct messages, matchmaking, challenges to any player, and
 fully rules-enforced games
 (`chess.js` 1.4.0 - same version as the client) served over REST and a
 Socket.IO gateway. It's the backend for the React Native app at
