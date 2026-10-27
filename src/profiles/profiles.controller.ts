@@ -9,7 +9,16 @@ import {
 } from '../games/dto/game-summary.dto.js';
 import { ListGamesQuery } from '../games/dto/list-games.query.js';
 import { GamesService } from '../games/games.service.js';
+import { UsersService } from '../users/users.service.js';
 import { ActivityDayDto, PublicProfileDto } from './dto/public-profile.dto.js';
+import {
+  DEFAULT_USER_SEARCH_LIMIT,
+  SearchUsersQuery,
+} from './dto/search-users.query.js';
+import {
+  toUserSearchResultDto,
+  UserSearchResultDto,
+} from './dto/user-search-result.dto.js';
 import { ProfilesService } from './profiles.service.js';
 
 @ApiTags('users')
@@ -19,7 +28,25 @@ export class ProfilesController {
   constructor(
     private readonly profilesService: ProfilesService,
     private readonly gamesService: GamesService,
+    private readonly usersService: UsersService,
   ) {}
+
+  @Get()
+  @ApiOperation({
+    summary:
+      'Registered users whose username or display name contains the search term, leaving you out',
+  })
+  async search(
+    @CurrentUser() viewer: AuthenticatedUser,
+    @Query() query: SearchUsersQuery,
+  ): Promise<UserSearchResultDto[]> {
+    const users = await this.usersService.search(
+      query.search,
+      viewer.userId,
+      query.limit ?? DEFAULT_USER_SEARCH_LIMIT,
+    );
+    return users.map(toUserSearchResultDto);
+  }
 
   @Get(':username')
   @ApiOperation({

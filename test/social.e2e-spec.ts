@@ -167,6 +167,47 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
     });
   });
 
+  describe('searching for players', () => {
+    it('finds registered players by part of their name, closest first', async () => {
+      const viewer = await registerUser(app, 'srch_viewer');
+      const amy = await registerUser(app, 'srch_amy');
+      const am = await registerUser(app, 'srch_am');
+      const amz = await registerUser(app, 'xsrch_amz');
+      await registerUser(app, 'srchqam');
+      const usernamesFor = async (search: string) =>
+        (
+          await as(viewer)
+            .get(`/users?search=${encodeURIComponent(search)}`)
+            .expect(200)
+        ).body.map((user: { username: string }) => user.username);
+
+      expect(await usernamesFor('SRCH_AM')).toEqual([
+        am.username,
+        amy.username,
+        amz.username,
+      ]);
+      expect(await usernamesFor(am.username)).toEqual([
+        am.username,
+        amy.username,
+      ]);
+      expect(await usernamesFor('srch_view')).toEqual([]);
+    });
+
+    it('leaves out guests and refuses an empty search', async () => {
+      const viewer = await registerUser(app, 'srch_guests');
+      await request(app.getHttpServer()).post('/auth/guest').expect(200);
+
+      const found = await as(viewer).get('/users?search=guest_').expect(200);
+
+      expect(
+        found.body.filter((user: { username: string }) =>
+          user.username.startsWith('guest_'),
+        ),
+      ).toEqual([]);
+      await as(viewer).get('/users?search=').expect(400);
+    });
+  });
+
   describe('profiles', () => {
     it("describes the viewer's friendship with the user", async () => {
       const gus = await registerUser(app, 'gus_social');
