@@ -453,4 +453,154 @@ describe('GamesService', () => {
     );
     expect(game.rated).toBe(false);
   });
+
+  describe('game ratings', () => {
+    const EQUAL_RATINGS_PROVISIONAL_SWING = 20;
+
+    async function playFoolsMate(
+      gameId: string,
+      whiteId: string,
+      blackId: string,
+    ) {
+      await ctx.gamesService.applyMove(gameId, whiteId, 'f2', 'f3');
+      await ctx.gamesService.applyMove(gameId, blackId, 'e7', 'e5');
+      await ctx.gamesService.applyMove(gameId, whiteId, 'g2', 'g4');
+      await ctx.gamesService.applyMove(gameId, blackId, 'd8', 'h4');
+    }
+
+    it("records each registered player's rating when the game starts", async () => {
+      const white = await makeUser('ratedwhite1');
+      const black = await makeUser('ratedblack1');
+      await ctx.ratingsRepo.update(
+        { userId: white.id, category: 'blitz' },
+        { rating: 1620 },
+      );
+
+      const game = await ctx.gamesService.createGame(
+        white,
+        black,
+        { minutes: 5, incrementSeconds: 0 },
+        true,
+      );
+
+      expect(game.whiteRatingAtStart).toBe(1620);
+      expect(game.blackRatingAtStart).toBe(STARTING_RATING);
+      expect(game.whiteRatingDiff).toBeNull();
+      expect(game.blackRatingDiff).toBeNull();
+    });
+
+    it("records no rating for a guest, who doesn't have one", async () => {
+      const white = await makeUser('ratedwhite2');
+      const guest = await ctx.usersService.createGuestUser();
+
+      const game = await ctx.gamesService.createGame(
+        white,
+        guest,
+        { minutes: 5, incrementSeconds: 0 },
+        true,
+      );
+
+      expect(game.whiteRatingAtStart).toBe(STARTING_RATING);
+      expect(game.blackRatingAtStart).toBeNull();
+    });
+
+    it('records what a rated game did to both ratings when it ends', async () => {
+      const white = await makeUser('ratedwhite3');
+      const black = await makeUser('ratedblack3');
+      const game = await ctx.gamesService.createGame(
+        white,
+        black,
+        { minutes: 5, incrementSeconds: 0 },
+        true,
+      );
+
+      await playFoolsMate(game.id, white.id, black.id);
+
+      const finished = await ctx.gamesService.getGameWithMoves(game.id);
+      expect(finished.whiteRatingDiff).toBe(-EQUAL_RATINGS_PROVISIONAL_SWING);
+      expect(finished.blackRatingDiff).toBe(EQUAL_RATINGS_PROVISIONAL_SWING);
+      expect(finished.whiteRatingAtStart).toBe(STARTING_RATING);
+      expect(finished.blackRatingAtStart).toBe(STARTING_RATING);
+    });
+
+    it('rates from the ratings the game started with, not later changes', async () => {
+      const white = await makeUser('ratedwhite4');
+      const black = await makeUser('ratedblack4');
+      const game = await ctx.gamesService.createGame(
+        white,
+        black,
+        { minutes: 5, incrementSeconds: 0 },
+        true,
+      );
+      const whiteRatingAfterAnotherGameEnded = 1900;
+      await ctx.ratingsRepo.update(
+        { userId: white.id, category: 'blitz' },
+        { rating: whiteRatingAfterAnotherGameEnded },
+      );
+
+      await playFoolsMate(game.id, white.id, black.id);
+
+      const finished = await ctx.gamesService.getGameWithMoves(game.id);
+      expect(finished.blackRatingDiff).toBe(EQUAL_RATINGS_PROVISIONAL_SWING);
+      const whiteBlitz = (await ctx.usersService.getRatings(white.id)).find(
+        (r) => r.category === 'blitz',
+      )!;
+      expect(whiteBlitz.rating).toBe(
+        whiteRatingAfterAnotherGameEnded - EQUAL_RATINGS_PROVISIONAL_SWING,
+      );
+    });
+
+    it('records ratings but no change for a casual game', async () => {
+      const white = await makeUser('ratedwhite5');
+      const black = await makeUser('ratedblack5');
+      const game = await ctx.gamesService.createGame(
+        white,
+        black,
+        { minutes: 5, incrementSeconds: 0 },
+        false,
+      );
+
+      await playFoolsMate(game.id, white.id, black.id);
+
+      const finished = await ctx.gamesService.getGameWithMoves(game.id);
+      expect(finished.whiteRatingAtStart).toBe(STARTING_RATING);
+      expect(finished.whiteRatingDiff).toBeNull();
+      expect(finished.blackRatingDiff).toBeNull();
+    });
+
+    it('records no change for an aborted game', async () => {
+      const white = await makeUser('ratedwhite6');
+      const black = await makeUser('ratedblack6');
+      const game = await ctx.gamesService.createGame(
+        white,
+        black,
+        { minutes: 5, incrementSeconds: 0 },
+        true,
+      );
+
+      await ctx.gamesService.abort(game.id, black.id);
+
+      const finished = await ctx.gamesService.getGameWithMoves(game.id);
+      expect(finished.whiteRatingDiff).toBeNull();
+      expect(finished.blackRatingDiff).toBeNull();
+    });
+
+    it('sends the rating changes with the game.ended event', async () => {
+      const white = await makeUser('ratedwhite7');
+      const black = await makeUser('ratedblack7');
+      const game = await ctx.gamesService.createGame(
+        white,
+        black,
+        { minutes: 5, incrementSeconds: 0 },
+        true,
+      );
+      const ended = waitForGameEnded(ctx.eventEmitter, game.id);
+
+      await playFoolsMate(game.id, white.id, black.id);
+
+      const { game: endedGame } = await ended;
+      expect(endedGame.whiteRatingDiff).toBe(-EQUAL_RATINGS_PROVISIONAL_SWING);
+      expect(endedGame.blackRatingDiff).toBe(EQUAL_RATINGS_PROVISIONAL_SWING);
+    });
+  });
 });

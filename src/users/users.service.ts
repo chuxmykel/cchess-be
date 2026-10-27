@@ -177,10 +177,12 @@ export class UsersService {
   }
 
   /** Returns the rating row (creating one at the starting rating if missing - e.g. a guest's first rated game). */
+  async findRating(userId: string, category: GameType): Promise<Rating | null> {
+    return this.ratings.findOne({ where: { userId, category } });
+  }
+
   async getOrCreateRating(userId: string, category: GameType): Promise<Rating> {
-    const existing = await this.ratings.findOne({
-      where: { userId, category },
-    });
+    const existing = await this.findRating(userId, category);
     if (existing) return existing;
     return this.ratings.save(
       this.ratings.create({

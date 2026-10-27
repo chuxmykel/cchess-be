@@ -2,7 +2,10 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { STARTING_RATING } from '../src/users/entities/rating.entity.js';
 import { createTestApp, registerUser } from './utils/app.js';
+
+const EQUAL_RATINGS_PROVISIONAL_SWING = 20;
 
 describe('Games via challenges (e2e)', () => {
   let app: INestApplication;
@@ -38,6 +41,8 @@ describe('Games via challenges (e2e)', () => {
     const gameId = accepted.body.id;
     expect(accepted.body.white.username).toBe(ivan.username);
     expect(accepted.body.black.username).toBe(judy.username);
+    expect(accepted.body.white.rating).toBe(STARTING_RATING);
+    expect(accepted.body.black.rating).toBe(STARTING_RATING);
 
     await request(app.getHttpServer())
       .post(`/games/${gameId}/moves`)
@@ -71,6 +76,17 @@ describe('Games via challenges (e2e)', () => {
       .expect(200);
     expect(history.body).toHaveLength(1);
     expect(history.body[0].result).toBe('win');
+    expect(history.body[0].opponentRating).toBe(STARTING_RATING);
+    expect(history.body[0].ratingDiff).toBe(EQUAL_RATINGS_PROVISIONAL_SWING);
+
+    const loserHistory = await request(app.getHttpServer())
+      .get('/games')
+      .set('Authorization', `Bearer ${ivan.accessToken}`)
+      .expect(200);
+    expect(loserHistory.body[0].result).toBe('loss');
+    expect(loserHistory.body[0].ratingDiff).toBe(
+      -EQUAL_RATINGS_PROVISIONAL_SWING,
+    );
 
     const pgn = await request(app.getHttpServer())
       .get(`/games/${gameId}/pgn`)

@@ -31,6 +31,7 @@ import {
   classifyTimeControl,
   incrementMs,
   toClockMs,
+  type GameType,
   type TimeControl,
 } from '../chess/time-control.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
@@ -40,7 +41,7 @@ import {
   MAX_GAMES_LIST_LIMIT,
 } from './dto/list-games.query.js';
 import type { User } from '../users/entities/user.entity.js';
-import { computeGameEloDeltas } from './elo.js';
+import { computeGameEloDeltas, type EloUpdateResult } from './elo.js';
 import {
   Game,
   STARTING_FEN,
@@ -271,6 +272,10 @@ export class GamesService implements OnModuleDestroy {
   ): Promise<Game> {
     const gameType = classifyTimeControl(tc);
     const clockMs = toClockMs(tc);
+    const [whiteRatingAtStart, blackRatingAtStart] = await Promise.all([
+      this.ratingAtStart(white, gameType),
+      this.ratingAtStart(black, gameType),
+    ]);
 
     const game = this.games.create({
       id: gameId,
@@ -282,6 +287,10 @@ export class GamesService implements OnModuleDestroy {
       incrementSeconds: tc.incrementSeconds,
       gameType,
       rated: rated && !white.isGuest && !black.isGuest,
+      whiteRatingAtStart,
+      blackRatingAtStart,
+      whiteRatingDiff: null,
+      blackRatingDiff: null,
       status: 'active',
       result: null,
       resultReason: null,
@@ -305,6 +314,14 @@ export class GamesService implements OnModuleDestroy {
       game: saved,
     } satisfies GameEvent);
     return saved;
+  }
+
+  private async ratingAtStart(
+    user: User,
+    gameType: GameType,
+  ): Promise<number | null> {
+    const rating = await this.usersService.findRating(user.id, gameType);
+    return rating?.rating ?? null;
   }
 
   /**
@@ -986,32 +1003,45 @@ export class GamesService implements OnModuleDestroy {
       );
     }
 
+    const ratingChanges =
+      status === 'completed' && game.rated && result
+        ? await this.recordRatingChanges(game, result)
+        : null;
+
     await this.games.save(game);
 
-    if (status === 'completed' && game.rated && result) {
-      await this.applyRatingUpdates(game, result);
+    if (ratingChanges) {
+      await this.applyRatingChanges(game, ratingChanges);
     }
 
     this.events.emit(DOMAIN_EVENTS.GAME_ENDED, { game } satisfies GameEvent);
   }
 
-  private async applyRatingUpdates(
+  private async recordRatingChanges(
     game: Game,
     result: Exclude<GameResult, null>,
-  ): Promise<void> {
+  ): Promise<EloUpdateResult> {
     const [whiteRating, blackRating] = await Promise.all([
       this.usersService.getOrCreateRating(game.whiteId, game.gameType),
       this.usersService.getOrCreateRating(game.blackId, game.gameType),
     ]);
 
-    const { whiteDelta, blackDelta } = computeGameEloDeltas({
-      whiteRating: whiteRating.rating,
+    const changes = computeGameEloDeltas({
+      whiteRating: game.whiteRatingAtStart ?? whiteRating.rating,
       whiteGamesPlayed: whiteRating.gamesPlayed,
-      blackRating: blackRating.rating,
+      blackRating: game.blackRatingAtStart ?? blackRating.rating,
       blackGamesPlayed: blackRating.gamesPlayed,
       result,
     });
+    game.whiteRatingDiff = changes.whiteDelta;
+    game.blackRatingDiff = changes.blackDelta;
+    return changes;
+  }
 
+  private async applyRatingChanges(
+    game: Game,
+    { whiteDelta, blackDelta }: EloUpdateResult,
+  ): Promise<void> {
     await Promise.all([
       this.usersService.applyRatingDelta(
         game.whiteId,

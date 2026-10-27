@@ -67,6 +67,18 @@ export class Game {
   @Column({ type: 'boolean', default: true })
   rated!: boolean;
 
+  @Column({ type: 'int', nullable: true })
+  whiteRatingAtStart!: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  blackRatingAtStart!: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  whiteRatingDiff!: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  blackRatingDiff!: number | null;
+
   @Column({ type: 'varchar', length: 16, default: 'active' })
   status!: GameStatus;
 
