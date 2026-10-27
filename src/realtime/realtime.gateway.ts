@@ -527,10 +527,10 @@ export class RealtimeGateway
       .emit(WS_EVENTS.CHALLENGE_ACCEPTED, toChallengeDto(challenge));
   }
 
-  @OnEvent([
-    DOMAIN_EVENTS.CHALLENGE_DECLINED,
-    DOMAIN_EVENTS.CHALLENGE_CANCELLED,
-  ])
+  // One decorator per event: EventEmitter2 reads an array as the parts of
+  // a single dotted event name, not as a list of events.
+  @OnEvent(DOMAIN_EVENTS.CHALLENGE_DECLINED)
+  @OnEvent(DOMAIN_EVENTS.CHALLENGE_CANCELLED)
   onChallengeResolved({ challenge }: ChallengeResolvedEvent) {
     this.server
       .to(userRoom(challenge.challengerId))
