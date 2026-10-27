@@ -26,6 +26,7 @@ import type { GameEvent, GameMoveEvent } from '../games/games.service.js';
 import { GamesService } from '../games/games.service.js';
 import type { FriendRequestEvent } from '../friends/friends.service.js';
 import { MatchmakingService } from '../matchmaking/matchmaking.service.js';
+import type { SeekRequest } from '../matchmaking/seek-matching.js';
 import { UsersService } from '../users/users.service.js';
 import type { AuthenticatedUser } from '../auth/types.js';
 import { verifySocketToken } from './ws-auth.util.js';
@@ -263,7 +264,7 @@ export class RealtimeGateway
   @SubscribeMessage(WS_EVENTS.MATCHMAKING_SEEK)
   async onSeek(
     @ConnectedSocket() socket: Socket,
-    @MessageBody() payload: { minutes: number; incrementSeconds: number },
+    @MessageBody() payload: SeekRequest,
   ) {
     const user = await this.usersService.findByIdOrThrow(this.userId(socket));
     try {
