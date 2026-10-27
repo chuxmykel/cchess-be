@@ -8,7 +8,7 @@ import {
   STARTING_RATING,
   STARTING_VOLATILITY,
 } from '../src/users/entities/rating.entity.js';
-import { createTestApp, registerUser } from './utils/app.js';
+import { createTestApp, makeFriends, registerUser } from './utils/app.js';
 
 const NEW_PLAYER = {
   rating: STARTING_RATING,
@@ -33,6 +33,7 @@ describe('Games via challenges (e2e)', () => {
   it('challenges a user, accepts, plays moves, and resigns', async () => {
     const ivan = await registerUser(app, 'ivan_games');
     const judy = await registerUser(app, 'judy_games');
+    await makeFriends(app, ivan, judy);
 
     const challenge = await request(app.getHttpServer())
       .post('/challenges')
@@ -231,6 +232,7 @@ describe('Games via challenges (e2e)', () => {
   it('bookmarks a game, removes the bookmark and adds it back', async () => {
     const yara = await registerUser(app, 'yara_games');
     const zane = await registerUser(app, 'zane_games');
+    await makeFriends(app, yara, zane);
     const challenge = await request(app.getHttpServer())
       .post('/challenges')
       .set('Authorization', `Bearer ${yara.accessToken}`)

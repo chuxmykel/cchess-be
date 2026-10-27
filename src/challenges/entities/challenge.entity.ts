@@ -12,7 +12,8 @@ import {
 
 import { User } from '../../users/entities/user.entity.js';
 
-export type ChallengeStatus = 'pending' | 'accepted' | 'declined' | 'cancelled';
+export type ChallengeStatus =
+  'pending' | 'accepted' | 'declined' | 'cancelled' | 'expired';
 export type ColorPreference = 'white' | 'black' | 'random';
 
 @Entity('challenges')
@@ -48,6 +49,9 @@ export class Challenge {
 
   @Column({ type: 'varchar', length: 16, default: 'pending' })
   status!: ChallengeStatus;
+
+  @Column({ type: 'boolean', default: true })
+  rated!: boolean;
 
   @Column({ type: 'varchar', nullable: true })
   gameId!: string | null;

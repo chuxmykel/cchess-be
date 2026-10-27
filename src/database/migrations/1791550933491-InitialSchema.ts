@@ -130,6 +130,7 @@ export class InitialSchema1791550933491 implements MigrationInterface {
             length: '16',
             default: "'pending'",
           },
+          { name: 'rated', type: 'boolean', default: true },
           { name: 'gameId', type: 'varchar', isNullable: true },
           { name: 'createdAt', type: 'timestamptz', default: 'now()' },
           { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
@@ -163,6 +164,10 @@ export class InitialSchema1791550933491 implements MigrationInterface {
           { name: 'deletedAt', type: 'timestamptz', isNullable: true },
         ],
       }),
+    );
+    // One live friendship per pair of users, whichever of them asked.
+    await queryRunner.query(
+      `CREATE UNIQUE INDEX "IDX_friendships_pair" ON "friendships" (LEAST("requesterId", "addresseeId"), GREATEST("requesterId", "addresseeId")) WHERE "deletedAt" IS NULL`,
     );
 
     await queryRunner.createTable(
@@ -296,6 +301,48 @@ export class InitialSchema1791550933491 implements MigrationInterface {
       }),
     );
 
+    await queryRunner.createTable(
+      new Table({
+        name: 'direct_messages',
+        columns: [
+          {
+            name: 'id',
+            type: 'uuid',
+            isPrimary: true,
+            default: 'uuid_generate_v4()',
+          },
+          { name: 'senderId', type: 'uuid' },
+          { name: 'recipientId', type: 'uuid' },
+          { name: 'text', type: 'varchar', length: '500' },
+          { name: 'createdAt', type: 'timestamptz', default: 'now()' },
+          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
+          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
+        ],
+      }),
+    );
+    await queryRunner.createIndex(
+      'direct_messages',
+      new TableIndex({
+        name: 'IDX_direct_messages_pair_created',
+        columnNames: ['senderId', 'recipientId', 'createdAt'],
+      }),
+    );
+
+    await queryRunner.createTable(
+      new Table({
+        name: 'conversations',
+        columns: [
+          { name: 'ownerId', type: 'uuid', isPrimary: true },
+          { name: 'otherUserId', type: 'uuid', isPrimary: true },
+          { name: 'lastReadAt', type: 'timestamptz', isNullable: true },
+          { name: 'clearedAt', type: 'timestamptz', isNullable: true },
+          { name: 'createdAt', type: 'timestamptz', default: 'now()' },
+          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
+          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
+        ],
+      }),
+    );
+
     await queryRunner.createForeignKey(
       'ratings',
       new TableForeignKey({
@@ -397,9 +444,27 @@ export class InitialSchema1791550933491 implements MigrationInterface {
         }),
       );
     }
+    for (const [table, columns] of [
+      ['direct_messages', ['senderId', 'recipientId']],
+      ['conversations', ['ownerId', 'otherUserId']],
+    ] as const) {
+      for (const column of columns) {
+        await queryRunner.createForeignKey(
+          table,
+          new TableForeignKey({
+            columnNames: [column],
+            referencedTableName: 'users',
+            referencedColumnNames: ['id'],
+            onDelete: 'CASCADE',
+          }),
+        );
+      }
+    }
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.dropTable('conversations', true, true, true);
+    await queryRunner.dropTable('direct_messages', true, true, true);
     await queryRunner.dropTable('bookmarks', true, true, true);
     await queryRunner.dropTable('game_chat_messages', true, true, true);
     await queryRunner.dropTable('moves', true, true, true);

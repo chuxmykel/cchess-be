@@ -60,3 +60,21 @@ export async function registerUser(
     username,
   };
 }
+
+/** Sends a friend request from one user and accepts it as the other. */
+export async function makeFriends(
+  app: INestApplication,
+  requester: RegisteredUser,
+  addressee: RegisteredUser,
+): Promise<void> {
+  const request = (await import('supertest')).default;
+  const sent = await request(app.getHttpServer())
+    .post('/friends/requests')
+    .set('Authorization', `Bearer ${requester.accessToken}`)
+    .send({ username: addressee.username })
+    .expect(201);
+  await request(app.getHttpServer())
+    .post(`/friends/requests/${sent.body.id}/accept`)
+    .set('Authorization', `Bearer ${addressee.accessToken}`)
+    .expect(201);
+}

@@ -41,6 +41,9 @@ export class GameSummaryDto {
   @ApiProperty()
   opponentDisplayName!: string;
 
+  @ApiProperty()
+  opponentAvatarColor!: string;
+
   @ApiProperty({
     type: Number,
     nullable: true,
@@ -90,6 +93,7 @@ export function toGameSummaryDto(game: Game, viewerId: string): GameSummaryDto {
     resultReason: game.resultReason,
     opponentUsername: opponent.username,
     opponentDisplayName: opponent.displayName,
+    opponentAvatarColor: opponent.avatarColor,
     opponentRating: playedAsWhite
       ? game.blackRatingAtStart
       : game.whiteRatingAtStart,

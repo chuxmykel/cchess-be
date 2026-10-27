@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryFailedError, Repository } from 'typeorm';
+import { In, QueryFailedError, Repository } from 'typeorm';
 
 import type { GameType } from '../chess/time-control.js';
 import {
@@ -74,6 +74,33 @@ export class UsersService {
 
   async findByUsername(username: string): Promise<User | null> {
     return this.users.findOne({ where: { username: username.toLowerCase() } });
+  }
+
+  /** Registered users whose username or display name contains the term,
+   * exact matches first, then those starting with it. */
+  async search(
+    term: string,
+    excludeUserId: string,
+    limit: number,
+  ): Promise<User[]> {
+    const lowered = term.trim().toLowerCase();
+    const literal = lowered.replace(/[\\%_]/g, (char) => `\\${char}`);
+    const escape = String.raw`ESCAPE '\'`;
+    return this.users
+      .createQueryBuilder('u')
+      .where('u.isGuest = false')
+      .andWhere('u.id != :excludeUserId', { excludeUserId })
+      .andWhere(
+        `(u.username LIKE :contains ${escape} OR LOWER(u.displayName) LIKE :contains ${escape})`,
+        { contains: `%${literal}%` },
+      )
+      .orderBy(
+        `CASE WHEN u.username = :exact THEN 0 WHEN u.username LIKE :prefix ${escape} THEN 1 ELSE 2 END`,
+      )
+      .addOrderBy('u.username')
+      .setParameters({ exact: lowered, prefix: `${literal}%` })
+      .limit(limit)
+      .getMany();
   }
 
   async findByEmail(email: string): Promise<User | null> {
@@ -228,6 +255,14 @@ export class UsersService {
 
   async getRatings(userId: string): Promise<Rating[]> {
     return this.ratings.find({ where: { userId } });
+  }
+
+  async getRatingsForUsers(userIds: string[]): Promise<Map<string, Rating[]>> {
+    const byUser = new Map<string, Rating[]>(userIds.map((id) => [id, []]));
+    if (userIds.length === 0) return byUser;
+    const rows = await this.ratings.find({ where: { userId: In(userIds) } });
+    for (const row of rows) byUser.get(row.userId)?.push(row);
+    return byUser;
   }
 
   async getRatingsByUsername(username: string): Promise<Rating[]> {

@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsBoolean,
   IsIn,
   IsInt,
   IsNumber,
@@ -40,4 +41,9 @@ export class CreateChallengeDto {
   @IsOptional()
   @IsIn(COLOR_PREFERENCES)
   color?: ColorPreference;
+
+  @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @IsBoolean()
+  rated?: boolean;
 }

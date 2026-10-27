@@ -1,7 +1,6 @@
 import {
   BadRequestException,
-  HttpException,
-  HttpStatus,
+  ForbiddenException,
   Injectable,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -9,6 +8,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { DOMAIN_EVENTS } from '../common/events.js';
+import { SlidingWindowLimiter } from '../common/sliding-window-limiter.js';
+import { isChatOpen } from './chat-window.js';
 import type { Game } from './entities/game.entity.js';
 import {
   GameChatMessage,
@@ -26,7 +27,7 @@ export interface GameChatEvent {
 /** In-game chat between a game's two players. */
 @Injectable()
 export class GameChatService {
-  private readonly recentSendTimes = new Map<string, number[]>();
+  private readonly limiter = new SlidingWindowLimiter(CHAT_RATE_LIMIT);
 
   constructor(
     @InjectRepository(GameChatMessage)
@@ -47,7 +48,8 @@ export class GameChatService {
     }
     const game = await this.gamesService.getGameOrThrow(gameId);
     this.gamesService.colorOf(game, userId);
-    this.recordSendOrThrow(gameId, userId);
+    if (!isChatOpen(game)) throw new ForbiddenException('Chat closed');
+    this.limiter.recordOrThrow(`${gameId}:${userId}`);
 
     const message = await this.messages.save(
       this.messages.create({ gameId, userId, text: trimmed }),
@@ -66,21 +68,5 @@ export class GameChatService {
       where: { gameId },
       order: { createdAt: 'ASC' },
     });
-  }
-
-  private recordSendOrThrow(gameId: string, userId: string): void {
-    const key = `${gameId}:${userId}`;
-    const now = Date.now();
-    const recent = (this.recentSendTimes.get(key) ?? []).filter(
-      (sentAt) => now - sentAt < CHAT_RATE_LIMIT.perMs,
-    );
-    if (recent.length >= CHAT_RATE_LIMIT.messages) {
-      throw new HttpException(
-        'Slow down - too many messages',
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
-    }
-    recent.push(now);
-    this.recentSendTimes.set(key, recent);
   }
 }

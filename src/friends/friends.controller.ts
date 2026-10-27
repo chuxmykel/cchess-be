@@ -4,7 +4,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/types.js';
 import { CreateFriendRequestDto } from './dto/create-friend-request.dto.js';
-import { FriendDto, FriendRequestDto, toFriendDto } from './dto/friend.dto.js';
+import { FriendDto, FriendRequestDto } from './dto/friend.dto.js';
 import { FriendsService } from './friends.service.js';
 
 @ApiTags('friends')
@@ -19,7 +19,7 @@ export class FriendsController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<FriendDto[]> {
     const friends = await this.friendsService.listFriends(user.userId);
-    return friends.map(toFriendDto);
+    return this.friendsService.describe(friends);
   }
 
   @Get('friends/requests')
@@ -34,16 +34,14 @@ export class FriendsController {
       this.friendsService.listOutgoingRequests(user.userId),
     ]);
     return {
-      incoming: incoming.map((r) => ({
-        id: r.id,
-        user: toFriendDto(r.requester),
-        createdAt: r.createdAt,
-      })),
-      outgoing: outgoing.map((r) => ({
-        id: r.id,
-        user: toFriendDto(r.addressee),
-        createdAt: r.createdAt,
-      })),
+      incoming: await this.friendsService.describeRequests(
+        incoming,
+        (request) => request.requester,
+      ),
+      outgoing: await this.friendsService.describeRequests(
+        outgoing,
+        (request) => request.addressee,
+      ),
     };
   }
 

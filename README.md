@@ -91,12 +91,17 @@ auth/          Register/login/guest/refresh/logout. Access JWT (short-lived) +
 users/         Profile CRUD + per-category Glicko-2 ratings (bullet/blitz/rapid/classical).
 friends/       Friend requests as a single self-referencing table with a status
                (pending/accepted/declined), not a separate "friends" table.
+profiles/      Another player's profile as you see it (presence, totals, your
+               friendship and score with them), their activity and game list.
+messages/      Direct messages between friends; each person's own read and
+               cleared marks.
+presence/      Who's connected, from the gateway's user:{id} rooms.
 games/         The chess authority: Game/Move entities, GamesService (moves, clocks,
                resign/draw/abort, PGN export), Glicko-2 rating updates on completion.
 matchmaking/   An in-memory seek queue (see "Known limitations" below) that pairs
                players whose time control, rated choice and rating ranges all
                agree, nearest rating first.
-challenges/    Direct user-to-user challenges (accept -> creates a Game).
+challenges/    Challenges to any player (accept -> creates a Game).
 realtime/      One Socket.IO gateway for everything live: moves, clocks, draw/resign/
                abort, matchmaking pushes, challenge + friend-request notifications.
 chess/         Framework-free: time control classification, and ServerChessEngine,
@@ -191,7 +196,11 @@ revisit `origin`/`credentials` together if that ever happens.
 | `game:drawRespond`   | `{ gameId, accept }`                                  | `game:created`                                                     | Full `GameStateDto` - pushed to both players, e.g. on a matchmaking pair                     |
 | `matchmaking:seek`   | `{ minutes, incrementSeconds, rated?, ratingRange? }` | `game:error` / `matchmaking:error`                                 | `{ message }` (and `{ gameId, message }` for game errors)                                    |
 | `matchmaking:cancel` | -                                                     | `challenge:received` / `challenge:accepted` / `challenge:resolved` | `ChallengeDto`                                                                               |
-| `game:leave`         | `{ gameId }`                                          | `friend:requestReceived` / `friend:requestAccepted`                | `{ id, from? }`                                                                              |
+| `game:leave`         | `{ gameId }`                                          | `friend:requestReceived`                                           | `FriendRequestDto` - the requester, described like a friend                                  |
+| `game:watch`         | `{ gameId }`                                          | `friend:requestAccepted` / `friend:requestResolved`                | `{ id }` - accepted, or declined/cancelled, to both sides                                    |
+| `game:unwatch`       | `{ gameId }`                                          | `friend:removed`                                                   | `{ userIds }` - the two former friends                                                       |
+| -                    | -                                                     | `friend:status`                                                    | `{ userId, online, playingGameId }` - to the user's friends                                  |
+| -                    | -                                                     | `dm:message`                                                       | `{ id, senderId, recipientId, text, createdAt }` - to both people                            |
 | `game:chat`          | `{ gameId, text }`                                    | `game:chat`                                                        | `{ id, gameId, userId, text, createdAt }` - to both players                                  |
 | `game:chatHistory`   | `{ gameId }`                                          | `game:chatHistory`                                                 | `{ gameId, messages }` - to the player who asked                                             |
 | -                    | -                                                     | `game:presence`                                                    | `{ gameId, userId, online }`                                                                 |
@@ -223,8 +232,52 @@ Chat is between a game's two players only. A message is trimmed and must be
 rejected one comes back as `game:error`. Messages are kept, and
 `game:chatHistory` returns them oldest first.
 
+Chat stays open for `GAME_CHAT_WINDOW_MS` (default 14 days) after a game
+ends; after that a message gets `game:error` "Chat closed". `chatClosesAt`
+in `GameStateDto` says when (`null` while the game is on).
+
 Any user can bookmark any game: `GET`, `PUT` and `DELETE
 /games/:id/bookmark` each answer `{ bookmarked }`.
+
+`game:watch` lets anyone follow a game they aren't playing: it answers
+with `game:state` and then sends that socket the game's `game:move` and
+`game:over` pushes, without presence or abandonment bookkeeping.
+`game:unwatch` stops them.
+
+### Friends, challenges and messages
+
+`GET /friends` describes each friend with their ratings, whether they're
+`online`, and `playingGameId` while they're in a game; the `friend:status`
+push keeps that current - on a user's first connect and last disconnect,
+and when their games start or end. Only one friendship or request can be
+live between two users.
+
+Anyone can challenge any player, friend or not. `POST /challenges` takes
+`{ opponentUsername, minutes, incrementSeconds, color?, rated? }` (rated
+unless `rated: false`), replaces any pending challenge to the same player,
+and expires after `CHALLENGE_TTL_MS` (default 2 minutes; `expiresAt` in
+`ChallengeDto`). Expiry is pushed as `challenge:resolved` with status
+`expired`, and accepting an expired one fails.
+
+`GET /users/:username` is a player's profile as the caller sees it: ratings,
+`lastSeenAt`/`online`/`playingGameId`, `gamesPlayed` and `timePlayedMs` over
+finished games, `friendship: { status, requestId }` (`self`, `none`,
+`friends`, or a pending `outgoing`/`incoming` request) and `score` - the
+caller's wins, draws and losses against them (`null` on their own).
+`GET /users/:username/activity` groups their last 30 days of finished games
+by UTC day and category, and `GET /users/:username/games` lists their games
+like `GET /games` does yours (`limit`, `before`).
+`GET /users?search=<term>&limit=` finds registered players (never guests,
+never the caller) whose username or display name contains the term, any
+case: an exact username first, then names starting with it, then the rest
+(`limit` 1-20, default 10).
+
+Direct messages are between friends: `POST /messages/:username { text }`
+(1-500 characters after trimming, at most 10 per 10 seconds), and
+`GET /messages/:username` (newest first, `limit`/`before`) for the history.
+`POST /messages/:username/read` marks them read, `GET /messages/unread`
+counts unread messages by sender, and `DELETE /messages/:username` clears
+the history for the caller only.
 
 `ping` isn't part of the broadcast protocol above - it's a plain Socket.IO
 acknowledgement (payload: the client's own timestamp as a number), echoed

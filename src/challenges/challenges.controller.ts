@@ -46,7 +46,7 @@ export class ChallengesController {
       challenger,
       dto.opponentUsername,
       { minutes: dto.minutes, incrementSeconds: dto.incrementSeconds },
-      dto.color,
+      { color: dto.color, rated: dto.rated },
     );
     return toChallengeDto(challenge);
   }
