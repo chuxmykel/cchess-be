@@ -1,10 +1,15 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { DOMAIN_EVENTS } from '../common/events.js';
 import { SlidingWindowLimiter } from '../common/sliding-window-limiter.js';
+import { isChatOpen } from './chat-window.js';
 import type { Game } from './entities/game.entity.js';
 import {
   GameChatMessage,
@@ -43,6 +48,7 @@ export class GameChatService {
     }
     const game = await this.gamesService.getGameOrThrow(gameId);
     this.gamesService.colorOf(game, userId);
+    if (!isChatOpen(game)) throw new ForbiddenException('Chat closed');
     this.limiter.recordOrThrow(`${gameId}:${userId}`);
 
     const message = await this.messages.save(

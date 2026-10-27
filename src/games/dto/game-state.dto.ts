@@ -10,6 +10,7 @@ import type {
 } from '../entities/game.entity.js';
 import type { Move } from '../entities/move.entity.js';
 import { isProvisional } from '../../users/entities/rating.entity.js';
+import { chatClosesAt } from '../chat-window.js';
 import { firstMoveDeadline } from '../first-move.js';
 
 export class GamePlayerDto {
@@ -151,6 +152,14 @@ export class GameStateDto {
 
   @ApiProperty({ nullable: true })
   endedAt!: Date | null;
+
+  @ApiProperty({
+    type: Date,
+    nullable: true,
+    description:
+      "When the game's chat stops taking messages; null while it's in play",
+  })
+  chatClosesAt!: Date | null;
 }
 
 function toPlayerDto(
@@ -215,5 +224,6 @@ export function toGameStateDto(game: Game): GameStateDto {
     moves: (game.moves ?? []).map(toMoveDto),
     createdAt: game.createdAt,
     endedAt: game.endedAt,
+    chatClosesAt: chatClosesAt(game),
   };
 }
