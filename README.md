@@ -94,7 +94,8 @@ friends/       Friend requests as a single self-referencing table with a status
 games/         The chess authority: Game/Move entities, GamesService (moves, clocks,
                resign/draw/abort, PGN export), Glicko-2 rating updates on completion.
 matchmaking/   An in-memory seek queue (see "Known limitations" below) that pairs
-               players wanting the same time control, nearest rating first.
+               players whose time control, rated choice and rating ranges all
+               agree, nearest rating first.
 challenges/    Direct user-to-user challenges (accept -> creates a Game).
 realtime/      One Socket.IO gateway for everything live: moves, clocks, draw/resign/
                abort, matchmaking pushes, challenge + friend-request notifications.
@@ -180,17 +181,24 @@ an origin restriction would protect. This stops being true the moment any
 client authenticates via a cookie instead (e.g. a future browser client) -
 revisit `origin`/`credentials` together if that ever happens.
 
-| Client -> Server     | Payload                            | Server -> Client                                                   | Payload                                                                   |
-| -------------------- | ---------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------- |
-| `game:join`          | `{ gameId }`                       | `game:state`                                                       | Full `GameStateDto`                                                       |
-| `game:move`          | `{ gameId, from, to, promotion? }` | `game:move`                                                        | `{ gameId, move, fen, turn, whiteTimeRemainingMs, blackTimeRemainingMs }` |
-| `game:resign`        | `{ gameId }`                       | `game:over`                                                        | Full `GameStateDto` (also sent on checkmate/timeout/draw/abort)           |
-| `game:abort`         | `{ gameId }`                       | `game:drawOffered`                                                 | `{ gameId, by }`                                                          |
-| `game:drawOffer`     | `{ gameId }`                       | `game:drawDeclined`                                                | `{ gameId }`                                                              |
-| `game:drawRespond`   | `{ gameId, accept }`               | `game:created`                                                     | Full `GameStateDto` - pushed to both players, e.g. on a matchmaking pair  |
-| `matchmaking:seek`   | `{ minutes, incrementSeconds }`    | `game:error` / `matchmaking:error`                                 | `{ message }` (and `{ gameId, message }` for game errors)                 |
-| `matchmaking:cancel` | -                                  | `challenge:received` / `challenge:accepted` / `challenge:resolved` | `ChallengeDto`                                                            |
-| `game:leave`         | `{ gameId }`                       | `friend:requestReceived` / `friend:requestAccepted`                | `{ id, from? }`                                                           |
+| Client -> Server     | Payload                                               | Server -> Client                                                   | Payload                                                                   |
+| -------------------- | ----------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| `game:join`          | `{ gameId }`                                          | `game:state`                                                       | Full `GameStateDto`                                                       |
+| `game:move`          | `{ gameId, from, to, promotion? }`                    | `game:move`                                                        | `{ gameId, move, fen, turn, whiteTimeRemainingMs, blackTimeRemainingMs }` |
+| `game:resign`        | `{ gameId }`                                          | `game:over`                                                        | Full `GameStateDto` (also sent on checkmate/timeout/draw/abort)           |
+| `game:abort`         | `{ gameId }`                                          | `game:drawOffered`                                                 | `{ gameId, by }`                                                          |
+| `game:drawOffer`     | `{ gameId }`                                          | `game:drawDeclined`                                                | `{ gameId }`                                                              |
+| `game:drawRespond`   | `{ gameId, accept }`                                  | `game:created`                                                     | Full `GameStateDto` - pushed to both players, e.g. on a matchmaking pair  |
+| `matchmaking:seek`   | `{ minutes, incrementSeconds, rated?, ratingRange? }` | `game:error` / `matchmaking:error`                                 | `{ message }` (and `{ gameId, message }` for game errors)                 |
+| `matchmaking:cancel` | -                                                     | `challenge:received` / `challenge:accepted` / `challenge:resolved` | `ChallengeDto`                                                            |
+| `game:leave`         | `{ gameId }`                                          | `friend:requestReceived` / `friend:requestAccepted`                | `{ id, from? }`                                                           |
+
+A seek (here or `POST /matchmaking/seek`) is rated unless `rated: false`;
+guests' seeks are always casual. `ratingRange: { below, above }` (whole
+numbers from 0 to 1000) limits opponents to that far below and above your
+rating in the time control's category, and both players' ranges must hold.
+A `null` side has no limit; leave the whole range out to accept any rating. Guests have no rating, so ranges don't
+apply to them.
 
 `ping` isn't part of the broadcast protocol above - it's a plain Socket.IO
 acknowledgement (payload: the client's own timestamp as a number), echoed
