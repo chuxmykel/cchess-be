@@ -281,6 +281,17 @@ export class InitialSchema1791550933491 implements MigrationInterface {
       }),
     );
 
+    await queryRunner.createTable(
+      new Table({
+        name: 'bookmarks',
+        columns: [
+          { name: 'userId', type: 'uuid', isPrimary: true },
+          { name: 'gameId', type: 'uuid', isPrimary: true },
+          { name: 'createdAt', type: 'timestamptz', default: 'now()' },
+        ],
+      }),
+    );
+
     await queryRunner.createForeignKey(
       'ratings',
       new TableForeignKey({
@@ -362,7 +373,7 @@ export class InitialSchema1791550933491 implements MigrationInterface {
         onDelete: 'CASCADE',
       }),
     );
-    for (const table of ['game_chat_messages']) {
+    for (const table of ['game_chat_messages', 'bookmarks']) {
       await queryRunner.createForeignKey(
         table,
         new TableForeignKey({
@@ -385,6 +396,7 @@ export class InitialSchema1791550933491 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.dropTable('bookmarks', true, true, true);
     await queryRunner.dropTable('game_chat_messages', true, true, true);
     await queryRunner.dropTable('moves', true, true, true);
     await queryRunner.dropTable('games', true, true, true);

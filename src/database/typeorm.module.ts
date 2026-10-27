@@ -12,6 +12,7 @@ import { Friendship } from '../friends/entities/friendship.entity.js';
 import { Game } from '../games/entities/game.entity.js';
 import { Move } from '../games/entities/move.entity.js';
 import { GameChatMessage } from '../games/entities/game-chat-message.entity.js';
+import { Bookmark } from '../games/entities/bookmark.entity.js';
 import { Rating } from '../users/entities/rating.entity.js';
 import { User } from '../users/entities/user.entity.js';
 
@@ -52,6 +53,7 @@ export const typeOrmModule = TypeOrmModule.forRootAsync({
       Move,
       Challenge,
       GameChatMessage,
+      Bookmark,
     ],
     // Schema is managed by real migrations (src/database/migrations),
     // not synchronize - see CLAUDE.md for the migration workflow.
