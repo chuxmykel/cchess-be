@@ -10,7 +10,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 
 import type { GameType } from '../chess/time-control.js';
-import { Rating, STARTING_RATING } from './entities/rating.entity.js';
+import {
+  Rating,
+  STARTING_DEVIATION,
+  STARTING_RATING,
+  STARTING_VOLATILITY,
+} from './entities/rating.entity.js';
 import { User } from './entities/user.entity.js';
 
 export const GAME_TYPES: readonly GameType[] = [
@@ -114,6 +119,8 @@ export class UsersService {
           userId: saved.id,
           category,
           rating: STARTING_RATING,
+          deviation: STARTING_DEVIATION,
+          volatility: STARTING_VOLATILITY,
           gamesPlayed: 0,
         }),
       ),
@@ -189,20 +196,30 @@ export class UsersService {
         userId,
         category,
         rating: STARTING_RATING,
+        deviation: STARTING_DEVIATION,
+        volatility: STARTING_VOLATILITY,
         gamesPlayed: 0,
       }),
     );
   }
 
-  async applyRatingDelta(
+  async applyRatingUpdate(
     userId: string,
     category: GameType,
-    delta: number,
+    {
+      rating,
+      deviation,
+      volatility,
+    }: Pick<Rating, 'rating' | 'deviation' | 'volatility'>,
+    ratedAt: Date,
   ): Promise<Rating> {
-    const rating = await this.getOrCreateRating(userId, category);
-    rating.rating += delta;
-    rating.gamesPlayed += 1;
-    return this.ratings.save(rating);
+    const row = await this.getOrCreateRating(userId, category);
+    row.rating = rating;
+    row.deviation = deviation;
+    row.volatility = volatility;
+    row.lastRatedAt = ratedAt;
+    row.gamesPlayed += 1;
+    return this.ratings.save(row);
   }
 
   async touchLastSeen(userId: string): Promise<void> {

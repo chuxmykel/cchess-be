@@ -9,12 +9,18 @@ import { RefreshToken } from '../auth/entities/refresh-token.entity.js';
 import { ClusterModule } from '../cluster/cluster.module.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
 import { requireEnv } from '../common/require-env.js';
-import { Rating, STARTING_RATING } from '../users/entities/rating.entity.js';
+import {
+  Rating,
+  STARTING_DEVIATION,
+  STARTING_RATING,
+  STARTING_VOLATILITY,
+} from '../users/entities/rating.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import { UsersService } from '../users/users.service.js';
 import { Game } from './entities/game.entity.js';
 import { Move } from './entities/move.entity.js';
 import { GameEvent, GamesService } from './games.service.js';
+import { rateGame } from './glicko2.js';
 import { truncateAllTables } from '../../test/utils/db.js';
 import { TimeControl, toClockMs } from '../chess/time-control.js';
 
@@ -146,7 +152,32 @@ describe('GamesService', () => {
     ).rejects.toThrow('Illegal move');
   });
 
-  it('ends the game and updates ratings on checkmate', async () => {
+  function newPlayerRating() {
+    return {
+      rating: STARTING_RATING,
+      deviation: STARTING_DEVIATION,
+      volatility: STARTING_VOLATILITY,
+    };
+  }
+
+  async function blitzRating(userId: string) {
+    return (await ctx.usersService.getRatings(userId)).find(
+      (r) => r.category === 'blitz',
+    )!;
+  }
+
+  async function playFoolsMate(
+    gameId: string,
+    whiteId: string,
+    blackId: string,
+  ) {
+    await ctx.gamesService.applyMove(gameId, whiteId, 'f2', 'f3');
+    await ctx.gamesService.applyMove(gameId, blackId, 'e7', 'e5');
+    await ctx.gamesService.applyMove(gameId, whiteId, 'g2', 'g4');
+    return ctx.gamesService.applyMove(gameId, blackId, 'd8', 'h4');
+  }
+
+  it('ends the game and updates both Glicko-2 ratings on checkmate', async () => {
     const white = await makeUser('white3');
     const black = await makeUser('black3');
     const game = await ctx.gamesService.createGame(
@@ -156,117 +187,92 @@ describe('GamesService', () => {
       true,
     );
 
-    // Fool's mate: black delivers checkmate on move 2.
-    await ctx.gamesService.applyMove(game.id, white.id, 'f2', 'f3');
-    await ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5');
-    await ctx.gamesService.applyMove(game.id, white.id, 'g2', 'g4');
-    const { game: finalGame } = await ctx.gamesService.applyMove(
+    const { game: finalGame } = await playFoolsMate(
       game.id,
+      white.id,
       black.id,
-      'd8',
-      'h4',
     );
 
     expect(finalGame.status).toBe('completed');
     expect(finalGame.result).toBe('black');
     expect(finalGame.resultReason).toBe('checkmate');
 
-    // Both players start at the same rating with 0 games played, so
-    // expectedScore is exactly 0.5 and the provisional K-factor (40) applies
-    // - see elo.ts: round(40 * (1 - 0.5)) = 20, symmetric either direction.
-    const blackRatings = await ctx.usersService.getRatings(black.id);
-    const blackBlitz = blackRatings.find((r) => r.category === 'blitz')!;
-    expect(blackBlitz.rating).toBe(STARTING_RATING + 20);
+    const expectedWinner = rateGame(newPlayerRating(), newPlayerRating(), 1, 1);
+    const expectedLoser = rateGame(newPlayerRating(), newPlayerRating(), 0, 1);
+    const blackBlitz = await blitzRating(black.id);
+    const whiteBlitz = await blitzRating(white.id);
+    expect(blackBlitz.rating).toBeCloseTo(expectedWinner.rating, 6);
+    expect(blackBlitz.deviation).toBeCloseTo(expectedWinner.deviation, 6);
+    expect(blackBlitz.volatility).toBeCloseTo(expectedWinner.volatility, 9);
+    expect(whiteBlitz.rating).toBeCloseTo(expectedLoser.rating, 6);
     expect(blackBlitz.gamesPlayed).toBe(1);
-
-    const whiteRatings = await ctx.usersService.getRatings(white.id);
-    const whiteBlitz = whiteRatings.find((r) => r.category === 'blitz')!;
-    expect(whiteBlitz.rating).toBe(STARTING_RATING - 20);
     expect(whiteBlitz.gamesPlayed).toBe(1);
+    expect(blackBlitz.lastRatedAt).not.toBeNull();
   });
 
-  it('uses the established K-factor once a player has 100 games played', async () => {
-    const white = await makeUser('white3b');
-    const black = await makeUser('black3b');
-    // createRegisteredUser already creates a 0-games blitz row for both -
-    // bump it to 100 rather than inserting a second one (unique per user+category).
-    await ctx.ratingsRepo.update(
-      { userId: white.id, category: 'blitz' },
-      { gamesPlayed: 100 },
-    );
-    await ctx.ratingsRepo.update(
-      { userId: black.id, category: 'blitz' },
-      { gamesPlayed: 100 },
-    );
-    const game = await ctx.gamesService.createGame(
-      white,
-      black,
-      { minutes: 5, incrementSeconds: 0 },
-      true,
-    );
+  it('moves a settled rating far less than a new one', async () => {
+    const settledWhite = await makeUser('white3b');
+    const settledBlack = await makeUser('black3b');
+    for (const user of [settledWhite, settledBlack]) {
+      await ctx.ratingsRepo.update(
+        { userId: user.id, category: 'blitz' },
+        { deviation: 60, lastRatedAt: new Date() },
+      );
+    }
+    const newWhite = await makeUser('white3c');
+    const newBlack = await makeUser('black3c');
 
-    // Fool's mate: black delivers checkmate on move 2.
-    await ctx.gamesService.applyMove(game.id, white.id, 'f2', 'f3');
-    await ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5');
-    await ctx.gamesService.applyMove(game.id, white.id, 'g2', 'g4');
-    await ctx.gamesService.applyMove(game.id, black.id, 'd8', 'h4');
+    for (const [white, black] of [
+      [settledWhite, settledBlack],
+      [newWhite, newBlack],
+    ]) {
+      const game = await ctx.gamesService.createGame(
+        white,
+        black,
+        { minutes: 5, incrementSeconds: 0 },
+        true,
+      );
+      await playFoolsMate(game.id, white.id, black.id);
+    }
 
-    // 100 games played is past PROVISIONAL_GAMES_THRESHOLD (30), so the
-    // established K-factor (20, not the provisional 40 above) applies - see
-    // elo.ts: round(20 * (1 - 0.5)) = 10, symmetric either direction.
-    const blackBlitz = (await ctx.usersService.getRatings(black.id)).find(
-      (r) => r.category === 'blitz',
-    )!;
-    expect(blackBlitz.rating).toBe(STARTING_RATING + 10);
-    expect(blackBlitz.gamesPlayed).toBe(101);
-
-    const whiteBlitz = (await ctx.usersService.getRatings(white.id)).find(
-      (r) => r.category === 'blitz',
-    )!;
-    expect(whiteBlitz.rating).toBe(STARTING_RATING - 10);
-    expect(whiteBlitz.gamesPlayed).toBe(101);
+    const settledGain = (await blitzRating(settledBlack.id)).rating - 1500;
+    const newGain = (await blitzRating(newBlack.id)).rating - 1500;
+    expect(settledGain).toBeGreaterThan(0);
+    expect(settledGain).toBeLessThan(newGain / 4);
   });
 
-  it('applies an asymmetric Elo swing for an upset between unequal ratings', async () => {
-    const white = await makeUser('white3c');
-    const black = await makeUser('black3c');
-    // Both past PROVISIONAL_GAMES_THRESHOLD (30) - established K-factor (20)
-    // for both, so the only asymmetry comes from the rating gap itself.
-    await ctx.ratingsRepo.update(
-      { userId: white.id, category: 'blitz' },
-      { rating: 1445, gamesPlayed: 50 },
-    );
-    await ctx.ratingsRepo.update(
-      { userId: black.id, category: 'blitz' },
-      { rating: 1100, gamesPlayed: 50 },
-    );
-    const game = await ctx.gamesService.createGame(
-      white,
-      black,
-      { minutes: 5, incrementSeconds: 0 },
-      true,
-    );
+  it("grows a returning player's deviation for the time since their last rated game", async () => {
+    const regular = await makeUser('white3d');
+    const returning = await makeUser('white3e');
+    const opponentOfRegular = await makeUser('black3d');
+    const opponentOfReturning = await makeUser('black3e');
+    const aYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+    for (const [user, lastRatedAt] of [
+      [regular, new Date()],
+      [returning, aYearAgo],
+    ] as const) {
+      await ctx.ratingsRepo.update(
+        { userId: user.id, category: 'blitz' },
+        { deviation: 60, lastRatedAt },
+      );
+    }
 
-    // Fool's mate: black (the underdog, 1100) delivers checkmate on move 2.
-    await ctx.gamesService.applyMove(game.id, white.id, 'f2', 'f3');
-    await ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5');
-    await ctx.gamesService.applyMove(game.id, white.id, 'g2', 'g4');
-    await ctx.gamesService.applyMove(game.id, black.id, 'd8', 'h4');
+    for (const [white, black] of [
+      [regular, opponentOfRegular],
+      [returning, opponentOfReturning],
+    ]) {
+      const game = await ctx.gamesService.createGame(
+        white,
+        black,
+        { minutes: 5, incrementSeconds: 0 },
+        true,
+      );
+      await playFoolsMate(game.id, white.id, black.id);
+    }
 
-    // expectedScore(1445, 1100) = 1 / (1 + 10^((1100-1445)/400)) ~= 0.8793,
-    // so white (expected to win big) loses more than 20 points and black
-    // (expected to lose) gains more than 20 - see elo.ts.
-    const blackBlitz = (await ctx.usersService.getRatings(black.id)).find(
-      (r) => r.category === 'blitz',
-    )!;
-    expect(blackBlitz.rating).toBe(1100 + 18);
-    expect(blackBlitz.gamesPlayed).toBe(51);
-
-    const whiteBlitz = (await ctx.usersService.getRatings(white.id)).find(
-      (r) => r.category === 'blitz',
-    )!;
-    expect(whiteBlitz.rating).toBe(1445 - 18);
-    expect(whiteBlitz.gamesPlayed).toBe(51);
+    const regularLoss = 1500 - (await blitzRating(regular.id)).rating;
+    const returningLoss = 1500 - (await blitzRating(returning.id)).rating;
+    expect(returningLoss).toBeGreaterThan(regularLoss);
   });
 
   it('resigns in favor of the opponent', async () => {
@@ -455,18 +461,9 @@ describe('GamesService', () => {
   });
 
   describe('game ratings', () => {
-    const EQUAL_RATINGS_PROVISIONAL_SWING = 20;
-
-    async function playFoolsMate(
-      gameId: string,
-      whiteId: string,
-      blackId: string,
-    ) {
-      await ctx.gamesService.applyMove(gameId, whiteId, 'f2', 'f3');
-      await ctx.gamesService.applyMove(gameId, blackId, 'e7', 'e5');
-      await ctx.gamesService.applyMove(gameId, whiteId, 'g2', 'g4');
-      await ctx.gamesService.applyMove(gameId, blackId, 'd8', 'h4');
-    }
+    const NEW_PLAYER_WIN = Math.round(
+      rateGame(newPlayerRating(), newPlayerRating(), 1, 1).rating - 1500,
+    );
 
     it("records each registered player's rating when the game starts", async () => {
       const white = await makeUser('ratedwhite1');
@@ -517,13 +514,13 @@ describe('GamesService', () => {
       await playFoolsMate(game.id, white.id, black.id);
 
       const finished = await ctx.gamesService.getGameWithMoves(game.id);
-      expect(finished.whiteRatingDiff).toBe(-EQUAL_RATINGS_PROVISIONAL_SWING);
-      expect(finished.blackRatingDiff).toBe(EQUAL_RATINGS_PROVISIONAL_SWING);
+      expect(finished.whiteRatingDiff).toBe(-NEW_PLAYER_WIN);
+      expect(finished.blackRatingDiff).toBe(NEW_PLAYER_WIN);
       expect(finished.whiteRatingAtStart).toBe(STARTING_RATING);
       expect(finished.blackRatingAtStart).toBe(STARTING_RATING);
     });
 
-    it('rates from the ratings the game started with, not later changes', async () => {
+    it("rates from the players' current ratings when the game ends", async () => {
       const white = await makeUser('ratedwhite4');
       const black = await makeUser('ratedblack4');
       const game = await ctx.gamesService.createGame(
@@ -540,13 +537,15 @@ describe('GamesService', () => {
 
       await playFoolsMate(game.id, white.id, black.id);
 
-      const finished = await ctx.gamesService.getGameWithMoves(game.id);
-      expect(finished.blackRatingDiff).toBe(EQUAL_RATINGS_PROVISIONAL_SWING);
-      const whiteBlitz = (await ctx.usersService.getRatings(white.id)).find(
-        (r) => r.category === 'blitz',
-      )!;
-      expect(whiteBlitz.rating).toBe(
-        whiteRatingAfterAnotherGameEnded - EQUAL_RATINGS_PROVISIONAL_SWING,
+      const expectedWhite = rateGame(
+        { ...newPlayerRating(), rating: whiteRatingAfterAnotherGameEnded },
+        newPlayerRating(),
+        0,
+        1,
+      );
+      expect((await blitzRating(white.id)).rating).toBeCloseTo(
+        expectedWhite.rating,
+        6,
       );
     });
 
@@ -599,8 +598,8 @@ describe('GamesService', () => {
       await playFoolsMate(game.id, white.id, black.id);
 
       const { game: endedGame } = await ended;
-      expect(endedGame.whiteRatingDiff).toBe(-EQUAL_RATINGS_PROVISIONAL_SWING);
-      expect(endedGame.blackRatingDiff).toBe(EQUAL_RATINGS_PROVISIONAL_SWING);
+      expect(endedGame.whiteRatingDiff).toBe(-NEW_PLAYER_WIN);
+      expect(endedGame.blackRatingDiff).toBe(NEW_PLAYER_WIN);
     });
   });
 });

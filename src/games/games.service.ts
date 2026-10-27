@@ -41,7 +41,12 @@ import {
   MAX_GAMES_LIST_LIMIT,
 } from './dto/list-games.query.js';
 import type { User } from '../users/entities/user.entity.js';
-import { computeGameEloDeltas, type EloUpdateResult } from './elo.js';
+import {
+  type GameScore,
+  type Glicko2Rating,
+  rateGame,
+  ratingPeriodsBetween,
+} from './glicko2.js';
 import {
   Game,
   STARTING_FEN,
@@ -61,6 +66,24 @@ export interface GameMoveEvent {
 }
 
 const GAME_RELATIONS = { white: true, black: true } as const;
+
+interface RatingUpdates {
+  white: Glicko2Rating;
+  black: Glicko2Rating;
+  ratedAt: Date;
+}
+
+function scoreFor(
+  color: 'white' | 'black',
+  result: Exclude<GameResult, null>,
+): GameScore {
+  if (result === 'draw') return 0.5;
+  return result === color ? 1 : 0;
+}
+
+function roundedChange(before: Glicko2Rating, after: Glicko2Rating): number {
+  return Math.round(after.rating) - Math.round(before.rating);
+}
 
 @Injectable()
 export class GamesService implements OnModuleDestroy {
@@ -272,7 +295,7 @@ export class GamesService implements OnModuleDestroy {
   ): Promise<Game> {
     const gameType = classifyTimeControl(tc);
     const clockMs = toClockMs(tc);
-    const [whiteRatingAtStart, blackRatingAtStart] = await Promise.all([
+    const [whiteAtStart, blackAtStart] = await Promise.all([
       this.ratingAtStart(white, gameType),
       this.ratingAtStart(black, gameType),
     ]);
@@ -287,8 +310,10 @@ export class GamesService implements OnModuleDestroy {
       incrementSeconds: tc.incrementSeconds,
       gameType,
       rated: rated && !white.isGuest && !black.isGuest,
-      whiteRatingAtStart,
-      blackRatingAtStart,
+      whiteRatingAtStart: whiteAtStart?.rating ?? null,
+      blackRatingAtStart: blackAtStart?.rating ?? null,
+      whiteDeviationAtStart: whiteAtStart?.deviation ?? null,
+      blackDeviationAtStart: blackAtStart?.deviation ?? null,
       whiteRatingDiff: null,
       blackRatingDiff: null,
       status: 'active',
@@ -319,9 +344,11 @@ export class GamesService implements OnModuleDestroy {
   private async ratingAtStart(
     user: User,
     gameType: GameType,
-  ): Promise<number | null> {
-    const rating = await this.usersService.findRating(user.id, gameType);
-    return rating?.rating ?? null;
+  ): Promise<{ rating: number; deviation: number } | null> {
+    const row = await this.usersService.findRating(user.id, gameType);
+    return row
+      ? { rating: Math.round(row.rating), deviation: Math.round(row.deviation) }
+      : null;
   }
 
   /**
@@ -1020,38 +1047,46 @@ export class GamesService implements OnModuleDestroy {
   private async recordRatingChanges(
     game: Game,
     result: Exclude<GameResult, null>,
-  ): Promise<EloUpdateResult> {
-    const [whiteRating, blackRating] = await Promise.all([
+  ): Promise<RatingUpdates> {
+    const [whiteRow, blackRow] = await Promise.all([
       this.usersService.getOrCreateRating(game.whiteId, game.gameType),
       this.usersService.getOrCreateRating(game.blackId, game.gameType),
     ]);
+    const ratedAt = new Date();
+    const white = rateGame(
+      whiteRow,
+      blackRow,
+      scoreFor('white', result),
+      ratingPeriodsBetween(whiteRow.lastRatedAt, ratedAt),
+    );
+    const black = rateGame(
+      blackRow,
+      whiteRow,
+      scoreFor('black', result),
+      ratingPeriodsBetween(blackRow.lastRatedAt, ratedAt),
+    );
 
-    const changes = computeGameEloDeltas({
-      whiteRating: game.whiteRatingAtStart ?? whiteRating.rating,
-      whiteGamesPlayed: whiteRating.gamesPlayed,
-      blackRating: game.blackRatingAtStart ?? blackRating.rating,
-      blackGamesPlayed: blackRating.gamesPlayed,
-      result,
-    });
-    game.whiteRatingDiff = changes.whiteDelta;
-    game.blackRatingDiff = changes.blackDelta;
-    return changes;
+    game.whiteRatingDiff = roundedChange(whiteRow, white);
+    game.blackRatingDiff = roundedChange(blackRow, black);
+    return { white, black, ratedAt };
   }
 
   private async applyRatingChanges(
     game: Game,
-    { whiteDelta, blackDelta }: EloUpdateResult,
+    { white, black, ratedAt }: RatingUpdates,
   ): Promise<void> {
     await Promise.all([
-      this.usersService.applyRatingDelta(
+      this.usersService.applyRatingUpdate(
         game.whiteId,
         game.gameType,
-        whiteDelta,
+        white,
+        ratedAt,
       ),
-      this.usersService.applyRatingDelta(
+      this.usersService.applyRatingUpdate(
         game.blackId,
         game.gameType,
-        blackDelta,
+        black,
+        ratedAt,
       ),
     ]);
   }

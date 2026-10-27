@@ -15,6 +15,9 @@ import type { GameType } from '../../chess/time-control.js';
 import { User } from './user.entity.js';
 
 export const STARTING_RATING = 1500;
+export const STARTING_DEVIATION = 350;
+export const STARTING_VOLATILITY = 0.06;
+
 
 @Entity('ratings')
 @Index(['user', 'category'], { unique: true })
@@ -32,8 +35,17 @@ export class Rating {
   @Column({ type: 'varchar', length: 16 })
   category!: GameType;
 
-  @Column({ type: 'int', default: STARTING_RATING })
+  @Column({ type: 'double precision', default: STARTING_RATING })
   rating!: number;
+
+  @Column({ type: 'double precision', default: STARTING_DEVIATION })
+  deviation!: number;
+
+  @Column({ type: 'double precision', default: STARTING_VOLATILITY })
+  volatility!: number;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  lastRatedAt!: Date | null;
 
   @Column({ type: 'int', default: 0 })
   gamesPlayed!: number;
