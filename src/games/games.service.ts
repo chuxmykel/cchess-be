@@ -13,7 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { PieceSymbol, Square } from 'chess.js';
-import { EntityManager, In, Repository } from 'typeorm';
+import { EntityManager, In, IsNull, Repository } from 'typeorm';
 
 import { ClusterBus } from '../cluster/cluster-bus.js';
 import { isMine, ownerIndex } from '../cluster/cluster.util.js';
@@ -59,7 +59,11 @@ import {
 import { firstMoveDeadline, isAwaitingFirstMove } from './first-move.js';
 import { Move } from './entities/move.entity.js';
 import { buildPgnText } from './pgn.util.js';
-import type { GameSeries } from './rematch-series.js';
+import {
+  type GameSeries,
+  type SeriesCandidate,
+  seriesContinuedBy,
+} from './rematch-series.js';
 
 export interface GameEvent {
   game: Game;
@@ -292,7 +296,9 @@ export class GamesService implements OnModuleDestroy {
     return fromWire(wire);
   }
 
-  /** Starts a game - as part of a rematch series when `series` is given. */
+  /** Starts a game - as part of a rematch series when `series` is given,
+   * or when the two players' last game was against each other (see
+   * seriesContinuedBy). */
   async createGame(
     white: User,
     black: User,
@@ -320,10 +326,28 @@ export class GamesService implements OnModuleDestroy {
   ): Promise<Game> {
     const gameType = classifyTimeControl(tc);
     const clockMs = toClockMs(tc);
-    const [whiteAtStart, blackAtStart] = await Promise.all([
-      this.ratingAtStart(white, gameType),
-      this.ratingAtStart(black, gameType),
-    ]);
+    const isRated = rated && !white.isGuest && !black.isGuest;
+    const [whiteAtStart, blackAtStart, lastOfWhite, lastOfBlack] =
+      await Promise.all([
+        this.ratingAtStart(white, gameType),
+        this.ratingAtStart(black, gameType),
+        series ? null : this.lastFinishedGameOf(white.id),
+        series ? null : this.lastFinishedGameOf(black.id),
+      ]);
+    const continued =
+      series ??
+      seriesContinuedBy(
+        {
+          whiteId: white.id,
+          blackId: black.id,
+          initialSeconds: tc.initialSeconds,
+          incrementSeconds: tc.incrementSeconds,
+          rated: isRated,
+        },
+        lastOfWhite,
+        lastOfBlack,
+        new Date(),
+      );
 
     const game = this.games.create({
       id: gameId,
@@ -334,7 +358,7 @@ export class GamesService implements OnModuleDestroy {
       initialSeconds: tc.initialSeconds,
       incrementSeconds: tc.incrementSeconds,
       gameType,
-      rated: rated && !white.isGuest && !black.isGuest,
+      rated: isRated,
       whiteRatingAtStart: whiteAtStart?.rating ?? null,
       blackRatingAtStart: blackAtStart?.rating ?? null,
       whiteDeviationAtStart: whiteAtStart?.deviation ?? null,
@@ -351,13 +375,21 @@ export class GamesService implements OnModuleDestroy {
       turn: 'w',
       lastMoveAt: null,
       drawOfferedBy: null,
-      rematchOfId: series?.rematchOfId ?? null,
-      seriesWhitePoints: series?.whitePoints ?? 0,
-      seriesBlackPoints: series?.blackPoints ?? 0,
+      rematchOfId: continued?.rematchOfId ?? null,
+      seriesWhitePoints: continued?.whitePoints ?? 0,
+      seriesBlackPoints: continued?.blackPoints ?? 0,
       rematchOfferedBy: null,
       rematchGameId: null,
     });
     const saved = await this.games.save(game);
+    if (continued && !series) {
+      // Paired some other way, but a rematch all the same: the game it
+      // follows can't start another one.
+      await this.games.update(
+        { id: continued.rematchOfId, rematchGameId: IsNull() },
+        { rematchGameId: saved.id, rematchOfferedBy: null },
+      );
+    }
     this.engines.set(saved.id, new ServerChessEngine());
     this.gameCache.set(saved.id, saved);
     this.movesCache.set(saved.id, []);
@@ -369,6 +401,17 @@ export class GamesService implements OnModuleDestroy {
       game: saved,
     } satisfies GameEvent);
     return saved;
+  }
+
+  /** A player's most recently finished game - played out, not aborted. */
+  private lastFinishedGameOf(userId: string): Promise<SeriesCandidate | null> {
+    return this.games.findOne({
+      where: [
+        { whiteId: userId, status: 'completed' },
+        { blackId: userId, status: 'completed' },
+      ],
+      order: { endedAt: 'DESC' },
+    });
   }
 
   private async ratingAtStart(

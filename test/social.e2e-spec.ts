@@ -675,6 +675,51 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
       rated: boolean;
     };
 
+    it('carries the series on however the two are paired again', async () => {
+      const wes = await registerUser(app, 'wes_social');
+      const xia = await registerUser(app, 'xia_social');
+      await makeFriends(app, wes, xia);
+      const first = await playAndResign(wes, xia);
+
+      // A plain challenge, colors kept: Wes keeps the point he won as white.
+      const second = await startGame(wes, xia);
+
+      const game = await as(wes).get(`/games/${second}`).expect(200);
+      expect(game.body).toMatchObject({
+        rematchOfId: first,
+        series: { white: 1, black: 0 },
+      });
+      const old = await as(wes).get(`/games/${first}`).expect(200);
+      expect(old.body.rematchGameId).toBe(second);
+    });
+
+    it('starts a new series once either plays someone else', async () => {
+      const yan = await registerUser(app, 'yan_social');
+      const zed = await registerUser(app, 'zed_social');
+      const kit = await registerUser(app, 'kit_social');
+      await makeFriends(app, yan, zed);
+      await makeFriends(app, zed, kit);
+      await playAndResign(yan, zed);
+      await playAndResign(zed, kit);
+
+      const again = await startGame(yan, zed);
+
+      const game = await as(yan).get(`/games/${again}`).expect(200);
+      expect(game.body).toMatchObject({ rematchOfId: null, series: null });
+    });
+
+    it('starts a new series at another time control, or rated after casual', async () => {
+      const lou = await registerUser(app, 'lou_social');
+      const mae = await registerUser(app, 'mae_social');
+      await makeFriends(app, lou, mae);
+      await playAndResign(lou, mae);
+
+      const casual = await startGame(lou, mae, { rated: false });
+
+      const game = await as(lou).get(`/games/${casual}`).expect(200);
+      expect(game.body).toMatchObject({ rematchOfId: null, series: null });
+    });
+
     it('starts once both players offer, colors swapped, keeping score', async () => {
       const uma = await registerUser(app, 'uma_social');
       const vic = await registerUser(app, 'vic_social');
