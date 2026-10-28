@@ -284,6 +284,53 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
       });
     });
 
+    it("sums up a user's rating and results in one category", async () => {
+      const kim = await registerUser(app, 'kim_social');
+      const lou = await registerUser(app, 'lou_social');
+      const won = await playAndResign(kim, lou);
+      const lost = await playAndResign(lou, kim);
+
+      const stats = await as(lou)
+        .get(`/users/${kim.username}/ratings/blitz?period=1w`)
+        .expect(200);
+
+      expect(stats.body).toMatchObject({
+        period: '1w',
+        rating: { category: 'blitz', gamesPlayed: 2 },
+        games: 2,
+        wins: 1,
+        draws: 0,
+        losses: 1,
+        bestWin: { gameId: won, opponentUsername: lou.username },
+        worstLoss: { gameId: lost, opponentUsername: lou.username },
+        longestWinStreak: 1,
+        longestLosingStreak: 1,
+      });
+      const { history, ratingChange, rating } = stats.body;
+      expect(history).toHaveLength(3);
+      expect(history.at(-1).rating).toBe(rating.rating);
+      expect(ratingChange).toBe(history.at(-1).rating - history[0].rating);
+
+      const bullet = await as(lou)
+        .get(`/users/${kim.username}/ratings/bullet`)
+        .expect(200);
+      expect(bullet.body).toMatchObject({
+        period: '1m',
+        games: 0,
+        history: [],
+        ratingChange: null,
+      });
+    });
+
+    it('refuses an unknown category or period', async () => {
+      const max = await registerUser(app, 'max_social');
+
+      await as(max).get(`/users/${max.username}/ratings/chess960`).expect(400);
+      await as(max)
+        .get(`/users/${max.username}/ratings/blitz?period=2w`)
+        .expect(400);
+    });
+
     it('still answers /users/me with your own account', async () => {
       const kai = await registerUser(app, 'kai_social');
 

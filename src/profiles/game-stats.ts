@@ -32,7 +32,10 @@ type ActivityGame = ScoredGame &
     | 'blackRatingDiff'
   >;
 
-function outcomeFor(game: ScoredGame, userId: string): keyof Score | null {
+export function outcomeFor(
+  game: ScoredGame,
+  userId: string,
+): keyof Score | null {
   if (game.result === null) return null;
   if (game.result === 'draw') return 'draws';
   const won = (game.result === 'white') === (game.whiteId === userId);
