@@ -7,6 +7,7 @@ import {
   GameSummaryDto,
   toGameSummaryDto,
 } from '../games/dto/game-summary.dto.js';
+import { UserFriendDto } from '../friends/dto/friend.dto.js';
 import { ListGamesQuery } from '../games/dto/list-games.query.js';
 import { GamesService } from '../games/games.service.js';
 import { UsersService } from '../users/users.service.js';
@@ -65,6 +66,14 @@ export class ProfilesController {
     @Param('username') username: string,
   ): Promise<PublicProfileDto> {
     return this.profilesService.getProfile(viewer.userId, username);
+  }
+
+  @Get(':username/friends')
+  @ApiOperation({
+    summary: "A user's friends, the most recently added first",
+  })
+  getFriends(@Param('username') username: string): Promise<UserFriendDto[]> {
+    return this.profilesService.getFriends(username);
   }
 
   @Get(':username/activity')

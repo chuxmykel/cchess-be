@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 
 import { Game } from '../games/entities/game.entity.js';
 import { GamesService } from '../games/games.service.js';
+import type { UserFriendDto } from '../friends/dto/friend.dto.js';
 import { FriendsService } from '../friends/friends.service.js';
 import { PresenceService } from '../presence/presence.service.js';
 import type { GameType } from '../chess/time-control.js';
@@ -50,12 +51,13 @@ export class ProfilesService {
   ): Promise<PublicProfileDto> {
     const user = await this.findUserOrThrow(username);
     const isSelf = user.id === viewerId;
-    const [ratings, online, playing, totals, friendship, score] =
+    const [ratings, online, playing, totals, friendsCount, friendship, score] =
       await Promise.all([
         this.usersService.getRatings(user.id),
         this.presenceService.isOnline(user.id),
         this.gamesService.activeGameIdsFor([user.id]),
         this.finishedGameTotals(user.id),
+        this.friendsService.countFriends(user.id),
         this.viewerFriendship(viewerId, user.id),
         isSelf ? null : this.scoreAgainst(viewerId, user.id),
       ]);
@@ -73,9 +75,21 @@ export class ProfilesService {
       online,
       playingGameId: playing.get(user.id) ?? null,
       ...totals,
+      friendsCount,
       friendship,
       score,
     };
+  }
+
+  async getFriends(username: string): Promise<UserFriendDto[]> {
+    const user = await this.findUserOrThrow(username);
+    const friendships = await this.friendsService.listFriendships(user.id);
+    const friends = await this.friendsService.describe(
+      friendships.map((friendship) => friendship.user),
+    );
+    return friends.map((friend, index) =>
+      Object.assign(friend, { friendsSince: friendships[index].since }),
+    );
   }
 
   async getActivity(username: string): Promise<ActivityDay[]> {

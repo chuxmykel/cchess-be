@@ -241,6 +241,36 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
       expect((await statusOf(gus, hal.username)).status).toBe('friends');
     });
 
+    it("counts and lists the user's friends, newest first", async () => {
+      const kim = await registerUser(app, 'kim_social');
+      const lee = await registerUser(app, 'lee_social');
+      const max = await registerUser(app, 'max_social');
+      const viewer = await registerUser(app, 'ned_social');
+      await makeFriends(app, kim, lee);
+      await makeFriends(app, max, kim);
+
+      const profile = await as(viewer)
+        .get(`/users/${kim.username}`)
+        .expect(200);
+      expect(profile.body.friendsCount).toBe(2);
+      const friends = await as(viewer)
+        .get(`/users/${kim.username}/friends`)
+        .expect(200);
+      expect(
+        friends.body.map((friend: { username: string }) => friend.username),
+      ).toEqual([max.username, lee.username]);
+      expect(friends.body[0]).toMatchObject({
+        online: false,
+        playingGameId: null,
+        friendsSince: expect.any(String),
+      });
+      const none = await as(viewer)
+        .get(`/users/${viewer.username}/friends`)
+        .expect(200);
+      expect(none.body).toEqual([]);
+      await as(viewer).get('/users/nobody_here/friends').expect(404);
+    });
+
     it("totals the user's games, score, activity and game list", async () => {
       const ida = await registerUser(app, 'ida_social');
       const jon = await registerUser(app, 'jon_social');
