@@ -460,14 +460,34 @@ export class RealtimeGateway
       WS_EVENTS.GAME_CHAT_HISTORY,
       payload.gameId,
       async () => {
-        const messages = await this.gameChatService.history(
+        const { messages, readAt } = await this.gameChatService.history(
           payload.gameId,
           this.userId(socket),
         );
         socket.emit(WS_EVENTS.GAME_CHAT_HISTORY, {
           gameId: payload.gameId,
           messages: messages.map(toChatMessageDto),
+          readAt,
         });
+      },
+    );
+  }
+
+  /** The player has seen their game's chat, up to now. */
+  @SubscribeMessage(WS_EVENTS.GAME_CHAT_READ)
+  async onChatRead(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() payload: { gameId: string },
+  ) {
+    await this.runGameAction(
+      socket,
+      WS_EVENTS.GAME_CHAT_READ,
+      payload.gameId,
+      async () => {
+        await this.gameChatService.markRead(
+          payload.gameId,
+          this.userId(socket),
+        );
       },
     );
   }

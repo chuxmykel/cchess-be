@@ -16,6 +16,7 @@ import {
   GameChatMessage,
   MAX_CHAT_MESSAGE_LENGTH,
 } from './entities/game-chat-message.entity.js';
+import { GameChatRead } from './entities/game-chat-read.entity.js';
 import { type DrawEvent, GamesService } from './games.service.js';
 
 export const CHAT_RATE_LIMIT = { messages: 5, perMs: 10_000 };
@@ -34,6 +35,8 @@ export class GameChatService {
   constructor(
     @InjectRepository(GameChatMessage)
     private readonly messages: Repository<GameChatMessage>,
+    @InjectRepository(GameChatRead)
+    private readonly reads: Repository<GameChatRead>,
     private readonly gamesService: GamesService,
     private readonly events: EventEmitter2,
   ) {}
@@ -91,12 +94,27 @@ export class GameChatService {
     } satisfies GameChatEvent);
   }
 
-  async history(gameId: string, userId: string): Promise<GameChatMessage[]> {
+  /** The game's chat, with how far this player has read it - null when
+   * they never have. */
+  async history(
+    gameId: string,
+    userId: string,
+  ): Promise<{ messages: GameChatMessage[]; readAt: Date | null }> {
     const game = await this.gamesService.getGameOrThrow(gameId);
     this.gamesService.colorOf(game, userId);
-    return this.messages.find({
-      where: { gameId },
-      order: { createdAt: 'ASC' },
-    });
+    const [messages, read] = await Promise.all([
+      this.messages.find({ where: { gameId }, order: { createdAt: 'ASC' } }),
+      this.reads.findOne({ where: { gameId, userId } }),
+    ]);
+    return { messages, readAt: read?.readAt ?? null };
+  }
+
+  /** Marks the chat read up to now: the player has seen all of it. */
+  async markRead(gameId: string, userId: string): Promise<Date> {
+    const game = await this.gamesService.getGameOrThrow(gameId);
+    this.gamesService.colorOf(game, userId);
+    const readAt = new Date();
+    await this.reads.upsert({ gameId, userId, readAt }, ['gameId', 'userId']);
+    return readAt;
   }
 }

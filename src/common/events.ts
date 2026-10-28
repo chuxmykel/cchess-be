@@ -49,6 +49,7 @@ export const WS_EVENTS = {
   GAME_DRAW_RESPOND: 'game:drawRespond',
   GAME_CHAT: 'game:chat',
   GAME_CHAT_HISTORY: 'game:chatHistory',
+  GAME_CHAT_READ: 'game:chatRead',
   GAME_WATCH: 'game:watch',
   GAME_UNWATCH: 'game:unwatch',
   GAME_REMATCH_OFFER: 'game:rematchOffer',

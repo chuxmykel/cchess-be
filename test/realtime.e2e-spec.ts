@@ -347,6 +347,37 @@ describe('Realtime gateway (e2e)', () => {
       blackSocket.disconnect();
     });
 
+    it('keeps how far each player has read the chat', async () => {
+      const { gameId, whiteSocket, blackSocket } = await startGame(
+        'yuri_rt',
+        'zola_rt',
+      );
+      const historyFor = async (socket: typeof whiteSocket) => {
+        const history = waitForEvent<{ readAt: string | null }>(
+          socket,
+          'game:chatHistory',
+        );
+        socket.emit('game:chatHistory', { gameId });
+        return history;
+      };
+      expect((await historyFor(blackSocket)).readAt).toBeNull();
+
+      const before = Date.now();
+      blackSocket.emit('game:chatRead', { gameId });
+      // Read back once the mark has landed.
+      let readAt: string | null = null;
+      for (let tries = 0; tries < 20 && !readAt; tries += 1) {
+        readAt = (await historyFor(blackSocket)).readAt;
+      }
+
+      expect(new Date(readAt!).getTime()).toBeGreaterThanOrEqual(before - 1000);
+      // Only black has read it.
+      expect((await historyFor(whiteSocket)).readAt).toBeNull();
+
+      whiteSocket.disconnect();
+      blackSocket.disconnect();
+    });
+
     it('rejects an empty message, and one from outside the game', async () => {
       const { gameId, whiteSocket, blackSocket } = await startGame(
         'tess_rt',
