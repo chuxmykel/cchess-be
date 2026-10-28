@@ -99,6 +99,11 @@ describe('Realtime gateway (e2e)', () => {
     expect(afterMove.body.moves).toHaveLength(1);
     expect(afterMove.body.turn).toBe('b');
 
+    // Resigning waits until both sides have moved.
+    const whiteSawReply = waitForEvent(whiteSocket, 'game:move');
+    blackSocket.emit('game:move', { gameId, from: 'e7', to: 'e5' });
+    await whiteSawReply;
+
     const bothSeeGameOver = Promise.all([
       waitForEvent(whiteSocket, 'game:over'),
       waitForEvent(blackSocket, 'game:over'),
@@ -232,6 +237,9 @@ describe('Realtime gateway (e2e)', () => {
       return {
         gameId: accepted.body.id as string,
         whiteId: accepted.body.white.id as string,
+        blackId: accepted.body.black.id as string,
+        white,
+        black,
         whiteSocket,
         blackSocket,
       };
@@ -260,6 +268,111 @@ describe('Realtime gateway (e2e)', () => {
         gameId,
         messages: [expected],
       });
+
+      whiteSocket.disconnect();
+      blackSocket.disconnect();
+    });
+
+    it('notes draws offered, declined and accepted, kept in the history', async () => {
+      const {
+        gameId,
+        whiteId,
+        blackId,
+        white,
+        black,
+        whiteSocket,
+        blackSocket,
+      } = await startGame('wade_rt', 'xena_rt');
+      const move = (token: string, from: string, to: string) =>
+        request(app.getHttpServer())
+          .post(`/games/${gameId}/moves`)
+          .set('Authorization', `Bearer ${token}`)
+          .send({ from, to })
+          .expect(201);
+
+      // Not before both sides have moved.
+      const tooEarly = waitForEvent<{ message: string }>(
+        whiteSocket,
+        'game:error',
+      );
+      whiteSocket.emit('game:drawOffer', { gameId });
+      expect((await tooEarly).message).toBe(
+        'Too early to offer a draw - abort the game instead',
+      );
+      await move(white.accessToken, 'e2', 'e4');
+      await move(black.accessToken, 'e7', 'e5');
+
+      const noted = async (
+        act: () => void,
+        expected: { userId: string; kind: string },
+      ) => {
+        const seen = waitForEvent(blackSocket, 'game:chat');
+        act();
+        await expect(seen).resolves.toMatchObject({
+          gameId,
+          text: '',
+          ...expected,
+        });
+      };
+      await noted(() => whiteSocket.emit('game:drawOffer', { gameId }), {
+        userId: whiteId,
+        kind: 'draw-offered',
+      });
+      await noted(
+        () => blackSocket.emit('game:drawRespond', { gameId, accept: false }),
+        { userId: blackId, kind: 'draw-declined' },
+      );
+      await noted(() => whiteSocket.emit('game:drawOffer', { gameId }), {
+        userId: whiteId,
+        kind: 'draw-offered',
+      });
+      await noted(
+        () => blackSocket.emit('game:drawRespond', { gameId, accept: true }),
+        { userId: blackId, kind: 'draw-accepted' },
+      );
+
+      const history = waitForEvent<{ messages: { kind: string }[] }>(
+        whiteSocket,
+        'game:chatHistory',
+      );
+      whiteSocket.emit('game:chatHistory', { gameId });
+      expect((await history).messages.map((each) => each.kind)).toEqual([
+        'draw-offered',
+        'draw-declined',
+        'draw-offered',
+        'draw-accepted',
+      ]);
+
+      whiteSocket.disconnect();
+      blackSocket.disconnect();
+    });
+
+    it('keeps how far each player has read the chat', async () => {
+      const { gameId, whiteSocket, blackSocket } = await startGame(
+        'yuri_rt',
+        'zola_rt',
+      );
+      const historyFor = async (socket: typeof whiteSocket) => {
+        const history = waitForEvent<{ readAt: string | null }>(
+          socket,
+          'game:chatHistory',
+        );
+        socket.emit('game:chatHistory', { gameId });
+        return history;
+      };
+      expect((await historyFor(blackSocket)).readAt).toBeNull();
+
+      const before = Date.now();
+      blackSocket.emit('game:chatRead', { gameId });
+      // Read back once the mark has landed.
+      let readAt: string | null = null;
+      for (let tries = 0; tries < 20 && !readAt; tries += 1) {
+        readAt = (await historyFor(blackSocket)).readAt;
+      }
+
+      expect(new Date(readAt!).getTime()).toBeGreaterThanOrEqual(before - 1000);
+      // Only black has read it.
+      expect((await historyFor(whiteSocket)).readAt).toBeNull();
 
       whiteSocket.disconnect();
       blackSocket.disconnect();

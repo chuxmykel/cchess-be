@@ -30,6 +30,7 @@ export type GameResultReason =
   | 'abort'
   | null;
 export type DrawOfferBy = 'white' | 'black' | null;
+export type Side = 'white' | 'black';
 
 export const STARTING_FEN =
   'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -113,6 +114,26 @@ export class Game {
 
   @Column({ type: 'varchar', length: 8, nullable: true })
   drawOfferedBy!: DrawOfferBy;
+
+  /** The game this one is a rematch of, if it is one. */
+  @Column({ type: 'uuid', nullable: true })
+  rematchOfId!: string | null;
+
+  // Each player's points from the earlier games of a rematch series, going
+  // into this one - double precision holds the halves draws give exactly.
+  @Column({ type: 'double precision', default: 0 })
+  seriesWhitePoints!: number;
+
+  @Column({ type: 'double precision', default: 0 })
+  seriesBlackPoints!: number;
+
+  /** Who has offered a rematch of this finished game. */
+  @Column({ type: 'varchar', length: 8, nullable: true })
+  rematchOfferedBy!: Side | null;
+
+  /** The rematch, once both players have agreed to it. */
+  @Column({ type: 'uuid', nullable: true })
+  rematchGameId!: string | null;
 
   @OneToMany(() => Move, (move) => move.game)
   moves!: Move[];

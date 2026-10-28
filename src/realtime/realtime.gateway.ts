@@ -32,6 +32,7 @@ import {
 } from '../games/game-chat.service.js';
 import { toChatMessageDto } from '../games/dto/chat-message.dto.js';
 import { firstMoveDeadline } from '../games/first-move.js';
+import { RematchService, type RematchEvent } from '../games/rematch.service.js';
 import {
   FriendsService,
   type FriendRequestEvent,
@@ -127,6 +128,7 @@ export class RealtimeGateway
     private readonly configService: ConfigService<AppConfig, true>,
     private readonly gamesService: GamesService,
     private readonly gameChatService: GameChatService,
+    private readonly rematchService: RematchService,
     private readonly matchmakingService: MatchmakingService,
     private readonly usersService: UsersService,
     private readonly friendsService: FriendsService,
@@ -408,6 +410,32 @@ export class RealtimeGateway
     );
   }
 
+  @SubscribeMessage(WS_EVENTS.GAME_REMATCH_OFFER)
+  async onRematchOffer(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() payload: { gameId: string },
+  ) {
+    await this.runGameAction(
+      socket,
+      WS_EVENTS.GAME_REMATCH_OFFER,
+      payload.gameId,
+      () => this.rematchService.offer(payload.gameId, this.userId(socket)),
+    );
+  }
+
+  @SubscribeMessage(WS_EVENTS.GAME_REMATCH_DECLINE)
+  async onRematchDecline(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() payload: { gameId: string },
+  ) {
+    await this.runGameAction(
+      socket,
+      WS_EVENTS.GAME_REMATCH_DECLINE,
+      payload.gameId,
+      () => this.rematchService.decline(payload.gameId, this.userId(socket)),
+    );
+  }
+
   @SubscribeMessage(WS_EVENTS.GAME_CHAT)
   async onChat(
     @ConnectedSocket() socket: Socket,
@@ -432,14 +460,34 @@ export class RealtimeGateway
       WS_EVENTS.GAME_CHAT_HISTORY,
       payload.gameId,
       async () => {
-        const messages = await this.gameChatService.history(
+        const { messages, readAt } = await this.gameChatService.history(
           payload.gameId,
           this.userId(socket),
         );
         socket.emit(WS_EVENTS.GAME_CHAT_HISTORY, {
           gameId: payload.gameId,
           messages: messages.map(toChatMessageDto),
+          readAt,
         });
+      },
+    );
+  }
+
+  /** The player has seen their game's chat, up to now. */
+  @SubscribeMessage(WS_EVENTS.GAME_CHAT_READ)
+  async onChatRead(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() payload: { gameId: string },
+  ) {
+    await this.runGameAction(
+      socket,
+      WS_EVENTS.GAME_CHAT_READ,
+      payload.gameId,
+      async () => {
+        await this.gameChatService.markRead(
+          payload.gameId,
+          this.userId(socket),
+        );
       },
     );
   }
@@ -568,6 +616,22 @@ export class RealtimeGateway
       .to(userRoom(game.whiteId))
       .to(userRoom(game.blackId))
       .emit(WS_EVENTS.GAME_DRAW_DECLINED, { gameId: game.id });
+  }
+
+  @OnEvent(DOMAIN_EVENTS.GAME_REMATCH_OFFERED)
+  onRematchOffered({ game, by }: RematchEvent) {
+    this.server
+      .to(userRoom(game.whiteId))
+      .to(userRoom(game.blackId))
+      .emit(WS_EVENTS.GAME_REMATCH_OFFERED, { gameId: game.id, by });
+  }
+
+  @OnEvent(DOMAIN_EVENTS.GAME_REMATCH_DECLINED)
+  onRematchDeclined({ game, by }: RematchEvent) {
+    this.server
+      .to(userRoom(game.whiteId))
+      .to(userRoom(game.blackId))
+      .emit(WS_EVENTS.GAME_REMATCH_DECLINED, { gameId: game.id, by });
   }
 
   @OnEvent(DOMAIN_EVENTS.GAME_CHAT_MESSAGE)

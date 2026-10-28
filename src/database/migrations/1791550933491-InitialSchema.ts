@@ -2,9 +2,18 @@ import {
   MigrationInterface,
   QueryRunner,
   Table,
+  type TableColumnOptions,
   TableForeignKey,
   TableIndex,
 } from 'typeorm';
+
+/** When a row was created and last updated, and soft-deleted - kept by
+ * every table. */
+const TIMESTAMP_COLUMNS: TableColumnOptions[] = [
+  { name: 'createdAt', type: 'timestamptz', default: 'now()' },
+  { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
+  { name: 'deletedAt', type: 'timestamptz', isNullable: true },
+];
 
 export class InitialSchema1791550933491 implements MigrationInterface {
   name = 'InitialSchema1791550933491';
@@ -28,9 +37,7 @@ export class InitialSchema1791550933491 implements MigrationInterface {
           { name: 'bio', type: 'varchar', length: '280', isNullable: true },
           { name: 'avatarColor', type: 'varchar', length: '7' },
           { name: 'lastSeenAt', type: 'timestamptz', isNullable: true },
-          { name: 'createdAt', type: 'timestamptz', default: 'now()' },
-          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
-          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
+          ...TIMESTAMP_COLUMNS,
         ],
       }),
     );
@@ -68,9 +75,7 @@ export class InitialSchema1791550933491 implements MigrationInterface {
           { name: 'volatility', type: 'double precision', default: 0.06 },
           { name: 'lastRatedAt', type: 'timestamptz', isNullable: true },
           { name: 'gamesPlayed', type: 'int', default: 0 },
-          { name: 'createdAt', type: 'timestamptz', default: 'now()' },
-          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
-          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
+          ...TIMESTAMP_COLUMNS,
         ],
       }),
     );
@@ -97,9 +102,7 @@ export class InitialSchema1791550933491 implements MigrationInterface {
           { name: 'tokenHash', type: 'varchar' },
           { name: 'expiresAt', type: 'timestamptz' },
           { name: 'revoked', type: 'boolean', default: false },
-          { name: 'createdAt', type: 'timestamptz', default: 'now()' },
-          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
-          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
+          ...TIMESTAMP_COLUMNS,
         ],
       }),
     );
@@ -132,10 +135,8 @@ export class InitialSchema1791550933491 implements MigrationInterface {
           },
           { name: 'rated', type: 'boolean', default: true },
           { name: 'gameId', type: 'varchar', isNullable: true },
-          { name: 'createdAt', type: 'timestamptz', default: 'now()' },
-          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
           { name: 'respondedAt', type: 'timestamptz', isNullable: true },
-          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
+          ...TIMESTAMP_COLUMNS,
         ],
       }),
     );
@@ -158,10 +159,8 @@ export class InitialSchema1791550933491 implements MigrationInterface {
             length: '16',
             default: "'pending'",
           },
-          { name: 'createdAt', type: 'timestamptz', default: 'now()' },
-          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
           { name: 'respondedAt', type: 'timestamptz', isNullable: true },
-          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
+          ...TIMESTAMP_COLUMNS,
         ],
       }),
     );
@@ -217,10 +216,26 @@ export class InitialSchema1791550933491 implements MigrationInterface {
             length: '8',
             isNullable: true,
           },
-          { name: 'createdAt', type: 'timestamptz', default: 'now()' },
-          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
+          { name: 'rematchOfId', type: 'uuid', isNullable: true },
+          {
+            name: 'seriesWhitePoints',
+            type: 'double precision',
+            default: 0,
+          },
+          {
+            name: 'seriesBlackPoints',
+            type: 'double precision',
+            default: 0,
+          },
+          {
+            name: 'rematchOfferedBy',
+            type: 'varchar',
+            length: '8',
+            isNullable: true,
+          },
+          { name: 'rematchGameId', type: 'uuid', isNullable: true },
           { name: 'endedAt', type: 'timestamptz', isNullable: true },
-          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
+          ...TIMESTAMP_COLUMNS,
         ],
       }),
     );
@@ -246,9 +261,7 @@ export class InitialSchema1791550933491 implements MigrationInterface {
           { name: 'promotion', type: 'varchar', length: '1', isNullable: true },
           { name: 'fenAfter', type: 'varchar' },
           { name: 'clockAfterMs', type: 'int' },
-          { name: 'createdAt', type: 'timestamptz', default: 'now()' },
-          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
-          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
+          ...TIMESTAMP_COLUMNS,
         ],
       }),
     );
@@ -273,10 +286,9 @@ export class InitialSchema1791550933491 implements MigrationInterface {
           },
           { name: 'gameId', type: 'uuid' },
           { name: 'userId', type: 'uuid' },
+          { name: 'kind', type: 'varchar', length: '16', default: "'message'" },
           { name: 'text', type: 'varchar', length: '140' },
-          { name: 'createdAt', type: 'timestamptz', default: 'now()' },
-          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
-          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
+          ...TIMESTAMP_COLUMNS,
         ],
       }),
     );
@@ -290,13 +302,23 @@ export class InitialSchema1791550933491 implements MigrationInterface {
 
     await queryRunner.createTable(
       new Table({
+        name: 'game_chat_reads',
+        columns: [
+          { name: 'gameId', type: 'uuid', isPrimary: true },
+          { name: 'userId', type: 'uuid', isPrimary: true },
+          { name: 'readAt', type: 'timestamptz' },
+          ...TIMESTAMP_COLUMNS,
+        ],
+      }),
+    );
+
+    await queryRunner.createTable(
+      new Table({
         name: 'bookmarks',
         columns: [
           { name: 'userId', type: 'uuid', isPrimary: true },
           { name: 'gameId', type: 'uuid', isPrimary: true },
-          { name: 'createdAt', type: 'timestamptz', default: 'now()' },
-          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
-          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
+          ...TIMESTAMP_COLUMNS,
         ],
       }),
     );
@@ -314,9 +336,7 @@ export class InitialSchema1791550933491 implements MigrationInterface {
           { name: 'senderId', type: 'uuid' },
           { name: 'recipientId', type: 'uuid' },
           { name: 'text', type: 'varchar', length: '500' },
-          { name: 'createdAt', type: 'timestamptz', default: 'now()' },
-          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
-          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
+          ...TIMESTAMP_COLUMNS,
         ],
       }),
     );
@@ -336,9 +356,7 @@ export class InitialSchema1791550933491 implements MigrationInterface {
           { name: 'otherUserId', type: 'uuid', isPrimary: true },
           { name: 'lastReadAt', type: 'timestamptz', isNullable: true },
           { name: 'clearedAt', type: 'timestamptz', isNullable: true },
-          { name: 'createdAt', type: 'timestamptz', default: 'now()' },
-          { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
-          { name: 'deletedAt', type: 'timestamptz', isNullable: true },
+          ...TIMESTAMP_COLUMNS,
         ],
       }),
     );
@@ -424,7 +442,11 @@ export class InitialSchema1791550933491 implements MigrationInterface {
         onDelete: 'CASCADE',
       }),
     );
-    for (const table of ['game_chat_messages', 'bookmarks']) {
+    for (const table of [
+      'game_chat_messages',
+      'game_chat_reads',
+      'bookmarks',
+    ]) {
       await queryRunner.createForeignKey(
         table,
         new TableForeignKey({
@@ -466,6 +488,7 @@ export class InitialSchema1791550933491 implements MigrationInterface {
     await queryRunner.dropTable('conversations', true, true, true);
     await queryRunner.dropTable('direct_messages', true, true, true);
     await queryRunner.dropTable('bookmarks', true, true, true);
+    await queryRunner.dropTable('game_chat_reads', true, true, true);
     await queryRunner.dropTable('game_chat_messages', true, true, true);
     await queryRunner.dropTable('moves', true, true, true);
     await queryRunner.dropTable('games', true, true, true);

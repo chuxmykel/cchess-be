@@ -193,6 +193,26 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
       expect(await usernamesFor('srch_view')).toEqual([]);
     });
 
+    it('pages through the matches', async () => {
+      const viewer = await registerUser(app, 'page_viewer');
+      const players = [];
+      for (const name of ['pg_a', 'pg_b', 'pg_c']) {
+        players.push(await registerUser(app, name));
+      }
+      const page = async (query: string) =>
+        (
+          await as(viewer).get(`/users?search=pg_&${query}`).expect(200)
+        ).body.map((user: { username: string }) => user.username);
+
+      expect(await page('limit=2')).toEqual([
+        players[0].username,
+        players[1].username,
+      ]);
+      expect(await page('limit=2&offset=2')).toEqual([players[2].username]);
+      expect(await page('limit=2&offset=4')).toEqual([]);
+      await as(viewer).get('/users?search=pg_&offset=-1').expect(400);
+    });
+
     it('leaves out guests and refuses an empty search', async () => {
       const viewer = await registerUser(app, 'srch_guests');
       await request(app.getHttpServer()).post('/auth/guest').expect(200);
@@ -239,6 +259,36 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
         .post(`/friends/requests/${sent.body.id}/accept`)
         .expect(201);
       expect((await statusOf(gus, hal.username)).status).toBe('friends');
+    });
+
+    it("counts and lists the user's friends, newest first", async () => {
+      const kim = await registerUser(app, 'kim_social');
+      const lee = await registerUser(app, 'lee_social');
+      const max = await registerUser(app, 'max_social');
+      const viewer = await registerUser(app, 'ned_social');
+      await makeFriends(app, kim, lee);
+      await makeFriends(app, max, kim);
+
+      const profile = await as(viewer)
+        .get(`/users/${kim.username}`)
+        .expect(200);
+      expect(profile.body.friendsCount).toBe(2);
+      const friends = await as(viewer)
+        .get(`/users/${kim.username}/friends`)
+        .expect(200);
+      expect(
+        friends.body.map((friend: { username: string }) => friend.username),
+      ).toEqual([max.username, lee.username]);
+      expect(friends.body[0]).toMatchObject({
+        online: false,
+        playingGameId: null,
+        friendsSince: expect.any(String),
+      });
+      const none = await as(viewer)
+        .get(`/users/${viewer.username}/friends`)
+        .expect(200);
+      expect(none.body).toEqual([]);
+      await as(viewer).get('/users/nobody_here/friends').expect(404);
     });
 
     it("totals the user's games, score, activity and game list", async () => {
@@ -307,7 +357,10 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
         longestLosingStreak: 1,
       });
       const { history, ratingChange, rating } = stats.body;
-      expect(history).toHaveLength(3);
+      // The rating going in, then each day's close - one day, unless the
+      // two games happen to straddle UTC midnight.
+      expect(history[0].rating).toBe(1500);
+      expect(history.length).toBeLessThanOrEqual(3);
       expect(history.at(-1).rating).toBe(rating.rating);
       expect(ratingChange).toBe(history.at(-1).rating - history[0].rating);
 
@@ -608,6 +661,148 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
       const over = waitForEvent<{ status: string }>(watcher, 'game:over');
       await as(amy).post(`/games/${gameId}/abort`).expect(200);
       expect((await over).status).toBe('aborted');
+    });
+  });
+
+  describe('rematches', () => {
+    type CreatedGame = {
+      id: string;
+      white: { username: string };
+      black: { username: string };
+      rematchOfId: string | null;
+      series: { white: number; black: number } | null;
+      initialSeconds: number;
+      rated: boolean;
+    };
+
+    it('carries the series on however the two are paired again', async () => {
+      const wes = await registerUser(app, 'wes_social');
+      const xia = await registerUser(app, 'xia_social');
+      await makeFriends(app, wes, xia);
+      const first = await playAndResign(wes, xia);
+
+      // A plain challenge, colors kept: Wes keeps the point he won as white.
+      const second = await startGame(wes, xia);
+
+      const game = await as(wes).get(`/games/${second}`).expect(200);
+      expect(game.body).toMatchObject({
+        rematchOfId: first,
+        series: { white: 1, black: 0 },
+      });
+      const old = await as(wes).get(`/games/${first}`).expect(200);
+      expect(old.body.rematchGameId).toBe(second);
+    });
+
+    it('starts a new series once either plays someone else', async () => {
+      const yan = await registerUser(app, 'yan_social');
+      const zed = await registerUser(app, 'zed_social');
+      const kit = await registerUser(app, 'kit_social');
+      await makeFriends(app, yan, zed);
+      await makeFriends(app, zed, kit);
+      await playAndResign(yan, zed);
+      await playAndResign(zed, kit);
+
+      const again = await startGame(yan, zed);
+
+      const game = await as(yan).get(`/games/${again}`).expect(200);
+      expect(game.body).toMatchObject({ rematchOfId: null, series: null });
+    });
+
+    it('starts a new series at another time control, or rated after casual', async () => {
+      const lou = await registerUser(app, 'lou_social');
+      const mae = await registerUser(app, 'mae_social');
+      await makeFriends(app, lou, mae);
+      await playAndResign(lou, mae);
+
+      const casual = await startGame(lou, mae, { rated: false });
+
+      const game = await as(lou).get(`/games/${casual}`).expect(200);
+      expect(game.body).toMatchObject({ rematchOfId: null, series: null });
+    });
+
+    it('starts once both players offer, colors swapped, keeping score', async () => {
+      const uma = await registerUser(app, 'uma_social');
+      const vic = await registerUser(app, 'vic_social');
+      const umaSocket = await connectAs(uma);
+      const vicSocket = await connectAs(vic);
+      const first = await playAndResign(uma, vic);
+
+      const offered = waitForEvent<{ gameId: string; by: string }>(
+        vicSocket,
+        'game:rematchOffered',
+      );
+      umaSocket.emit('game:rematchOffer', { gameId: first });
+      expect(await offered).toEqual({ gameId: first, by: 'white' });
+
+      const created = waitForEvent<CreatedGame>(umaSocket, 'game:created');
+      vicSocket.emit('game:rematchOffer', { gameId: first });
+      const rematch = await created;
+
+      expect(rematch).toMatchObject({
+        white: { username: vic.username },
+        black: { username: uma.username },
+        rematchOfId: first,
+        series: { white: 0, black: 1 },
+        initialSeconds: 300,
+        rated: true,
+      });
+      const old = await as(uma).get(`/games/${first}`).expect(200);
+      expect(old.body).toMatchObject({
+        rematchGameId: rematch.id,
+        rematchOfferedBy: null,
+      });
+
+      await as(uma).post(`/games/${rematch.id}/abort`).expect(200);
+      const again = await as(uma).get(`/games/${rematch.id}`).expect(200);
+      expect(again.body.series).toEqual({ white: 0, black: 1 });
+    });
+
+    it('lets either player decline or withdraw an offer', async () => {
+      const wes = await registerUser(app, 'wes_social');
+      const xia = await registerUser(app, 'xia_social');
+      const wesSocket = await connectAs(wes);
+      const xiaSocket = await connectAs(xia);
+      const gameId = await playAndResign(wes, xia);
+      const offered = waitForEvent(xiaSocket, 'game:rematchOffered');
+      wesSocket.emit('game:rematchOffer', { gameId });
+      await offered;
+
+      const declined = waitForEvent<{ gameId: string; by: string }>(
+        wesSocket,
+        'game:rematchDeclined',
+      );
+      xiaSocket.emit('game:rematchDecline', { gameId });
+
+      expect(await declined).toEqual({ gameId, by: 'black' });
+      const game = await as(wes).get(`/games/${gameId}`).expect(200);
+      expect(game.body.rematchOfferedBy).toBeNull();
+    });
+
+    it('refuses a rematch of a game in play or aborted, or by someone who did not play', async () => {
+      const yan = await registerUser(app, 'yan_social');
+      const zed = await registerUser(app, 'zed_social');
+      const ava = await registerUser(app, 'ava_social');
+      const yanSocket = await connectAs(yan);
+      const avaSocket = await connectAs(ava);
+      const refusal = async (socket: Socket, gameId: string) => {
+        const error = waitForEvent<{ message: string }>(socket, 'game:error');
+        socket.emit('game:rematchOffer', { gameId });
+        return (await error).message;
+      };
+
+      const aborted = await startGame(yan, zed);
+      expect(await refusal(yanSocket, aborted)).toBe(
+        'The game is still being played',
+      );
+      await as(zed).post(`/games/${aborted}/abort`).expect(200);
+      expect(await refusal(yanSocket, aborted)).toBe(
+        "An aborted game can't be rematched",
+      );
+
+      const finished = await playAndResign(yan, zed);
+      expect(await refusal(avaSocket, finished)).toBe(
+        'You are not playing in this game',
+      );
     });
   });
 

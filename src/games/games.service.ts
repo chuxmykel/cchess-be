@@ -13,7 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { PieceSymbol, Square } from 'chess.js';
-import { EntityManager, In, Repository } from 'typeorm';
+import { EntityManager, In, IsNull, Repository } from 'typeorm';
 
 import { ClusterBus } from '../cluster/cluster-bus.js';
 import { isMine, ownerIndex } from '../cluster/cluster.util.js';
@@ -59,9 +59,18 @@ import {
 import { firstMoveDeadline, isAwaitingFirstMove } from './first-move.js';
 import { Move } from './entities/move.entity.js';
 import { buildPgnText } from './pgn.util.js';
+import {
+  type GameSeries,
+  type SeriesCandidate,
+  seriesContinuedBy,
+} from './rematch-series.js';
 
 export interface GameEvent {
   game: Game;
+}
+/** A draw offered, declined or accepted - by this player. */
+export interface DrawEvent extends GameEvent {
+  byUserId: string;
 }
 export interface GameMoveEvent {
   game: Game;
@@ -191,6 +200,7 @@ export class GamesService implements OnModuleDestroy {
     blackId: string;
     tc: TimeControl;
     rated: boolean;
+    series: GameSeries | null;
   }) {
     const [white, black] = await Promise.all([
       this.usersService.findByIdOrThrow(payload.whiteId),
@@ -202,6 +212,7 @@ export class GamesService implements OnModuleDestroy {
       black,
       payload.tc,
       payload.rated,
+      payload.series,
     );
     return toWireGame(game);
   }
@@ -289,19 +300,23 @@ export class GamesService implements OnModuleDestroy {
     return fromWire(wire);
   }
 
+  /** Starts a game - as part of a rematch series when `series` is given,
+   * or when the two players' last game was against each other (see
+   * seriesContinuedBy). */
   async createGame(
     white: User,
     black: User,
     tc: TimeControl,
     rated: boolean,
+    series: GameSeries | null = null,
   ): Promise<Game> {
     const gameId = randomUUID();
     return this.runOwnershipRouted(
       gameId,
       GAMES_RPC.CREATE,
-      { gameId, whiteId: white.id, blackId: black.id, tc, rated },
+      { gameId, whiteId: white.id, blackId: black.id, tc, rated, series },
       fromWireGame,
-      this.createGameLocal.bind(this, gameId, white, black, tc, rated),
+      this.createGameLocal.bind(this, gameId, white, black, tc, rated, series),
     );
   }
 
@@ -311,13 +326,32 @@ export class GamesService implements OnModuleDestroy {
     black: User,
     tc: TimeControl,
     rated: boolean,
+    series: GameSeries | null,
   ): Promise<Game> {
     const gameType = classifyTimeControl(tc);
     const clockMs = toClockMs(tc);
-    const [whiteAtStart, blackAtStart] = await Promise.all([
-      this.ratingAtStart(white, gameType),
-      this.ratingAtStart(black, gameType),
-    ]);
+    const isRated = rated && !white.isGuest && !black.isGuest;
+    const [whiteAtStart, blackAtStart, lastOfWhite, lastOfBlack] =
+      await Promise.all([
+        this.ratingAtStart(white, gameType),
+        this.ratingAtStart(black, gameType),
+        series ? null : this.lastFinishedGameOf(white.id),
+        series ? null : this.lastFinishedGameOf(black.id),
+      ]);
+    const continued =
+      series ??
+      seriesContinuedBy(
+        {
+          whiteId: white.id,
+          blackId: black.id,
+          initialSeconds: tc.initialSeconds,
+          incrementSeconds: tc.incrementSeconds,
+          rated: isRated,
+        },
+        lastOfWhite,
+        lastOfBlack,
+        new Date(),
+      );
 
     const game = this.games.create({
       id: gameId,
@@ -328,7 +362,7 @@ export class GamesService implements OnModuleDestroy {
       initialSeconds: tc.initialSeconds,
       incrementSeconds: tc.incrementSeconds,
       gameType,
-      rated: rated && !white.isGuest && !black.isGuest,
+      rated: isRated,
       whiteRatingAtStart: whiteAtStart?.rating ?? null,
       blackRatingAtStart: blackAtStart?.rating ?? null,
       whiteDeviationAtStart: whiteAtStart?.deviation ?? null,
@@ -345,8 +379,21 @@ export class GamesService implements OnModuleDestroy {
       turn: 'w',
       lastMoveAt: null,
       drawOfferedBy: null,
+      rematchOfId: continued?.rematchOfId ?? null,
+      seriesWhitePoints: continued?.whitePoints ?? 0,
+      seriesBlackPoints: continued?.blackPoints ?? 0,
+      rematchOfferedBy: null,
+      rematchGameId: null,
     });
     const saved = await this.games.save(game);
+    if (continued && !series) {
+      // Paired some other way, but a rematch all the same: the game it
+      // follows can't start another one.
+      await this.games.update(
+        { id: continued.rematchOfId, rematchGameId: IsNull() },
+        { rematchGameId: saved.id, rematchOfferedBy: null },
+      );
+    }
     this.engines.set(saved.id, new ServerChessEngine());
     this.gameCache.set(saved.id, saved);
     this.movesCache.set(saved.id, []);
@@ -358,6 +405,17 @@ export class GamesService implements OnModuleDestroy {
       game: saved,
     } satisfies GameEvent);
     return saved;
+  }
+
+  /** A player's most recently finished game - played out, not aborted. */
+  private lastFinishedGameOf(userId: string): Promise<SeriesCandidate | null> {
+    return this.games.findOne({
+      where: [
+        { whiteId: userId, status: 'completed' },
+        { blackId: userId, status: 'completed' },
+      ],
+      order: { endedAt: 'DESC' },
+    });
   }
 
   private async ratingAtStart(
@@ -500,8 +558,11 @@ export class GamesService implements OnModuleDestroy {
       .orderBy('g.createdAt', 'DESC')
       .take(limit);
 
+    // An aborted game was never really played, so a history leaves it
+    // out unless asked for it by status.
     if (options.status)
       qb.andWhere('g.status = :status', { status: options.status });
+    else qb.andWhere("g.status != 'aborted'");
     if (options.before)
       qb.andWhere('g.createdAt < :before', { before: options.before });
 
@@ -799,6 +860,7 @@ export class GamesService implements OnModuleDestroy {
       if (game.status !== 'active')
         throw new ConflictException('Game is not active');
       const color = this.colorOf(game, userId);
+      await this.assertPastAbortWindow(game, 'resign');
       await this.finalize(
         game,
         color === 'w' ? 'black' : 'white',
@@ -825,8 +887,14 @@ export class GamesService implements OnModuleDestroy {
         throw new ConflictException('Game is not active');
       const color = this.colorOf(game, userId);
       const otherColor = color === 'w' ? 'b' : 'w';
+      await this.assertPastAbortWindow(game, 'offer a draw');
 
       if (game.drawOfferedBy === (otherColor === 'w' ? 'white' : 'black')) {
+        // Offering back is accepting.
+        this.events.emit(DOMAIN_EVENTS.GAME_DRAW_ACCEPTED, {
+          game,
+          byUserId: userId,
+        } satisfies DrawEvent);
         await this.finalize(game, 'draw', 'draw-agreement');
         return game;
       }
@@ -835,7 +903,8 @@ export class GamesService implements OnModuleDestroy {
       await this.games.save(game);
       this.events.emit(DOMAIN_EVENTS.GAME_DRAW_OFFERED, {
         game,
-      } satisfies GameEvent);
+        byUserId: userId,
+      } satisfies DrawEvent);
       return game;
     });
   }
@@ -871,13 +940,18 @@ export class GamesService implements OnModuleDestroy {
       }
 
       if (accept) {
+        this.events.emit(DOMAIN_EVENTS.GAME_DRAW_ACCEPTED, {
+          game,
+          byUserId: userId,
+        } satisfies DrawEvent);
         await this.finalize(game, 'draw', 'draw-agreement');
       } else {
         game.drawOfferedBy = null;
         await this.games.save(game);
         this.events.emit(DOMAIN_EVENTS.GAME_DRAW_DECLINED, {
           game,
-        } satisfies GameEvent);
+          byUserId: userId,
+        } satisfies DrawEvent);
       }
       return game;
     });
@@ -891,6 +965,20 @@ export class GamesService implements OnModuleDestroy {
       fromWireGame,
       this.abortLocal.bind(this, gameId, userId),
     );
+  }
+
+  /** Resigning and offering a draw wait until both sides have moved -
+   * before that, a game can only be aborted. */
+  private async assertPastAbortWindow(game: Game, action: string) {
+    const plyCount = (await this.getOrBuildEngine(game)).history().length;
+    const abortLimit = this.configService.get('game.abortPlyLimit', {
+      infer: true,
+    });
+    if (plyCount < abortLimit) {
+      throw new ConflictException(
+        `Too early to ${action} - abort the game instead`,
+      );
+    }
   }
 
   private abortLocal(gameId: string, userId: string): Promise<Game> {

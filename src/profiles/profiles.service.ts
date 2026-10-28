@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 
 import { Game } from '../games/entities/game.entity.js';
 import { GamesService } from '../games/games.service.js';
+import type { UserFriendDto } from '../friends/dto/friend.dto.js';
 import { FriendsService } from '../friends/friends.service.js';
 import { PresenceService } from '../presence/presence.service.js';
 import type { GameType } from '../chess/time-control.js';
@@ -14,10 +15,12 @@ import type {
   PublicProfileDto,
   ViewerFriendshipDto,
 } from './dto/public-profile.dto.js';
-import type { RatingStatsDto } from './dto/rating-stats.dto.js';
+import type { NotableGameDto, RatingStatsDto } from './dto/rating-stats.dto.js';
 import { type ActivityDay, scoreFor, summarizeActivity } from './game-stats.js';
 import {
+  type NotableGame,
   periodStart,
+  type RatingStatsGame,
   type RatingStatsPeriod,
   summarizeRatingStats,
 } from './rating-stats.js';
@@ -48,12 +51,13 @@ export class ProfilesService {
   ): Promise<PublicProfileDto> {
     const user = await this.findUserOrThrow(username);
     const isSelf = user.id === viewerId;
-    const [ratings, online, playing, totals, friendship, score] =
+    const [ratings, online, playing, totals, friendsCount, friendship, score] =
       await Promise.all([
         this.usersService.getRatings(user.id),
         this.presenceService.isOnline(user.id),
         this.gamesService.activeGameIdsFor([user.id]),
         this.finishedGameTotals(user.id),
+        this.friendsService.countFriends(user.id),
         this.viewerFriendship(viewerId, user.id),
         isSelf ? null : this.scoreAgainst(viewerId, user.id),
       ]);
@@ -71,9 +75,21 @@ export class ProfilesService {
       online,
       playingGameId: playing.get(user.id) ?? null,
       ...totals,
+      friendsCount,
       friendship,
       score,
     };
+  }
+
+  async getFriends(username: string): Promise<UserFriendDto[]> {
+    const user = await this.findUserOrThrow(username);
+    const friendships = await this.friendsService.listFriendships(user.id);
+    const friends = await this.friendsService.describe(
+      friendships.map((friendship) => friendship.user),
+    );
+    return friends.map((friend, index) =>
+      Object.assign(friend, { friendsSince: friendships[index].since }),
+    );
   }
 
   async getActivity(username: string): Promise<ActivityDay[]> {
@@ -101,10 +117,19 @@ export class ProfilesService {
     if (!rating) throw new NotFoundException('No rating in this category');
     const query = this.games
       .createQueryBuilder('g')
-      .innerJoin('g.white', 'white')
-      .innerJoin('g.black', 'black')
-      .addSelect(['white.username', 'white.displayName'])
-      .addSelect(['black.username', 'black.displayName'])
+      .select([
+        'g.id AS id',
+        'g.whiteId AS "whiteId"',
+        'g.blackId AS "blackId"',
+        'g.result AS result',
+        'g.rated AS rated',
+        'g.createdAt AS "createdAt"',
+        'g.endedAt AS "endedAt"',
+        'g.whiteRatingAtStart AS "whiteRatingAtStart"',
+        'g.blackRatingAtStart AS "blackRatingAtStart"',
+        'g.whiteRatingDiff AS "whiteRatingDiff"',
+        'g.blackRatingDiff AS "blackRatingDiff"',
+      ])
       .where('(g.whiteId = :userId OR g.blackId = :userId)', {
         userId: user.id,
       })
@@ -112,11 +137,34 @@ export class ProfilesService {
       .andWhere('g.gameType = :category', { category });
     const since = periodStart(period, new Date());
     if (since) query.andWhere('g.endedAt > :since', { since });
-    const games = await query.getMany();
+    const games = await query.getRawMany<RatingStatsGame>();
+    const stats = summarizeRatingStats(games, user.id);
+    const [bestWin, worstLoss] = await Promise.all([
+      this.describeNotableGame(stats.bestWin),
+      this.describeNotableGame(stats.worstLoss),
+    ]);
     return {
       period,
       rating: toRatingDto(rating),
-      ...summarizeRatingStats(games, user.id),
+      ...stats,
+      bestWin,
+      worstLoss,
+    };
+  }
+
+  /** Names the opponent of a game the stats picked out. */
+  private async describeNotableGame(
+    game: NotableGame | null,
+  ): Promise<NotableGameDto | null> {
+    if (!game) return null;
+    const opponent = await this.usersService.findById(game.opponentId);
+    if (!opponent) return null;
+    return {
+      gameId: game.gameId,
+      opponentUsername: opponent.username,
+      opponentDisplayName: opponent.displayName,
+      opponentRating: game.opponentRating,
+      endedAt: game.endedAt,
     };
   }
 

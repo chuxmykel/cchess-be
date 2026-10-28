@@ -143,6 +143,19 @@ describe('Games via challenges (e2e)', () => {
       .set('Authorization', `Bearer ${otherPlayerToken}`)
       .expect(200);
     expect(aborted.body.status).toBe('aborted');
+
+    const history = await request(app.getHttpServer())
+      .get('/games')
+      .set('Authorization', `Bearer ${kim.accessToken}`)
+      .expect(200);
+    expect(history.body).toEqual([]);
+    const abortedOnly = await request(app.getHttpServer())
+      .get('/games?status=aborted')
+      .set('Authorization', `Bearer ${kim.accessToken}`)
+      .expect(200);
+    expect(abortedOnly.body.map((game: { id: string }) => game.id)).toEqual([
+      gameId,
+    ]);
   });
 
   describe('seek options', () => {

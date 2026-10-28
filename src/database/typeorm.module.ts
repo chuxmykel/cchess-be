@@ -12,6 +12,7 @@ import { Friendship } from '../friends/entities/friendship.entity.js';
 import { Game } from '../games/entities/game.entity.js';
 import { Move } from '../games/entities/move.entity.js';
 import { GameChatMessage } from '../games/entities/game-chat-message.entity.js';
+import { GameChatRead } from '../games/entities/game-chat-read.entity.js';
 import { Bookmark } from '../games/entities/bookmark.entity.js';
 import { Conversation } from '../messages/entities/conversation.entity.js';
 import { DirectMessage } from '../messages/entities/direct-message.entity.js';
@@ -55,6 +56,7 @@ export const typeOrmModule = TypeOrmModule.forRootAsync({
       Move,
       Challenge,
       GameChatMessage,
+      GameChatRead,
       Bookmark,
       DirectMessage,
       Conversation,

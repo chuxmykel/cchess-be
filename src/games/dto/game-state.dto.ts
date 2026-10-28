@@ -7,11 +7,13 @@ import type {
   GameResult,
   GameResultReason,
   GameStatus,
+  Side,
 } from '../entities/game.entity.js';
 import type { Move } from '../entities/move.entity.js';
 import { isProvisional } from '../../users/entities/rating.entity.js';
 import { chatClosesAt } from '../chat-window.js';
 import { firstMoveDeadline } from '../first-move.js';
+import { seriesPointsAfter } from '../rematch-series.js';
 
 export class GamePlayerDto {
   @ApiProperty()
@@ -39,6 +41,14 @@ export class GamePlayerDto {
       'Whether that rating was still uncertain (rating deviation above 110)',
   })
   provisional!: boolean;
+}
+
+export class SeriesScoreDto {
+  @ApiProperty()
+  white!: number;
+
+  @ApiProperty()
+  black!: number;
 }
 
 export class MoveDto {
@@ -137,6 +147,31 @@ export class GameStateDto {
   drawOfferedBy!: DrawOfferBy;
 
   @ApiProperty({
+    type: String,
+    nullable: true,
+    description: 'The game this one is a rematch of',
+  })
+  rematchOfId!: string | null;
+
+  @ApiProperty({
+    type: SeriesScoreDto,
+    nullable: true,
+    description:
+      "Each side's points across a rematch series, this game included once it's over; null outside a series",
+  })
+  series!: SeriesScoreDto | null;
+
+  @ApiProperty({ enum: ['white', 'black'], nullable: true })
+  rematchOfferedBy!: Side | null;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: 'The rematch, once both players agreed to it',
+  })
+  rematchGameId!: string | null;
+
+  @ApiProperty({
     type: Date,
     nullable: true,
     description:
@@ -220,6 +255,10 @@ export function toGameStateDto(game: Game): GameStateDto {
     blackTimeRemainingMs: game.blackTimeRemainingMs,
     lastMoveAt: game.lastMoveAt,
     drawOfferedBy: game.drawOfferedBy,
+    rematchOfId: game.rematchOfId,
+    series: game.rematchOfId ? seriesPointsAfter(game) : null,
+    rematchOfferedBy: game.rematchOfferedBy,
+    rematchGameId: game.rematchGameId,
     firstMoveDeadline: firstMoveDeadline(game),
     moves: (game.moves ?? []).map(toMoveDto),
     createdAt: game.createdAt,

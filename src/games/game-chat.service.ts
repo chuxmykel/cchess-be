@@ -3,7 +3,7 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -12,10 +12,12 @@ import { SlidingWindowLimiter } from '../common/sliding-window-limiter.js';
 import { isChatOpen } from './chat-window.js';
 import type { Game } from './entities/game.entity.js';
 import {
+  type ChatMessageKind,
   GameChatMessage,
   MAX_CHAT_MESSAGE_LENGTH,
 } from './entities/game-chat-message.entity.js';
-import { GamesService } from './games.service.js';
+import { GameChatRead } from './entities/game-chat-read.entity.js';
+import { type DrawEvent, GamesService } from './games.service.js';
 
 export const CHAT_RATE_LIMIT = { messages: 5, perMs: 10_000 };
 
@@ -24,7 +26,8 @@ export interface GameChatEvent {
   message: GameChatMessage;
 }
 
-/** In-game chat between a game's two players. */
+/** In-game chat between a game's two players - with notes of the draws
+ * offered, declined and accepted among their messages. */
 @Injectable()
 export class GameChatService {
   private readonly limiter = new SlidingWindowLimiter(CHAT_RATE_LIMIT);
@@ -32,6 +35,8 @@ export class GameChatService {
   constructor(
     @InjectRepository(GameChatMessage)
     private readonly messages: Repository<GameChatMessage>,
+    @InjectRepository(GameChatRead)
+    private readonly reads: Repository<GameChatRead>,
     private readonly gamesService: GamesService,
     private readonly events: EventEmitter2,
   ) {}
@@ -61,12 +66,55 @@ export class GameChatService {
     return message;
   }
 
-  async history(gameId: string, userId: string): Promise<GameChatMessage[]> {
+  @OnEvent(DOMAIN_EVENTS.GAME_DRAW_OFFERED)
+  onDrawOffered({ game, byUserId }: DrawEvent) {
+    return this.note(game, byUserId, 'draw-offered');
+  }
+
+  @OnEvent(DOMAIN_EVENTS.GAME_DRAW_DECLINED)
+  onDrawDeclined({ game, byUserId }: DrawEvent) {
+    return this.note(game, byUserId, 'draw-declined');
+  }
+
+  @OnEvent(DOMAIN_EVENTS.GAME_DRAW_ACCEPTED)
+  onDrawAccepted({ game, byUserId }: DrawEvent) {
+    return this.note(game, byUserId, 'draw-accepted');
+  }
+
+  /** Saves a note in the game's chat and sends it like a message - kept
+   * in the history, and past the rate limit, since a player didn't type
+   * it. */
+  private async note(game: Game, userId: string, kind: ChatMessageKind) {
+    const message = await this.messages.save(
+      this.messages.create({ gameId: game.id, userId, kind, text: '' }),
+    );
+    this.events.emit(DOMAIN_EVENTS.GAME_CHAT_MESSAGE, {
+      game,
+      message,
+    } satisfies GameChatEvent);
+  }
+
+  /** The game's chat, with how far this player has read it - null when
+   * they never have. */
+  async history(
+    gameId: string,
+    userId: string,
+  ): Promise<{ messages: GameChatMessage[]; readAt: Date | null }> {
     const game = await this.gamesService.getGameOrThrow(gameId);
     this.gamesService.colorOf(game, userId);
-    return this.messages.find({
-      where: { gameId },
-      order: { createdAt: 'ASC' },
-    });
+    const [messages, read] = await Promise.all([
+      this.messages.find({ where: { gameId }, order: { createdAt: 'ASC' } }),
+      this.reads.findOne({ where: { gameId, userId } }),
+    ]);
+    return { messages, readAt: read?.readAt ?? null };
+  }
+
+  /** Marks the chat read up to now: the player has seen all of it. */
+  async markRead(gameId: string, userId: string): Promise<Date> {
+    const game = await this.gamesService.getGameOrThrow(gameId);
+    this.gamesService.colorOf(game, userId);
+    const readAt = new Date();
+    await this.reads.upsert({ gameId, userId, readAt }, ['gameId', 'userId']);
+    return readAt;
   }
 }

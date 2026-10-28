@@ -20,6 +20,11 @@ import {
 } from './dto/friend.dto.js';
 import { Friendship } from './entities/friendship.entity.js';
 
+export interface FriendshipSince {
+  user: User;
+  since: Date;
+}
+
 export interface FriendRequestEvent {
   friendship: Friendship;
 }
@@ -230,6 +235,12 @@ export class FriendsService {
   }
 
   async listFriends(userId: string): Promise<User[]> {
+    const friendships = await this.listFriendships(userId);
+    return friendships.map((friendship) => friendship.user);
+  }
+
+  /** A user's friends with when each became one, most recent first. */
+  async listFriendships(userId: string): Promise<FriendshipSince[]> {
     const rows = await this.friendships.find({
       where: [
         { requesterId: userId, status: 'accepted' },
@@ -237,9 +248,21 @@ export class FriendsService {
       ],
       relations: { requester: true, addressee: true },
     });
-    return rows.map((row) =>
-      row.requesterId === userId ? row.addressee : row.requester,
-    );
+    return rows
+      .map((row) => ({
+        user: row.requesterId === userId ? row.addressee : row.requester,
+        since: row.respondedAt ?? row.updatedAt,
+      }))
+      .sort((a, b) => b.since.getTime() - a.since.getTime());
+  }
+
+  async countFriends(userId: string): Promise<number> {
+    return this.friendships.count({
+      where: [
+        { requesterId: userId, status: 'accepted' },
+        { addresseeId: userId, status: 'accepted' },
+      ],
+    });
   }
 
   async listIncomingRequests(userId: string): Promise<Friendship[]> {

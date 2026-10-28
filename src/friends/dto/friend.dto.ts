@@ -34,6 +34,12 @@ export class FriendDto {
   ratings!: RatingDto[];
 }
 
+/** Someone's friend, as their profile lists them. */
+export class UserFriendDto extends FriendDto {
+  @ApiProperty({ description: 'When they became friends' })
+  friendsSince!: Date;
+}
+
 export class FriendRequestDto {
   @ApiProperty()
   id!: string;

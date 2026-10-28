@@ -44,6 +44,9 @@ export class PublicProfileDto extends ProfileDto {
   @ApiProperty({ description: 'Time spent in finished games' })
   timePlayedMs!: number;
 
+  @ApiProperty()
+  friendsCount!: number;
+
   @ApiProperty({ type: ViewerFriendshipDto })
   friendship!: ViewerFriendshipDto;
 

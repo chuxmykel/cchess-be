@@ -16,6 +16,16 @@ import { Game } from './game.entity.js';
 
 export const MAX_CHAT_MESSAGE_LENGTH = 140;
 
+/** A player's own words, or a note of something they did in the game -
+ * offering, declining or accepting a draw - which has no text of its own. */
+export const CHAT_MESSAGE_KINDS = [
+  'message',
+  'draw-offered',
+  'draw-declined',
+  'draw-accepted',
+] as const;
+export type ChatMessageKind = (typeof CHAT_MESSAGE_KINDS)[number];
+
 @Entity('game_chat_messages')
 @Index(['gameId', 'createdAt'])
 export class GameChatMessage {
@@ -33,8 +43,12 @@ export class GameChatMessage {
   @JoinColumn()
   user!: Relation<User>;
 
+  /** Who sent it - or, for a note, who did what it notes. */
   @Column()
   userId!: string;
+
+  @Column({ type: 'varchar', length: 16, default: 'message' })
+  kind!: ChatMessageKind;
 
   @Column({ type: 'varchar', length: MAX_CHAT_MESSAGE_LENGTH })
   text!: string;
