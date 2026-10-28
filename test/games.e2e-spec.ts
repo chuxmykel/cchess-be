@@ -107,6 +107,9 @@ describe('Games via challenges (e2e)', () => {
     expect(pgn.text).toContain(
       '[White "ivan_games"]'.replace('ivan_games', ivan.username),
     );
+    expect(pgn.text).toContain('[Round "-"]');
+    expect(pgn.text).toContain('[TimeControl "300+0"]');
+    expect(pgn.text).toMatch(/1\. \S+ \{ \[%clk 0:0[45]:\d\d\] \} 1\.\.\. /);
     expect(pgn.text).toContain('0-1');
   });
 

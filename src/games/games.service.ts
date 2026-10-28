@@ -479,7 +479,7 @@ export class GamesService implements OnModuleDestroy {
         whiteUsername: game.white.username,
         blackUsername: game.black.username,
       },
-      game.moves.map((m) => m.san),
+      game.moves,
     );
   }
 
@@ -1055,6 +1055,7 @@ export class GamesService implements OnModuleDestroy {
     );
     this.clearFlagFallTimer(game.id);
     const cachedEngine = this.engines.get(game.id);
+    const cachedMoves = this.movesCache.get(game.id);
     this.engines.delete(game.id);
     this.gameCache.delete(game.id);
     this.movesCache.delete(game.id);
@@ -1079,25 +1080,27 @@ export class GamesService implements OnModuleDestroy {
     }
 
     if (status === 'completed') {
-      // The move-by-move SAN sequence already lives in the cached engine
-      // (chess.js's own history) - reuse it instead of re-reading every
-      // Move row back out of the database. Falls back to a DB read only if
-      // the cache was somehow cold (e.g. a resign immediately post-restart).
-      const sans = cachedEngine
-        ? cachedEngine.history()
-        : (
-            await this.moves.find({
+      // Every move, with its clock, is already in movesCache - reuse it
+      // instead of re-reading each Move row, whose last write may not have
+      // landed yet anyway (see applyMove). After a cold restart the cache
+      // only holds the moves since, so it's used only when it has as many
+      // as the engine's own history; otherwise read them back.
+      const moves =
+        cachedMoves &&
+        cachedEngine &&
+        cachedMoves.length === cachedEngine.history().length
+          ? cachedMoves
+          : await this.moves.find({
               where: { gameId: game.id },
               order: { ply: 'ASC' },
-            })
-          ).map((m) => m.san);
+            });
       game.pgn = buildPgnText(
         game,
         {
           whiteUsername: game.white.username,
           blackUsername: game.black.username,
         },
-        sans,
+        moves,
       );
     }
 
