@@ -137,6 +137,12 @@ access 'X' before initialization` at runtime for any circular entity
   games, each keeping both players' `*RatingAtStart` and `*RatingDiff`
   (see `src/profiles/rating-stats.ts`). Keep recording both on every rated
   game, or the history and the activity feed lose that game.
+- **`RematchService` works on finished games straight from the
+  database** (`src/games/rematch.service.ts`), not through `GamesService`'s
+  in-memory caches, which only hold games in progress - and it guards the
+  start with a conditional `UPDATE` so two racing acceptances can't both
+  start a rematch. The new game goes through `createGame` like any other,
+  carrying its series (`GameSeries`) over the cluster wire.
 - **Guests are real `User` rows** (`isGuest: true`, `POST /auth/guest`),
   not a separate concept - they just never get `Rating` rows, and
   `GamesService.createGame` automatically marks a game `rated: false` if
