@@ -1,5 +1,4 @@
 import type { Game } from '../games/entities/game.entity.js';
-import type { User } from '../users/entities/user.entity.js';
 import { outcomeFor, type Score } from './game-stats.js';
 
 export const RATING_STATS_PERIODS = ['1w', '1m', '3m', '1y', 'all'] as const;
@@ -24,10 +23,11 @@ export interface RatingPoint {
   rating: number;
 }
 
+/** A game picked out of the period - its opponent by id, named later for
+ * just the couple of games this picks out. */
 export interface NotableGame {
   gameId: string;
-  opponentUsername: string;
-  opponentDisplayName: string;
+  opponentId: string;
   /** The opponent's rating when the game started. */
   opponentRating: number;
   endedAt: Date;
@@ -64,10 +64,7 @@ export type RatingStatsGame = Pick<
   | 'blackRatingAtStart'
   | 'whiteRatingDiff'
   | 'blackRatingDiff'
-> & {
-  white: Pick<User, 'username' | 'displayName'>;
-  black: Pick<User, 'username' | 'displayName'>;
-};
+>;
 
 type EndedGame = RatingStatsGame & { endedAt: Date };
 
@@ -76,11 +73,9 @@ function notableGame(
   asWhite: boolean,
   opponentRating: number,
 ): NotableGame {
-  const opponent = asWhite ? game.black : game.white;
   return {
     gameId: game.id,
-    opponentUsername: opponent.username,
-    opponentDisplayName: opponent.displayName,
+    opponentId: asWhite ? game.blackId : game.whiteId,
     opponentRating,
     endedAt: game.endedAt,
   };

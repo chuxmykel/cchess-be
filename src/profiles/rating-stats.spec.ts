@@ -21,8 +21,6 @@ function game(
     id: `game-${nextId}`,
     whiteId: ME,
     blackId: THEM,
-    white: { username: 'me', displayName: 'Me' },
-    black: { username: 'them', displayName: 'Them' },
     result: 'white',
     rated: true,
     createdAt: new Date(Date.UTC(2026, 9, 20, 10, endedAtMinute - 5)),
@@ -96,8 +94,7 @@ describe('summarizeRatingStats', () => {
 
     expect(stats.bestWin).toEqual({
       gameId: 'strong-win',
-      opponentUsername: 'them',
-      opponentDisplayName: 'Them',
+      opponentId: THEM,
       opponentRating: 1700,
       endedAt: strongWin.endedAt,
     });
@@ -121,7 +118,7 @@ describe('summarizeRatingStats', () => {
 
     expect(stats.wins).toBe(1);
     expect(stats.bestWin).toMatchObject({
-      opponentUsername: 'me',
+      opponentId: THEM,
       opponentRating: 1650,
     });
     expect(stats.history.at(-1)?.rating).toBe(1462);
