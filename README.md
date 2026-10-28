@@ -92,12 +92,16 @@ users/         Profile CRUD + per-category Glicko-2 ratings (bullet/blitz/rapid/
 friends/       Friend requests as a single self-referencing table with a status
                (pending/accepted/declined), not a separate "friends" table.
 profiles/      Another player's profile as you see it (presence, totals, your
-               friendship and score with them), their activity and game list.
+               friendship and score with them), their activity, game list
+               and rating stats per category.
 messages/      Direct messages between friends; each person's own read and
                cleared marks.
 presence/      Who's connected, from the gateway's user:{id} rooms.
 games/         The chess authority: Game/Move entities, GamesService (moves, clocks,
                resign/draw/abort, PGN export), Glicko-2 rating updates on completion.
+               The PGN is in the standard's export format: the Seven Tag Roster,
+               TimeControl in seconds ("300+3"), and each move followed by the
+               mover's clock as a { [%clk 0:04:58] } comment.
 matchmaking/   An in-memory seek queue (see "Known limitations" below) that pairs
                players whose time control, rated choice and rating ranges all
                agree, nearest rating first.
@@ -151,13 +155,15 @@ pushes to _both_ players' personal rooms.
 
 ### Time control -> game type
 
-`src/chess/time-control.ts` classifies any `{ minutes, incrementSeconds }`
+`src/chess/time-control.ts` classifies any `{ initialSeconds, incrementSeconds }`
 pair into bullet/blitz/rapid/classical by _estimated game duration_
-(`minutes + incrementSeconds * 40 / 60`), the same method Lichess uses - not
+(`(initialSeconds + incrementSeconds * 40) / 60` minutes), the same method Lichess uses - not
 a fixed lookup table. This is what makes "any time control", not just the
 cchess app's 16 presets, a trivial case: the thresholds (3 / 10 / 25 minutes)
 were chosen specifically so they agree with every one of that app's presets
-(see `src/chess/time-control.spec.ts`).
+(see `src/chess/time-control.spec.ts`). Both parts are whole seconds - the
+starting clock (1 second to 3 hours) as well as the increment - so a
+sub-minute start like 5 seconds is exact, and it's stored as an `int`.
 
 ### Guests
 
@@ -186,25 +192,25 @@ an origin restriction would protect. This stops being true the moment any
 client authenticates via a cookie instead (e.g. a future browser client) -
 revisit `origin`/`credentials` together if that ever happens.
 
-| Client -> Server     | Payload                                               | Server -> Client                                                   | Payload                                                                                      |
-| -------------------- | ----------------------------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
-| `game:join`          | `{ gameId }`                                          | `game:state`                                                       | Full `GameStateDto`                                                                          |
-| `game:move`          | `{ gameId, from, to, promotion? }`                    | `game:move`                                                        | `{ gameId, move, fen, turn, whiteTimeRemainingMs, blackTimeRemainingMs, firstMoveDeadline }` |
-| `game:resign`        | `{ gameId }`                                          | `game:over`                                                        | Full `GameStateDto` (also sent on checkmate/timeout/draw/abort)                              |
-| `game:abort`         | `{ gameId }`                                          | `game:drawOffered`                                                 | `{ gameId, by }`                                                                             |
-| `game:drawOffer`     | `{ gameId }`                                          | `game:drawDeclined`                                                | `{ gameId }`                                                                                 |
-| `game:drawRespond`   | `{ gameId, accept }`                                  | `game:created`                                                     | Full `GameStateDto` - pushed to both players, e.g. on a matchmaking pair                     |
-| `matchmaking:seek`   | `{ minutes, incrementSeconds, rated?, ratingRange? }` | `game:error` / `matchmaking:error`                                 | `{ message }` (and `{ gameId, message }` for game errors)                                    |
-| `matchmaking:cancel` | -                                                     | `challenge:received` / `challenge:accepted` / `challenge:resolved` | `ChallengeDto`                                                                               |
-| `game:leave`         | `{ gameId }`                                          | `friend:requestReceived`                                           | `FriendRequestDto` - the requester, described like a friend                                  |
-| `game:watch`         | `{ gameId }`                                          | `friend:requestAccepted` / `friend:requestResolved`                | `{ id }` - accepted, or declined/cancelled, to both sides                                    |
-| `game:unwatch`       | `{ gameId }`                                          | `friend:removed`                                                   | `{ userIds }` - the two former friends                                                       |
-| -                    | -                                                     | `friend:status`                                                    | `{ userId, online, playingGameId }` - to the user's friends                                  |
-| -                    | -                                                     | `dm:message`                                                       | `{ id, senderId, recipientId, text, createdAt }` - to both people                            |
-| `game:chat`          | `{ gameId, text }`                                    | `game:chat`                                                        | `{ id, gameId, userId, text, createdAt }` - to both players                                  |
-| `game:chatHistory`   | `{ gameId }`                                          | `game:chatHistory`                                                 | `{ gameId, messages }` - to the player who asked                                             |
-| -                    | -                                                     | `game:presence`                                                    | `{ gameId, userId, online }`                                                                 |
-| -                    | -                                                     | `lobby:stats`                                                      | `{ playersOnline, gamesInPlay }`                                                             |
+| Client -> Server     | Payload                                                      | Server -> Client                                                   | Payload                                                                                      |
+| -------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| `game:join`          | `{ gameId }`                                                 | `game:state`                                                       | Full `GameStateDto`                                                                          |
+| `game:move`          | `{ gameId, from, to, promotion? }`                           | `game:move`                                                        | `{ gameId, move, fen, turn, whiteTimeRemainingMs, blackTimeRemainingMs, firstMoveDeadline }` |
+| `game:resign`        | `{ gameId }`                                                 | `game:over`                                                        | Full `GameStateDto` (also sent on checkmate/timeout/draw/abort)                              |
+| `game:abort`         | `{ gameId }`                                                 | `game:drawOffered`                                                 | `{ gameId, by }`                                                                             |
+| `game:drawOffer`     | `{ gameId }`                                                 | `game:drawDeclined`                                                | `{ gameId }`                                                                                 |
+| `game:drawRespond`   | `{ gameId, accept }`                                         | `game:created`                                                     | Full `GameStateDto` - pushed to both players, e.g. on a matchmaking pair                     |
+| `matchmaking:seek`   | `{ initialSeconds, incrementSeconds, rated?, ratingRange? }` | `game:error` / `matchmaking:error`                                 | `{ message }` (and `{ gameId, message }` for game errors)                                    |
+| `matchmaking:cancel` | -                                                            | `challenge:received` / `challenge:accepted` / `challenge:resolved` | `ChallengeDto`                                                                               |
+| `game:leave`         | `{ gameId }`                                                 | `friend:requestReceived`                                           | `FriendRequestDto` - the requester, described like a friend                                  |
+| `game:watch`         | `{ gameId }`                                                 | `friend:requestAccepted` / `friend:requestResolved`                | `{ id }` - accepted, or declined/cancelled, to both sides                                    |
+| `game:unwatch`       | `{ gameId }`                                                 | `friend:removed`                                                   | `{ userIds }` - the two former friends                                                       |
+| -                    | -                                                            | `friend:status`                                                    | `{ userId, online, playingGameId }` - to the user's friends                                  |
+| -                    | -                                                            | `dm:message`                                                       | `{ id, senderId, recipientId, text, createdAt }` - to both people                            |
+| `game:chat`          | `{ gameId, text }`                                           | `game:chat`                                                        | `{ id, gameId, userId, text, createdAt }` - to both players                                  |
+| `game:chatHistory`   | `{ gameId }`                                                 | `game:chatHistory`                                                 | `{ gameId, messages }` - to the player who asked                                             |
+| -                    | -                                                            | `game:presence`                                                    | `{ gameId, userId, online }`                                                                 |
+| -                    | -                                                            | `lobby:stats`                                                      | `{ playersOnline, gamesInPlay }`                                                             |
 
 A seek (here or `POST /matchmaking/seek`) is rated unless `rated: false`;
 guests' seeks are always casual. `ratingRange: { below, above }` (whole
@@ -212,6 +218,13 @@ numbers from 0 to 1000) limits opponents to that far below and above your
 rating in the time control's category, and both players' ranges must hold.
 A `null` side has no limit; leave the whole range out to accept any rating.
 Guests have no rating, so ranges don't apply to them.
+
+Nobody plays two games at once. While you have a game in progress,
+seeking (`matchmaking:error`, or 409 from `POST /matchmaking/seek`),
+sending a challenge and accepting one all fail with "Finish your game in
+progress first", and accepting a challenge from someone who's since
+started a game fails with "<name> is in the middle of a game" (both
+`GamesService.assertNotPlaying`).
 
 While a seek waits, its socket gets `lobby:stats` straight away and then
 every 5 seconds: `playersOnline` counts users with a connected socket and
@@ -253,7 +266,7 @@ and when their games start or end. Only one friendship or request can be
 live between two users.
 
 Anyone can challenge any player, friend or not. `POST /challenges` takes
-`{ opponentUsername, minutes, incrementSeconds, color?, rated? }` (rated
+`{ opponentUsername, initialSeconds, incrementSeconds, color?, rated? }` (rated
 unless `rated: false`), replaces any pending challenge to the same player,
 and expires after `CHALLENGE_TTL_MS` (default 2 minutes; `expiresAt` in
 `ChallengeDto`). Expiry is pushed as `challenge:resolved` with status
@@ -267,6 +280,14 @@ caller's wins, draws and losses against them (`null` on their own).
 `GET /users/:username/activity` groups their last 30 days of finished games
 by UTC day and category, and `GET /users/:username/games` lists their games
 like `GET /games` does yours (`limit`, `before`).
+`GET /users/:username/ratings/:category?period=` sums up one category over
+`1w`, `1m` (the default), `3m`, `1y` or `all`: the rating now; its
+`history` (the rating going into the period's first rated game, then after
+each one); the `highest` and `lowest` of those, and `ratingChange` from the
+first to the last; and, over every finished game in the category, rated or
+casual, the games, wins, draws and losses, `timePlayedMs`, and the longest
+win and losing streaks. `bestWin` and `worstLoss` are the rated win over the
+highest-rated opponent and the rated loss to the lowest-rated one.
 `GET /users?search=<term>&limit=` finds registered players (never guests,
 never the caller) whose username or display name contains the term, any
 case: an exact username first, then names starting with it, then the rest
@@ -313,8 +334,9 @@ anything else in the system:
   `isCheckmate()`/`isStalemate()` each independently regenerate the full
   legal-move list (its most expensive operation), so a second call after
   `attemptMove` already computed the same thing doubled that cost for free.
-- Finalizing a game reuses the in-memory `ServerChessEngine`'s own move
-  history for the PGN instead of re-querying every `Move` row.
+- Finalizing a game reuses the in-memory cache of its moves (with their
+  clocks) for the PGN instead of re-querying every `Move` row - unless a
+  restart left the cache short of the engine's history.
 
 These were found and measured via `scripts/load-test/load-test.mjs` (see its own
 comments for usage) - a harness that boots the real server and plays many

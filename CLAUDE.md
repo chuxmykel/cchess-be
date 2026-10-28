@@ -133,6 +133,10 @@ access 'X' before initialization` at runtime for any circular entity
   it needs games, friends and presence, which `UsersModule` can't import
   without a cycle. `app.module.ts` registers it after `UsersModule` so
   `GET /users/me` is matched first.
+- **Rating history isn't stored on its own** - it's read back from rated
+  games, each keeping both players' `*RatingAtStart` and `*RatingDiff`
+  (see `src/profiles/rating-stats.ts`). Keep recording both on every rated
+  game, or the history and the activity feed lose that game.
 - **Guests are real `User` rows** (`isGuest: true`, `POST /auth/guest`),
   not a separate concept - they just never get `Rating` rows, and
   `GamesService.createGame` automatically marks a game `rated: false` if
@@ -299,9 +303,9 @@ two things worth knowing before you add a test:
   inside that loop. This bit the flag-fall test (`games.service.spec.ts`)
   when the DB was still synchronous SQLite (where every query resolved on
   the very next microtask tick, masking the issue entirely). The fix there:
-  don't fake time at all - construct the game with a 0ms-clock time control
-  (`{ minutes: 0, incrementSeconds: 1 }`) so the real `setTimeout` fires
-  almost immediately, then poll with a short real delay instead of asserting
+  don't fake time at all - construct the game with the shortest clock there
+  is (`{ initialSeconds: 1, incrementSeconds: 0 }`) so the real `setTimeout`
+  fires a second later, then poll with a short real delay instead of asserting
   immediately. If you need to test something timer-driven again, reach for
   that pattern (or a tiny real wait) before fake timers.
 
