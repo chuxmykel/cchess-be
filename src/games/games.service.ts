@@ -68,6 +68,10 @@ import {
 export interface GameEvent {
   game: Game;
 }
+/** A draw offered, declined or accepted - by this player. */
+export interface DrawEvent extends GameEvent {
+  byUserId: string;
+}
 export interface GameMoveEvent {
   game: Game;
   move: Move;
@@ -886,6 +890,11 @@ export class GamesService implements OnModuleDestroy {
       await this.assertPastAbortWindow(game, 'offer a draw');
 
       if (game.drawOfferedBy === (otherColor === 'w' ? 'white' : 'black')) {
+        // Offering back is accepting.
+        this.events.emit(DOMAIN_EVENTS.GAME_DRAW_ACCEPTED, {
+          game,
+          byUserId: userId,
+        } satisfies DrawEvent);
         await this.finalize(game, 'draw', 'draw-agreement');
         return game;
       }
@@ -894,7 +903,8 @@ export class GamesService implements OnModuleDestroy {
       await this.games.save(game);
       this.events.emit(DOMAIN_EVENTS.GAME_DRAW_OFFERED, {
         game,
-      } satisfies GameEvent);
+        byUserId: userId,
+      } satisfies DrawEvent);
       return game;
     });
   }
@@ -930,13 +940,18 @@ export class GamesService implements OnModuleDestroy {
       }
 
       if (accept) {
+        this.events.emit(DOMAIN_EVENTS.GAME_DRAW_ACCEPTED, {
+          game,
+          byUserId: userId,
+        } satisfies DrawEvent);
         await this.finalize(game, 'draw', 'draw-agreement');
       } else {
         game.drawOfferedBy = null;
         await this.games.save(game);
         this.events.emit(DOMAIN_EVENTS.GAME_DRAW_DECLINED, {
           game,
-        } satisfies GameEvent);
+          byUserId: userId,
+        } satisfies DrawEvent);
       }
       return game;
     });

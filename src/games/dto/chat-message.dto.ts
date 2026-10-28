@@ -1,6 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import type { GameChatMessage } from '../entities/game-chat-message.entity.js';
+import {
+  CHAT_MESSAGE_KINDS,
+  type ChatMessageKind,
+  type GameChatMessage,
+} from '../entities/game-chat-message.entity.js';
 
 export class ChatMessageDto {
   @ApiProperty()
@@ -9,8 +13,17 @@ export class ChatMessageDto {
   @ApiProperty()
   gameId!: string;
 
-  @ApiProperty({ description: 'The player who sent it' })
+  @ApiProperty({
+    description: 'The player who sent it, or who did what a note notes',
+  })
   userId!: string;
+
+  @ApiProperty({
+    enum: CHAT_MESSAGE_KINDS,
+    description:
+      "'message' for a player's words; otherwise a note of a draw offered, declined or accepted, with empty text",
+  })
+  kind!: ChatMessageKind;
 
   @ApiProperty()
   text!: string;
@@ -24,6 +37,7 @@ export function toChatMessageDto(message: GameChatMessage): ChatMessageDto {
     id: message.id,
     gameId: message.gameId,
     userId: message.userId,
+    kind: message.kind,
     text: message.text,
     createdAt: message.createdAt,
   };

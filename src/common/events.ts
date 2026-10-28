@@ -20,6 +20,7 @@ export const DOMAIN_EVENTS = {
   GAME_ENDED: 'game.ended',
   GAME_DRAW_OFFERED: 'game.drawOffered',
   GAME_DRAW_DECLINED: 'game.drawDeclined',
+  GAME_DRAW_ACCEPTED: 'game.drawAccepted',
   GAME_CHAT_MESSAGE: 'game.chatMessage',
   GAME_REMATCH_OFFERED: 'game.rematchOffered',
   GAME_REMATCH_DECLINED: 'game.rematchDeclined',

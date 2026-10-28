@@ -291,6 +291,7 @@ export class InitialSchema1791550933491 implements MigrationInterface {
           },
           { name: 'gameId', type: 'uuid' },
           { name: 'userId', type: 'uuid' },
+          { name: 'kind', type: 'varchar', length: '16', default: "'message'" },
           { name: 'text', type: 'varchar', length: '140' },
           { name: 'createdAt', type: 'timestamptz', default: 'now()' },
           { name: 'updatedAt', type: 'timestamptz', default: 'now()' },

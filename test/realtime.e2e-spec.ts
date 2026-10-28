@@ -237,6 +237,9 @@ describe('Realtime gateway (e2e)', () => {
       return {
         gameId: accepted.body.id as string,
         whiteId: accepted.body.white.id as string,
+        blackId: accepted.body.black.id as string,
+        white,
+        black,
         whiteSocket,
         blackSocket,
       };
@@ -265,6 +268,80 @@ describe('Realtime gateway (e2e)', () => {
         gameId,
         messages: [expected],
       });
+
+      whiteSocket.disconnect();
+      blackSocket.disconnect();
+    });
+
+    it('notes draws offered, declined and accepted, kept in the history', async () => {
+      const {
+        gameId,
+        whiteId,
+        blackId,
+        white,
+        black,
+        whiteSocket,
+        blackSocket,
+      } = await startGame('wade_rt', 'xena_rt');
+      const move = (token: string, from: string, to: string) =>
+        request(app.getHttpServer())
+          .post(`/games/${gameId}/moves`)
+          .set('Authorization', `Bearer ${token}`)
+          .send({ from, to })
+          .expect(201);
+
+      // Not before both sides have moved.
+      const tooEarly = waitForEvent<{ message: string }>(
+        whiteSocket,
+        'game:error',
+      );
+      whiteSocket.emit('game:drawOffer', { gameId });
+      expect((await tooEarly).message).toBe(
+        'Too early to offer a draw - abort the game instead',
+      );
+      await move(white.accessToken, 'e2', 'e4');
+      await move(black.accessToken, 'e7', 'e5');
+
+      const noted = async (
+        act: () => void,
+        expected: { userId: string; kind: string },
+      ) => {
+        const seen = waitForEvent(blackSocket, 'game:chat');
+        act();
+        await expect(seen).resolves.toMatchObject({
+          gameId,
+          text: '',
+          ...expected,
+        });
+      };
+      await noted(() => whiteSocket.emit('game:drawOffer', { gameId }), {
+        userId: whiteId,
+        kind: 'draw-offered',
+      });
+      await noted(
+        () => blackSocket.emit('game:drawRespond', { gameId, accept: false }),
+        { userId: blackId, kind: 'draw-declined' },
+      );
+      await noted(() => whiteSocket.emit('game:drawOffer', { gameId }), {
+        userId: whiteId,
+        kind: 'draw-offered',
+      });
+      await noted(
+        () => blackSocket.emit('game:drawRespond', { gameId, accept: true }),
+        { userId: blackId, kind: 'draw-accepted' },
+      );
+
+      const history = waitForEvent<{ messages: { kind: string }[] }>(
+        whiteSocket,
+        'game:chatHistory',
+      );
+      whiteSocket.emit('game:chatHistory', { gameId });
+      expect((await history).messages.map((each) => each.kind)).toEqual([
+        'draw-offered',
+        'draw-declined',
+        'draw-offered',
+        'draw-accepted',
+      ]);
 
       whiteSocket.disconnect();
       blackSocket.disconnect();
