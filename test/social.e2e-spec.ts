@@ -611,6 +611,103 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
     });
   });
 
+  describe('rematches', () => {
+    type CreatedGame = {
+      id: string;
+      white: { username: string };
+      black: { username: string };
+      rematchOfId: string | null;
+      series: { white: number; black: number } | null;
+      initialSeconds: number;
+      rated: boolean;
+    };
+
+    it('starts once both players offer, colors swapped, keeping score', async () => {
+      const uma = await registerUser(app, 'uma_social');
+      const vic = await registerUser(app, 'vic_social');
+      const umaSocket = await connectAs(uma);
+      const vicSocket = await connectAs(vic);
+      const first = await playAndResign(uma, vic);
+
+      const offered = waitForEvent<{ gameId: string; by: string }>(
+        vicSocket,
+        'game:rematchOffered',
+      );
+      umaSocket.emit('game:rematchOffer', { gameId: first });
+      expect(await offered).toEqual({ gameId: first, by: 'white' });
+
+      const created = waitForEvent<CreatedGame>(umaSocket, 'game:created');
+      vicSocket.emit('game:rematchOffer', { gameId: first });
+      const rematch = await created;
+
+      expect(rematch).toMatchObject({
+        white: { username: vic.username },
+        black: { username: uma.username },
+        rematchOfId: first,
+        series: { white: 0, black: 1 },
+        initialSeconds: 300,
+        rated: true,
+      });
+      const old = await as(uma).get(`/games/${first}`).expect(200);
+      expect(old.body).toMatchObject({
+        rematchGameId: rematch.id,
+        rematchOfferedBy: null,
+      });
+
+      await as(uma).post(`/games/${rematch.id}/abort`).expect(200);
+      const again = await as(uma).get(`/games/${rematch.id}`).expect(200);
+      expect(again.body.series).toEqual({ white: 0, black: 1 });
+    });
+
+    it('lets either player decline or withdraw an offer', async () => {
+      const wes = await registerUser(app, 'wes_social');
+      const xia = await registerUser(app, 'xia_social');
+      const wesSocket = await connectAs(wes);
+      const xiaSocket = await connectAs(xia);
+      const gameId = await playAndResign(wes, xia);
+      const offered = waitForEvent(xiaSocket, 'game:rematchOffered');
+      wesSocket.emit('game:rematchOffer', { gameId });
+      await offered;
+
+      const declined = waitForEvent<{ gameId: string; by: string }>(
+        wesSocket,
+        'game:rematchDeclined',
+      );
+      xiaSocket.emit('game:rematchDecline', { gameId });
+
+      expect(await declined).toEqual({ gameId, by: 'black' });
+      const game = await as(wes).get(`/games/${gameId}`).expect(200);
+      expect(game.body.rematchOfferedBy).toBeNull();
+    });
+
+    it('refuses a rematch of a game in play or aborted, or by someone who did not play', async () => {
+      const yan = await registerUser(app, 'yan_social');
+      const zed = await registerUser(app, 'zed_social');
+      const ava = await registerUser(app, 'ava_social');
+      const yanSocket = await connectAs(yan);
+      const avaSocket = await connectAs(ava);
+      const refusal = async (socket: Socket, gameId: string) => {
+        const error = waitForEvent<{ message: string }>(socket, 'game:error');
+        socket.emit('game:rematchOffer', { gameId });
+        return (await error).message;
+      };
+
+      const aborted = await startGame(yan, zed);
+      expect(await refusal(yanSocket, aborted)).toBe(
+        'The game is still being played',
+      );
+      await as(zed).post(`/games/${aborted}/abort`).expect(200);
+      expect(await refusal(yanSocket, aborted)).toBe(
+        "An aborted game can't be rematched",
+      );
+
+      const finished = await playAndResign(yan, zed);
+      expect(await refusal(avaSocket, finished)).toBe(
+        'You are not playing in this game',
+      );
+    });
+  });
+
   describe('game chat after the game', () => {
     it('stays open for the window, then closes', async () => {
       const cat = await registerUser(app, 'cat_social');

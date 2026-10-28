@@ -10,6 +10,7 @@ import { Move } from './entities/move.entity.js';
 import { GameChatService } from './game-chat.service.js';
 import { GamesController } from './games.controller.js';
 import { GamesService } from './games.service.js';
+import { RematchService } from './rematch.service.js';
 
 @Module({
   imports: [
@@ -17,7 +18,7 @@ import { GamesService } from './games.service.js';
     UsersModule,
   ],
   controllers: [GamesController],
-  providers: [GamesService, GameChatService, BookmarksService],
-  exports: [GamesService, GameChatService],
+  providers: [GamesService, GameChatService, BookmarksService, RematchService],
+  exports: [GamesService, GameChatService, RematchService],
 })
 export class GamesModule {}

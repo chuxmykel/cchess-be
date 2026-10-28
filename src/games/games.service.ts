@@ -59,6 +59,7 @@ import {
 import { firstMoveDeadline, isAwaitingFirstMove } from './first-move.js';
 import { Move } from './entities/move.entity.js';
 import { buildPgnText } from './pgn.util.js';
+import type { GameSeries } from './rematch-series.js';
 
 export interface GameEvent {
   game: Game;
@@ -191,6 +192,7 @@ export class GamesService implements OnModuleDestroy {
     blackId: string;
     tc: TimeControl;
     rated: boolean;
+    series: GameSeries | null;
   }) {
     const [white, black] = await Promise.all([
       this.usersService.findByIdOrThrow(payload.whiteId),
@@ -202,6 +204,7 @@ export class GamesService implements OnModuleDestroy {
       black,
       payload.tc,
       payload.rated,
+      payload.series,
     );
     return toWireGame(game);
   }
@@ -289,19 +292,21 @@ export class GamesService implements OnModuleDestroy {
     return fromWire(wire);
   }
 
+  /** Starts a game - as part of a rematch series when `series` is given. */
   async createGame(
     white: User,
     black: User,
     tc: TimeControl,
     rated: boolean,
+    series: GameSeries | null = null,
   ): Promise<Game> {
     const gameId = randomUUID();
     return this.runOwnershipRouted(
       gameId,
       GAMES_RPC.CREATE,
-      { gameId, whiteId: white.id, blackId: black.id, tc, rated },
+      { gameId, whiteId: white.id, blackId: black.id, tc, rated, series },
       fromWireGame,
-      this.createGameLocal.bind(this, gameId, white, black, tc, rated),
+      this.createGameLocal.bind(this, gameId, white, black, tc, rated, series),
     );
   }
 
@@ -311,6 +316,7 @@ export class GamesService implements OnModuleDestroy {
     black: User,
     tc: TimeControl,
     rated: boolean,
+    series: GameSeries | null,
   ): Promise<Game> {
     const gameType = classifyTimeControl(tc);
     const clockMs = toClockMs(tc);
@@ -345,6 +351,11 @@ export class GamesService implements OnModuleDestroy {
       turn: 'w',
       lastMoveAt: null,
       drawOfferedBy: null,
+      rematchOfId: series?.rematchOfId ?? null,
+      seriesWhitePoints: series?.whitePoints ?? 0,
+      seriesBlackPoints: series?.blackPoints ?? 0,
+      rematchOfferedBy: null,
+      rematchGameId: null,
     });
     const saved = await this.games.save(game);
     this.engines.set(saved.id, new ServerChessEngine());
