@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  MAX_HISTORY_POINTS,
   periodStart,
   type RatingStatsGame,
   summarizeRatingStats,
+  thinHistory,
 } from './rating-stats.js';
 
 const ME = 'me';
@@ -34,20 +36,27 @@ function game(
 }
 
 describe('summarizeRatingStats', () => {
-  it('traces the rating from before the first game to after the last', () => {
+  it("charts the rating going in, then each day's closing rating", () => {
     const first = game(10, { whiteRatingAtStart: 1500, whiteRatingDiff: 10 });
     const second = game(20, { whiteRatingAtStart: 1510, whiteRatingDiff: -6 });
+    const nextDay = game(24 * 60 + 5, {
+      result: 'black',
+      whiteRatingAtStart: 1504,
+      whiteRatingDiff: -9,
+    });
 
-    const stats = summarizeRatingStats([second, first], ME);
+    const stats = summarizeRatingStats([second, nextDay, first], ME);
 
     expect(stats.history).toEqual([
       { at: first.createdAt, rating: 1500 },
-      { at: first.endedAt, rating: 1510 },
       { at: second.endedAt, rating: 1504 },
+      { at: nextDay.endedAt, rating: 1495 },
     ]);
+    // Worked out from every game: the first day's high of 1510 counts,
+    // though only the day's close is charted.
     expect(stats.highest).toEqual({ at: first.endedAt, rating: 1510 });
-    expect(stats.lowest).toEqual({ at: first.createdAt, rating: 1500 });
-    expect(stats.ratingChange).toBe(4);
+    expect(stats.lowest).toEqual({ at: nextDay.endedAt, rating: 1495 });
+    expect(stats.ratingChange).toBe(-5);
   });
 
   it('counts casual games in the totals but not the rating history', () => {
@@ -169,5 +178,53 @@ describe('periodStart', () => {
 
   it('has no start for all time', () => {
     expect(periodStart('all', now)).toBeNull();
+  });
+});
+
+describe('thinHistory', () => {
+  const point = (minute: number, rating: number) => ({
+    at: new Date(Date.UTC(2026, 0, 1, 0, minute)),
+    rating,
+  });
+
+  it('leaves a short history alone', () => {
+    const history = [point(0, 1500), point(1, 1510)];
+
+    expect(thinHistory(history)).toBe(history);
+  });
+
+  it("keeps a long history's start, end, peaks and lows, within the limit", () => {
+    const history = Array.from({ length: 10_000 }, (_, i) =>
+      point(i, 1500 + Math.round(300 * Math.sin(i / 700))),
+    );
+    history[4321] = point(4321, 900);
+    history[7777] = point(7777, 2300);
+
+    const thinned = thinHistory(history);
+
+    expect(thinned.length).toBeLessThanOrEqual(MAX_HISTORY_POINTS);
+    expect(thinned[0]).toBe(history[0]);
+    expect(thinned.at(-1)).toBe(history.at(-1));
+    expect(thinned).toContain(history[4321]);
+    expect(thinned).toContain(history[7777]);
+    const times = thinned.map((each) => each.at.getTime());
+    expect(times).toEqual([...times].sort((a, b) => a - b));
+  });
+
+  it("works out the period's figures before thinning", () => {
+    const games = Array.from({ length: 1_000 }, (_, i) =>
+      game(i, {
+        result: i === 500 ? 'black' : 'white',
+        whiteRatingAtStart: 1500 + i,
+        whiteRatingDiff: i === 500 ? -200 : 1,
+      }),
+    );
+
+    const stats = summarizeRatingStats(games, ME);
+
+    expect(stats.history.length).toBeLessThanOrEqual(MAX_HISTORY_POINTS);
+    expect(stats.highest?.rating).toBe(2500);
+    expect(stats.lowest?.rating).toBe(1500);
+    expect(stats.ratingChange).toBe(1000);
   });
 });

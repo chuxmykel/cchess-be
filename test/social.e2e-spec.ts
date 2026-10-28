@@ -307,7 +307,10 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
         longestLosingStreak: 1,
       });
       const { history, ratingChange, rating } = stats.body;
-      expect(history).toHaveLength(3);
+      // The rating going in, then each day's close - one day, unless the
+      // two games happen to straddle UTC midnight.
+      expect(history[0].rating).toBe(1500);
+      expect(history.length).toBeLessThanOrEqual(3);
       expect(history.at(-1).rating).toBe(rating.rating);
       expect(ratingChange).toBe(history.at(-1).rating - history[0].rating);
 

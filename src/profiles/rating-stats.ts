@@ -165,5 +165,60 @@ export function summarizeRatingStats(
   const first = stats.history.at(0);
   const last = stats.history.at(-1);
   if (first && last) stats.ratingChange = last.rating - first.rating;
+  // The figures above come from every game; the chart shows each day's
+  // closing rating.
+  stats.history = thinHistory(dailyCloses(stats.history));
   return stats;
+}
+
+/**
+ * The rating at the end of each UTC day - the same days the activity feed
+ * goes by - after the starting point going into the first game.
+ */
+export function dailyCloses(history: RatingPoint[]): RatingPoint[] {
+  if (history.length <= 1) return history;
+  const [start, ...afterGames] = history;
+  const closes = new Map<string, RatingPoint>();
+  for (const point of afterGames) {
+    closes.set(point.at.toISOString().slice(0, 10), point);
+  }
+  return [start, ...closes.values()];
+}
+
+/** The most points a chart gets: about three years of daily closes. */
+export const MAX_HISTORY_POINTS = 1000;
+
+/**
+ * Thins a rating history for charting: splits it into equal runs of
+ * points and keeps each run's lowest and highest, in order, so slumps and
+ * peaks keep their real depth - plus the very first and last points, so the
+ * line still starts and ends where the rating did.
+ */
+export function thinHistory(
+  history: RatingPoint[],
+  maxPoints = MAX_HISTORY_POINTS,
+): RatingPoint[] {
+  if (history.length <= maxPoints) return history;
+  const inner = history.slice(1, -1);
+  const runs = Math.floor((maxPoints - 2) / 2);
+  const runLength = inner.length / runs;
+  const thinned: RatingPoint[] = [history[0]];
+  for (let run = 0; run < runs; run += 1) {
+    const points = inner.slice(
+      Math.floor(run * runLength),
+      Math.floor((run + 1) * runLength),
+    );
+    if (points.length === 0) continue;
+    let lowest = points[0];
+    let highest = points[0];
+    for (const point of points) {
+      if (point.rating < lowest.rating) lowest = point;
+      if (point.rating > highest.rating) highest = point;
+    }
+    if (lowest === highest) thinned.push(lowest);
+    else if (lowest.at <= highest.at) thinned.push(lowest, highest);
+    else thinned.push(highest, lowest);
+  }
+  thinned.push(history[history.length - 1]);
+  return thinned;
 }
