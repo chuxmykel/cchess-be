@@ -166,6 +166,7 @@ export class MatchmakingService {
   }
 
   async seek(user: User, request: SeekRequest): Promise<SeekResult> {
+    await this.gamesService.assertNotPlaying(user.id);
     return this.runMatchmakerRouted<SeekResult, WireSeekResult>(
       MM_RPC.SEEK,
       { user: toWireSeekUser(user), request },

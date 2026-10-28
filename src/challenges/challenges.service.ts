@@ -71,6 +71,7 @@ export class ChallengesService implements OnModuleDestroy {
     if (!opponent) throw new NotFoundException('User not found');
     if (opponent.id === challenger.id)
       throw new BadRequestException("You can't challenge yourself");
+    await this.gamesService.assertNotPlaying(challenger.id);
 
     await this.cancelPendingBetween(challenger.id, opponent.id);
 
@@ -165,6 +166,11 @@ export class ChallengesService implements OnModuleDestroy {
     if (challenge.opponentId !== userId)
       throw new ForbiddenException('Not your challenge to accept');
     await this.assertPending(challenge);
+    await this.gamesService.assertNotPlaying(userId);
+    await this.gamesService.assertNotPlaying(
+      challenge.challengerId,
+      `${challenge.challenger.displayName} is in the middle of a game`,
+    );
 
     const challengerWhite =
       challenge.challengerColor === 'random'

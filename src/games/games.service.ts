@@ -390,6 +390,23 @@ export class GamesService implements OnModuleDestroy {
     return this.games.count({ where: { status: 'active' } });
   }
 
+  /**
+   * Throws while the user has a game in progress, so nobody plays two at
+   * once. `message` overrides what's said, for checking someone else.
+   */
+  async assertNotPlaying(
+    userId: string,
+    message = 'Finish your game in progress first',
+  ): Promise<void> {
+    const playing = await this.games.exists({
+      where: [
+        { status: 'active', whiteId: userId },
+        { status: 'active', blackId: userId },
+      ],
+    });
+    if (playing) throw new ConflictException(message);
+  }
+
   /** Each of these users' game in progress, keyed by user id. */
   async activeGameIdsFor(userIds: string[]): Promise<Map<string, string>> {
     if (userIds.length === 0) return new Map();

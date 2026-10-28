@@ -342,6 +342,59 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
   });
 
   describe('challenges', () => {
+    it("won't start a second game while one is in progress", async () => {
+      const nia = await registerUser(app, 'nia_social');
+      const ola = await registerUser(app, 'ola_social');
+      const pat = await registerUser(app, 'pat_social');
+      await startGame(nia, ola);
+
+      const seek = await as(nia)
+        .post('/matchmaking/seek')
+        .send({ minutes: 5, incrementSeconds: 0 })
+        .expect(409);
+      expect(seek.body.message).toBe('Finish your game in progress first');
+      await as(nia)
+        .post('/challenges')
+        .send({
+          opponentUsername: pat.username,
+          minutes: 5,
+          incrementSeconds: 0,
+        })
+        .expect(409);
+      const fromPat = await as(pat)
+        .post('/challenges')
+        .send({
+          opponentUsername: nia.username,
+          minutes: 5,
+          incrementSeconds: 0,
+        })
+        .expect(201);
+      await as(nia).post(`/challenges/${fromPat.body.id}/accept`).expect(409);
+    });
+
+    it("won't accept a challenge from someone who's since started a game", async () => {
+      const rex = await registerUser(app, 'rex_social');
+      const sam = await registerUser(app, 'sam_social');
+      const tia = await registerUser(app, 'tia_social');
+      const challenge = await as(rex)
+        .post('/challenges')
+        .send({
+          opponentUsername: sam.username,
+          minutes: 5,
+          incrementSeconds: 0,
+        })
+        .expect(201);
+      await startGame(rex, tia);
+
+      const accepted = await as(sam)
+        .post(`/challenges/${challenge.body.id}/accept`)
+        .expect(409);
+
+      expect(accepted.body.message).toBe(
+        `${rex.username} is in the middle of a game`,
+      );
+    });
+
     it("lets anyone challenge a player they aren't friends with", async () => {
       const lea = await registerUser(app, 'lea_social');
       const max = await registerUser(app, 'max_social');
