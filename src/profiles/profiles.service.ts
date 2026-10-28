@@ -115,9 +115,6 @@ export class ProfilesService {
     const user = await this.findUserOrThrow(username);
     const rating = await this.usersService.findRating(user.id, category);
     if (!rating) throw new NotFoundException('No rating in this category');
-    // Only the columns the figures need, as plain rows: a long history is
-    // tens of thousands of games, and loading them as entities with both
-    // players was most of the time spent.
     const query = this.games
       .createQueryBuilder('g')
       .select([
