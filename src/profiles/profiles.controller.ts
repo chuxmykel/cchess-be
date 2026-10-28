@@ -42,7 +42,7 @@ export class ProfilesController {
   @Get()
   @ApiOperation({
     summary:
-      'Registered users whose username or display name contains the search term, leaving you out',
+      'Registered users whose username or display name contains the search term, closest first and leaving you out, a page at a time',
   })
   async search(
     @CurrentUser() viewer: AuthenticatedUser,
@@ -52,6 +52,7 @@ export class ProfilesController {
       query.search,
       viewer.userId,
       query.limit ?? DEFAULT_USER_SEARCH_LIMIT,
+      query.offset,
     );
     return users.map(toUserSearchResultDto);
   }

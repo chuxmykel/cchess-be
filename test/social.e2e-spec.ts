@@ -193,6 +193,26 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
       expect(await usernamesFor('srch_view')).toEqual([]);
     });
 
+    it('pages through the matches', async () => {
+      const viewer = await registerUser(app, 'page_viewer');
+      const players = [];
+      for (const name of ['pg_a', 'pg_b', 'pg_c']) {
+        players.push(await registerUser(app, name));
+      }
+      const page = async (query: string) =>
+        (
+          await as(viewer).get(`/users?search=pg_&${query}`).expect(200)
+        ).body.map((user: { username: string }) => user.username);
+
+      expect(await page('limit=2')).toEqual([
+        players[0].username,
+        players[1].username,
+      ]);
+      expect(await page('limit=2&offset=2')).toEqual([players[2].username]);
+      expect(await page('limit=2&offset=4')).toEqual([]);
+      await as(viewer).get('/users?search=pg_&offset=-1').expect(400);
+    });
+
     it('leaves out guests and refuses an empty search', async () => {
       const viewer = await registerUser(app, 'srch_guests');
       await request(app.getHttpServer()).post('/auth/guest').expect(200);

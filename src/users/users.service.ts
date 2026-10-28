@@ -82,6 +82,7 @@ export class UsersService {
     term: string,
     excludeUserId: string,
     limit: number,
+    offset = 0,
   ): Promise<User[]> {
     const lowered = term.trim().toLowerCase();
     const literal = lowered.replace(/[\\%_]/g, (char) => `\\${char}`);
@@ -99,6 +100,7 @@ export class UsersService {
       )
       .addOrderBy('u.username')
       .setParameters({ exact: lowered, prefix: `${literal}%` })
+      .offset(offset)
       .limit(limit)
       .getMany();
   }

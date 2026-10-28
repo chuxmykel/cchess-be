@@ -26,4 +26,15 @@ export class SearchUsersQuery {
   @Min(1)
   @Max(MAX_USER_SEARCH_LIMIT)
   limit?: number;
+
+  @ApiPropertyOptional({
+    minimum: 0,
+    default: 0,
+    description: 'How many matches to skip, for the next page',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number;
 }
