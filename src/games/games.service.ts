@@ -511,8 +511,11 @@ export class GamesService implements OnModuleDestroy {
       .orderBy('g.createdAt', 'DESC')
       .take(limit);
 
+    // An aborted game was never really played, so a history leaves it
+    // out unless asked for it by status.
     if (options.status)
       qb.andWhere('g.status = :status', { status: options.status });
+    else qb.andWhere("g.status != 'aborted'");
     if (options.before)
       qb.andWhere('g.createdAt < :before', { before: options.before });
 
