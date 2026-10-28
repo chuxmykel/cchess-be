@@ -99,6 +99,11 @@ describe('Realtime gateway (e2e)', () => {
     expect(afterMove.body.moves).toHaveLength(1);
     expect(afterMove.body.turn).toBe('b');
 
+    // Resigning waits until both sides have moved.
+    const whiteSawReply = waitForEvent(whiteSocket, 'game:move');
+    blackSocket.emit('game:move', { gameId, from: 'e7', to: 'e5' });
+    await whiteSawReply;
+
     const bothSeeGameOver = Promise.all([
       waitForEvent(whiteSocket, 'game:over'),
       waitForEvent(blackSocket, 'game:over'),

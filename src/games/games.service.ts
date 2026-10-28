@@ -856,6 +856,7 @@ export class GamesService implements OnModuleDestroy {
       if (game.status !== 'active')
         throw new ConflictException('Game is not active');
       const color = this.colorOf(game, userId);
+      await this.assertPastAbortWindow(game, 'resign');
       await this.finalize(
         game,
         color === 'w' ? 'black' : 'white',
@@ -882,6 +883,7 @@ export class GamesService implements OnModuleDestroy {
         throw new ConflictException('Game is not active');
       const color = this.colorOf(game, userId);
       const otherColor = color === 'w' ? 'b' : 'w';
+      await this.assertPastAbortWindow(game, 'offer a draw');
 
       if (game.drawOfferedBy === (otherColor === 'w' ? 'white' : 'black')) {
         await this.finalize(game, 'draw', 'draw-agreement');
@@ -948,6 +950,20 @@ export class GamesService implements OnModuleDestroy {
       fromWireGame,
       this.abortLocal.bind(this, gameId, userId),
     );
+  }
+
+  /** Resigning and offering a draw wait until both sides have moved -
+   * before that, a game can only be aborted. */
+  private async assertPastAbortWindow(game: Game, action: string) {
+    const plyCount = (await this.getOrBuildEngine(game)).history().length;
+    const abortLimit = this.configService.get('game.abortPlyLimit', {
+      infer: true,
+    });
+    if (plyCount < abortLimit) {
+      throw new ConflictException(
+        `Too early to ${action} - abort the game instead`,
+      );
+    }
   }
 
   private abortLocal(gameId: string, userId: string): Promise<Game> {

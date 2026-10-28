@@ -285,6 +285,9 @@ describe('GamesService', () => {
       true,
     );
 
+    await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
+    await ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5');
+
     const resigned = await ctx.gamesService.resign(game.id, white.id);
     expect(resigned.status).toBe('completed');
     expect(resigned.result).toBe('black');
@@ -301,6 +304,9 @@ describe('GamesService', () => {
       true,
     );
 
+    await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
+    await ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5');
+
     await ctx.gamesService.offerDraw(game.id, white.id);
     await expect(
       ctx.gamesService.respondDraw(game.id, white.id, true),
@@ -310,6 +316,29 @@ describe('GamesService', () => {
     expect(result.status).toBe('completed');
     expect(result.result).toBe('draw');
     expect(result.resultReason).toBe('draw-agreement');
+  });
+
+  it('refuses a resignation or draw offer before both sides have moved', async () => {
+    const white = await makeUser('white7');
+    const black = await makeUser('black7');
+    const game = await ctx.gamesService.createGame(
+      white,
+      black,
+      { initialSeconds: 300, incrementSeconds: 0 },
+      true,
+    );
+    await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
+
+    await expect(ctx.gamesService.resign(game.id, black.id)).rejects.toThrow(
+      'Too early to resign - abort the game instead',
+    );
+    await expect(ctx.gamesService.offerDraw(game.id, white.id)).rejects.toThrow(
+      'Too early to offer a draw - abort the game instead',
+    );
+
+    await ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5');
+    const resigned = await ctx.gamesService.resign(game.id, black.id);
+    expect(resigned.resultReason).toBe('resignation');
   });
 
   it('allows abort within the ply limit but not after', async () => {
