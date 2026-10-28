@@ -142,7 +142,11 @@ access 'X' before initialization` at runtime for any circular entity
   in-memory caches, which only hold games in progress - and it guards the
   start with a conditional `UPDATE` so two racing acceptances can't both
   start a rematch. The new game goes through `createGame` like any other,
-  carrying its series (`GameSeries`) over the cluster wire.
+  carrying its series (`GameSeries`) over the cluster wire. A game created
+  without one works out whether it carries a series on anyway, from both
+  players' last finished games (`seriesContinuedBy`) - so every route to a
+  game, seeks and challenges included, counts back-to-back games between
+  the same two as a rematch.
 - **Guests are real `User` rows** (`isGuest: true`, `POST /auth/guest`),
   not a separate concept - they just never get `Rating` rows, and
   `GamesService.createGame` automatically marks a game `rated: false` if

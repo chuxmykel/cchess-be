@@ -207,8 +207,9 @@ revisit `origin`/`credentials` together if that ever happens.
 | `game:unwatch`        | `{ gameId }`                                                 | `friend:removed`                                                   | `{ userIds }` - the two former friends                                                       |
 | -                     | -                                                            | `friend:status`                                                    | `{ userId, online, playingGameId }` - to the user's friends                                  |
 | -                     | -                                                            | `dm:message`                                                       | `{ id, senderId, recipientId, text, createdAt }` - to both people                            |
-| `game:chat`           | `{ gameId, text }`                                           | `game:chat`                                                        | `{ id, gameId, userId, text, createdAt }` - to both players                                  |
-| `game:chatHistory`    | `{ gameId }`                                                 | `game:chatHistory`                                                 | `{ gameId, messages }` - to the player who asked                                             |
+| `game:chat`           | `{ gameId, text }`                                           | `game:chat`                                                        | `{ id, gameId, userId, kind, text, createdAt }` - to both players                            |
+| `game:chatHistory`    | `{ gameId }`                                                 | `game:chatHistory`                                                 | `{ gameId, messages, readAt }` - to the player who asked                                     |
+| `game:chatRead`       | `{ gameId }`                                                 | -                                                                  | -                                                                                            |
 | -                     | -                                                            | `game:presence`                                                    | `{ gameId, userId, online }`                                                                 |
 | -                     | -                                                            | `lobby:stats`                                                      | `{ playersOnline, gamesInPlay }`                                                             |
 | `game:rematchOffer`   | `{ gameId }`                                                 | `game:rematchOffered`                                              | `{ gameId, by }` - to both players                                                           |
@@ -242,6 +243,17 @@ another game is refused with `game:error`. `GameStateDto.series` keeps a rematch
 series' score - each side's points, a draw counting half, this game
 included once it's over - and is `null` outside a series; the rows store
 the score going into each game (`seriesWhitePoints`/`seriesBlackPoints`).
+Two players paired any other way - a seek or a challenge - carry their
+series on too, when each one's last finished game was against the other,
+at the same time control, just as rated, and ended within the hour
+(`seriesContinuedBy` in `src/games/rematch-series.ts`). Playing anyone
+else in between ends the series; aborted games are ignored. The points
+follow each player whichever colors they get, and the game it follows has
+its `rematchGameId` set, as an offered rematch does.
+
+Resigning and offering a draw wait until both sides have played a move -
+before that the game can only be aborted - and come back as `game:error`
+"Too early to resign/offer a draw - abort the game instead".
 
 Neither clock runs until both sides have played a move. Until then the side
 to move has `GAME_FIRST_MOVE_TIMEOUT_MS` (default 30s) to play its first
@@ -256,7 +268,14 @@ whose last socket disconnects is reported offline to their opponents.
 Chat is between a game's two players only. A message is trimmed and must be
 1-140 characters, and each player can send at most 5 per 10 seconds; a
 rejected one comes back as `game:error`. Messages are kept, and
-`game:chatHistory` returns them oldest first.
+`game:chatHistory` returns them oldest first. Each has a `kind`: `message`
+for a player's words, or `draw-offered`, `draw-declined` or
+`draw-accepted` - notes the server adds itself, with empty text and
+`userId` naming who did it, so a draw's story stays in the history.
+`game:chatRead` marks the chat read up to now for the player who sends it
+(kept in `game_chat_reads`, apart from the cached `games` row), and
+`game:chatHistory` includes their `readAt` (`null` if they never have),
+for counting what's unread.
 
 Chat stays open for `GAME_CHAT_WINDOW_MS` (default 14 days) after a game
 ends; after that a message gets `game:error` "Chat closed". `chatClosesAt`
