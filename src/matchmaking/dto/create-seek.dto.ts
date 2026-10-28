@@ -3,7 +3,6 @@ import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsInt,
-  IsNumber,
   IsOptional,
   Max,
   Min,
@@ -12,9 +11,9 @@ import {
 
 import {
   MAX_INCREMENT,
-  MAX_MINUTES,
+  MAX_INITIAL_SECONDS,
   MIN_INCREMENT,
-  MIN_MINUTES,
+  MIN_INITIAL_SECONDS,
 } from '../../chess/time-control.js';
 import {
   MAX_RATING_RANGE_DELTA,
@@ -49,11 +48,15 @@ export class RatingRangeDto implements RatingRange {
 }
 
 export class CreateSeekDto implements SeekRequest {
-  @ApiProperty({ minimum: MIN_MINUTES, maximum: MAX_MINUTES })
-  @IsNumber()
-  @Min(MIN_MINUTES)
-  @Max(MAX_MINUTES)
-  minutes!: number;
+  @ApiProperty({
+    description: 'Starting clock per side, in seconds',
+    minimum: MIN_INITIAL_SECONDS,
+    maximum: MAX_INITIAL_SECONDS,
+  })
+  @IsInt()
+  @Min(MIN_INITIAL_SECONDS)
+  @Max(MAX_INITIAL_SECONDS)
+  initialSeconds!: number;
 
   @ApiProperty({ minimum: MIN_INCREMENT, maximum: MAX_INCREMENT })
   @IsInt()

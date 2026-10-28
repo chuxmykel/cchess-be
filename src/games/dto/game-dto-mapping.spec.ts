@@ -24,7 +24,7 @@ function makeFinishedGame(overrides: Partial<Game> = {}): Game {
     whiteId: WHITE.id,
     black: BLACK,
     blackId: BLACK.id,
-    minutes: 5,
+    initialSeconds: 300,
     incrementSeconds: 0,
     gameType: 'blitz',
     rated: true,

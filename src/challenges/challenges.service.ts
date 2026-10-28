@@ -81,7 +81,7 @@ export class ChallengesService implements OnModuleDestroy {
         challengerId: challenger.id,
         opponent,
         opponentId: opponent.id,
-        minutes: tc.minutes,
+        initialSeconds: tc.initialSeconds,
         incrementSeconds: tc.incrementSeconds,
         challengerColor: color,
         rated,
@@ -184,7 +184,7 @@ export class ChallengesService implements OnModuleDestroy {
       white,
       black,
       {
-        minutes: challenge.minutes,
+        initialSeconds: challenge.initialSeconds,
         incrementSeconds: challenge.incrementSeconds,
       },
       challenge.rated,

@@ -37,7 +37,7 @@ export function buildPgnText(
     `[White "${players.whiteUsername}"]`,
     `[Black "${players.blackUsername}"]`,
     `[Result "${result}"]`,
-    `[TimeControl "${game.minutes * 60}+${game.incrementSeconds}"]`,
+    `[TimeControl "${game.initialSeconds}+${game.incrementSeconds}"]`,
   ];
 
   const movetext: string[] = [];

@@ -48,7 +48,7 @@ describe('Realtime gateway (e2e)', () => {
       .set('Authorization', `Bearer ${ivan.accessToken}`)
       .send({
         opponentUsername: judy.username,
-        minutes: 5,
+        initialSeconds: 300,
         incrementSeconds: 0,
         color: 'white',
       })
@@ -126,7 +126,7 @@ describe('Realtime gateway (e2e)', () => {
       .set('Authorization', `Bearer ${kim.accessToken}`)
       .send({
         opponentUsername: liam.username,
-        minutes: 5,
+        initialSeconds: 300,
         incrementSeconds: 0,
         color: 'white',
       })
@@ -163,7 +163,7 @@ describe('Realtime gateway (e2e)', () => {
       .set('Authorization', `Bearer ${pia.accessToken}`)
       .send({
         opponentUsername: quin.username,
-        minutes: 5,
+        initialSeconds: 300,
         incrementSeconds: 0,
         color: 'white',
       })
@@ -218,7 +218,7 @@ describe('Realtime gateway (e2e)', () => {
         .set('Authorization', `Bearer ${white.accessToken}`)
         .send({
           opponentUsername: black.username,
-          minutes: 5,
+          initialSeconds: 300,
           incrementSeconds: 0,
           color: 'white',
         })
@@ -319,7 +319,7 @@ describe('Realtime gateway (e2e)', () => {
   });
 
   describe('lobby stats', () => {
-    const fiveMinutes = { minutes: 5, incrementSeconds: 0 };
+    const fiveMinutes = { initialSeconds: 300, incrementSeconds: 0 };
 
     it('sends players online and games in play once a seek is queued', async () => {
       const mona = await registerUser(app, 'mona_rt');

@@ -30,6 +30,7 @@ import type { AppConfig } from '../config/configuration.js';
 import { ServerChessEngine, type MoveOutcome } from '../chess/chess-engine.js';
 import {
   classifyTimeControl,
+  formatTimeControl,
   incrementMs,
   toClockMs,
   type GameType,
@@ -324,7 +325,7 @@ export class GamesService implements OnModuleDestroy {
       whiteId: white.id,
       black,
       blackId: black.id,
-      minutes: tc.minutes,
+      initialSeconds: tc.initialSeconds,
       incrementSeconds: tc.incrementSeconds,
       gameType,
       rated: rated && !white.isGuest && !black.isGuest,
@@ -351,7 +352,7 @@ export class GamesService implements OnModuleDestroy {
     this.movesCache.set(saved.id, []);
     this.scheduleFlagFall(saved);
     this.logger.debug(
-      `game ${saved.id} created: ${white.id} vs ${black.id}, ${tc.minutes}+${tc.incrementSeconds} (${gameType}), rated=${saved.rated}`,
+      `game ${saved.id} created: ${white.id} vs ${black.id}, ${formatTimeControl(tc)} (${gameType}), rated=${saved.rated}`,
     );
     this.events.emit(DOMAIN_EVENTS.GAME_CREATED, {
       game: saved,
@@ -555,7 +556,7 @@ export class GamesService implements OnModuleDestroy {
         ? remainingAfterElapsed
         : remainingAfterElapsed +
           incrementMs({
-            minutes: game.minutes,
+            initialSeconds: game.initialSeconds,
             incrementSeconds: game.incrementSeconds,
           });
 

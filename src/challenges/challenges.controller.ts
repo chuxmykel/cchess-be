@@ -45,7 +45,10 @@ export class ChallengesController {
     const challenge = await this.challengesService.create(
       challenger,
       dto.opponentUsername,
-      { minutes: dto.minutes, incrementSeconds: dto.incrementSeconds },
+      {
+        initialSeconds: dto.initialSeconds,
+        incrementSeconds: dto.incrementSeconds,
+      },
       { color: dto.color, rated: dto.rated },
     );
     return toChallengeDto(challenge);

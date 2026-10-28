@@ -38,7 +38,7 @@ export class ChallengeDto {
   opponent!: ChallengeUserDto;
 
   @ApiProperty()
-  minutes!: number;
+  initialSeconds!: number;
 
   @ApiProperty()
   incrementSeconds!: number;
@@ -81,7 +81,7 @@ export function toChallengeDto(challenge: Challenge): ChallengeDto {
     id: challenge.id,
     challenger: toChallengeUserDto(challenge.challenger),
     opponent: toChallengeUserDto(challenge.opponent),
-    minutes: challenge.minutes,
+    initialSeconds: challenge.initialSeconds,
     incrementSeconds: challenge.incrementSeconds,
     gameType: classifyTimeControl(challenge),
     rated: challenge.rated,

@@ -65,7 +65,7 @@ type WireSeekResult =
 
 type SeekStatus = {
   seeking: boolean;
-  minutes?: number;
+  initialSeconds?: number;
   incrementSeconds?: number;
   rated?: boolean;
   ratingRange?: RatingRange | null;
@@ -180,7 +180,7 @@ export class MatchmakingService {
     request: SeekRequest,
   ): Promise<SeekResult> {
     const tc: TimeControl = {
-      minutes: request.minutes,
+      initialSeconds: request.initialSeconds,
       incrementSeconds: request.incrementSeconds,
     };
     if (!isValidTimeControl(tc)) {
@@ -265,7 +265,7 @@ export class MatchmakingService {
     if (!seek) return { seeking: false };
     return {
       seeking: true,
-      minutes: seek.minutes,
+      initialSeconds: seek.initialSeconds,
       incrementSeconds: seek.incrementSeconds,
       rated: seek.rated,
       ratingRange: seek.ratingRange,

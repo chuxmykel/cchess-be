@@ -2,30 +2,29 @@ export type GameType = 'bullet' | 'blitz' | 'rapid' | 'classical';
 
 export interface TimeControl {
   /**
-   * Starting clock per side, in minutes. Must be greater than 0 - there is
-   * no "0 base + increment only" time control. Fractional values are
-   * allowed so sub-minute base times are representable instead - e.g. 5
-   * seconds is 5/60 ≈ 0.08333.
+   * Starting clock per side, in whole seconds - so sub-minute base times
+   * like 5 seconds are exact. Must be at least 1: there is no "0 base +
+   * increment only" time control.
    */
-  minutes: number;
+  initialSeconds: number;
   /** Increment added to a player's clock after each of their moves, in seconds. */
   incrementSeconds: number;
 }
 
 // Exported so the API boundary (CreateChallengeDto, CreateSeekDto) validates
 // against the same bounds this module itself enforces, instead of each DTO
-// keeping its own separately-maintained copy of "0 to 180".
-export const MIN_MINUTES = 0;
-export const MAX_MINUTES = 180;
+// keeping its own separately-maintained copy of "1 to 10800".
+export const MIN_INITIAL_SECONDS = 1;
+export const MAX_INITIAL_SECONDS = 180 * 60;
 export const MIN_INCREMENT = 0;
 export const MAX_INCREMENT = 180;
 
 export function isValidTimeControl(tc: TimeControl): boolean {
   return (
-    Number.isFinite(tc.minutes) &&
+    Number.isInteger(tc.initialSeconds) &&
     Number.isInteger(tc.incrementSeconds) &&
-    tc.minutes > MIN_MINUTES &&
-    tc.minutes <= MAX_MINUTES &&
+    tc.initialSeconds >= MIN_INITIAL_SECONDS &&
+    tc.initialSeconds <= MAX_INITIAL_SECONDS &&
     tc.incrementSeconds >= MIN_INCREMENT &&
     tc.incrementSeconds <= MAX_INCREMENT
   );
@@ -52,7 +51,8 @@ const RAPID_MAX_ESTIMATED_MINUTES = 25;
  */
 export function classifyTimeControl(tc: TimeControl): GameType {
   const estimatedMinutes =
-    tc.minutes + (tc.incrementSeconds * ASSUMED_INCREMENTS_PER_GAME) / 60;
+    (tc.initialSeconds + tc.incrementSeconds * ASSUMED_INCREMENTS_PER_GAME) /
+    60;
 
   if (estimatedMinutes < BULLET_MAX_ESTIMATED_MINUTES) return 'bullet';
   if (estimatedMinutes < BLITZ_MAX_ESTIMATED_MINUTES) return 'blitz';
@@ -61,13 +61,18 @@ export function classifyTimeControl(tc: TimeControl): GameType {
 }
 
 export function toClockMs(tc: TimeControl): number {
-  return tc.minutes * 60 * 1000;
+  return tc.initialSeconds * 1000;
 }
 
 export function incrementMs(tc: TimeControl): number {
   return tc.incrementSeconds * 1000;
 }
 
+/** "5+3" - or "15s+0" for a start of under a minute, in seconds. */
 export function formatTimeControl(tc: TimeControl): string {
-  return `${tc.minutes}+${tc.incrementSeconds}`;
+  const base =
+    tc.initialSeconds % 60 === 0
+      ? `${tc.initialSeconds / 60}`
+      : `${tc.initialSeconds}s`;
+  return `${base}+${tc.incrementSeconds}`;
 }

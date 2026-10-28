@@ -54,7 +54,7 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
       .post('/challenges')
       .send({
         opponentUsername: black.username,
-        minutes: 5,
+        initialSeconds: 300,
         incrementSeconds: 0,
         color: 'white',
         ...options,
@@ -350,14 +350,14 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
 
       const seek = await as(nia)
         .post('/matchmaking/seek')
-        .send({ minutes: 5, incrementSeconds: 0 })
+        .send({ initialSeconds: 300, incrementSeconds: 0 })
         .expect(409);
       expect(seek.body.message).toBe('Finish your game in progress first');
       await as(nia)
         .post('/challenges')
         .send({
           opponentUsername: pat.username,
-          minutes: 5,
+          initialSeconds: 300,
           incrementSeconds: 0,
         })
         .expect(409);
@@ -365,7 +365,7 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
         .post('/challenges')
         .send({
           opponentUsername: nia.username,
-          minutes: 5,
+          initialSeconds: 300,
           incrementSeconds: 0,
         })
         .expect(201);
@@ -380,7 +380,7 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
         .post('/challenges')
         .send({
           opponentUsername: sam.username,
-          minutes: 5,
+          initialSeconds: 300,
           incrementSeconds: 0,
         })
         .expect(201);
@@ -408,7 +408,7 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
         .post('/challenges')
         .send({
           opponentUsername: max.username,
-          minutes: 5,
+          initialSeconds: 300,
           incrementSeconds: 0,
         })
         .expect(201);
@@ -431,18 +431,18 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
       const pam = await registerUser(app, 'pam_social');
       const quy = await registerUser(app, 'quy_social');
       await makeFriends(app, pam, quy);
-      const send = (minutes: number) =>
+      const send = (initialSeconds: number) =>
         as(pam)
           .post('/challenges')
           .send({
             opponentUsername: quy.username,
-            minutes,
+            initialSeconds,
             incrementSeconds: 0,
           })
           .expect(201);
 
-      const first = await send(5);
-      const second = await send(10);
+      const first = await send(300);
+      const second = await send(600);
 
       const list = await as(quy).get('/challenges').expect(200);
       expect(list.body.incoming.map((c: { id: string }) => c.id)).toEqual([
@@ -460,7 +460,7 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
         .post('/challenges')
         .send({
           opponentUsername: una.username,
-          minutes: 5,
+          initialSeconds: 300,
           incrementSeconds: 0,
         })
         .expect(201);
@@ -494,7 +494,7 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
         .post('/challenges')
         .send({
           opponentUsername: sue.username,
-          minutes: 5,
+          initialSeconds: 300,
           incrementSeconds: 0,
         })
         .expect(201);

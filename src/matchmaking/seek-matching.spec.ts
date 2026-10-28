@@ -10,7 +10,7 @@ import {
 function makeSeek(overrides: Partial<SeekCriteria> = {}): SeekCriteria {
   return {
     userId: 'seeker',
-    minutes: 5,
+    initialSeconds: 300,
     incrementSeconds: 0,
     rated: true,
     rating: 1500,
@@ -124,7 +124,7 @@ describe('findBestOpponent', () => {
   });
 
   it('finds nobody when no seek pairs', () => {
-    const waiting = [makeSeek({ userId: 'other', minutes: 3 })];
+    const waiting = [makeSeek({ userId: 'other', initialSeconds: 180 })];
 
     expect(findBestOpponent(makeSeek(), waiting)).toBeUndefined();
   });

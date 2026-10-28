@@ -3,7 +3,6 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
-  IsNumber,
   IsOptional,
   IsString,
   Max,
@@ -12,9 +11,9 @@ import {
 
 import {
   MAX_INCREMENT,
-  MAX_MINUTES,
+  MAX_INITIAL_SECONDS,
   MIN_INCREMENT,
-  MIN_MINUTES,
+  MIN_INITIAL_SECONDS,
 } from '../../chess/time-control.js';
 import type { ColorPreference } from '../entities/challenge.entity.js';
 
@@ -25,11 +24,15 @@ export class CreateChallengeDto {
   @IsString()
   opponentUsername!: string;
 
-  @ApiProperty({ minimum: MIN_MINUTES, maximum: MAX_MINUTES })
-  @IsNumber()
-  @Min(MIN_MINUTES)
-  @Max(MAX_MINUTES)
-  minutes!: number;
+  @ApiProperty({
+    description: 'Starting clock per side, in seconds',
+    minimum: MIN_INITIAL_SECONDS,
+    maximum: MAX_INITIAL_SECONDS,
+  })
+  @IsInt()
+  @Min(MIN_INITIAL_SECONDS)
+  @Max(MAX_INITIAL_SECONDS)
+  initialSeconds!: number;
 
   @ApiProperty({ minimum: MIN_INCREMENT, maximum: MAX_INCREMENT })
   @IsInt()
