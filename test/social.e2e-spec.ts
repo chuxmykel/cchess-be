@@ -54,7 +54,7 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
       .post('/challenges')
       .send({
         opponentUsername: black.username,
-        minutes: 5,
+        initialSeconds: 300,
         incrementSeconds: 0,
         color: 'white',
         ...options,
@@ -284,6 +284,53 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
       });
     });
 
+    it("sums up a user's rating and results in one category", async () => {
+      const kim = await registerUser(app, 'kim_social');
+      const lou = await registerUser(app, 'lou_social');
+      const won = await playAndResign(kim, lou);
+      const lost = await playAndResign(lou, kim);
+
+      const stats = await as(lou)
+        .get(`/users/${kim.username}/ratings/blitz?period=1w`)
+        .expect(200);
+
+      expect(stats.body).toMatchObject({
+        period: '1w',
+        rating: { category: 'blitz', gamesPlayed: 2 },
+        games: 2,
+        wins: 1,
+        draws: 0,
+        losses: 1,
+        bestWin: { gameId: won, opponentUsername: lou.username },
+        worstLoss: { gameId: lost, opponentUsername: lou.username },
+        longestWinStreak: 1,
+        longestLosingStreak: 1,
+      });
+      const { history, ratingChange, rating } = stats.body;
+      expect(history).toHaveLength(3);
+      expect(history.at(-1).rating).toBe(rating.rating);
+      expect(ratingChange).toBe(history.at(-1).rating - history[0].rating);
+
+      const bullet = await as(lou)
+        .get(`/users/${kim.username}/ratings/bullet`)
+        .expect(200);
+      expect(bullet.body).toMatchObject({
+        period: '1m',
+        games: 0,
+        history: [],
+        ratingChange: null,
+      });
+    });
+
+    it('refuses an unknown category or period', async () => {
+      const max = await registerUser(app, 'max_social');
+
+      await as(max).get(`/users/${max.username}/ratings/chess960`).expect(400);
+      await as(max)
+        .get(`/users/${max.username}/ratings/blitz?period=2w`)
+        .expect(400);
+    });
+
     it('still answers /users/me with your own account', async () => {
       const kai = await registerUser(app, 'kai_social');
 
@@ -295,6 +342,59 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
   });
 
   describe('challenges', () => {
+    it("won't start a second game while one is in progress", async () => {
+      const nia = await registerUser(app, 'nia_social');
+      const ola = await registerUser(app, 'ola_social');
+      const pat = await registerUser(app, 'pat_social');
+      await startGame(nia, ola);
+
+      const seek = await as(nia)
+        .post('/matchmaking/seek')
+        .send({ initialSeconds: 300, incrementSeconds: 0 })
+        .expect(409);
+      expect(seek.body.message).toBe('Finish your game in progress first');
+      await as(nia)
+        .post('/challenges')
+        .send({
+          opponentUsername: pat.username,
+          initialSeconds: 300,
+          incrementSeconds: 0,
+        })
+        .expect(409);
+      const fromPat = await as(pat)
+        .post('/challenges')
+        .send({
+          opponentUsername: nia.username,
+          initialSeconds: 300,
+          incrementSeconds: 0,
+        })
+        .expect(201);
+      await as(nia).post(`/challenges/${fromPat.body.id}/accept`).expect(409);
+    });
+
+    it("won't accept a challenge from someone who's since started a game", async () => {
+      const rex = await registerUser(app, 'rex_social');
+      const sam = await registerUser(app, 'sam_social');
+      const tia = await registerUser(app, 'tia_social');
+      const challenge = await as(rex)
+        .post('/challenges')
+        .send({
+          opponentUsername: sam.username,
+          initialSeconds: 300,
+          incrementSeconds: 0,
+        })
+        .expect(201);
+      await startGame(rex, tia);
+
+      const accepted = await as(sam)
+        .post(`/challenges/${challenge.body.id}/accept`)
+        .expect(409);
+
+      expect(accepted.body.message).toBe(
+        `${rex.username} is in the middle of a game`,
+      );
+    });
+
     it("lets anyone challenge a player they aren't friends with", async () => {
       const lea = await registerUser(app, 'lea_social');
       const max = await registerUser(app, 'max_social');
@@ -308,7 +408,7 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
         .post('/challenges')
         .send({
           opponentUsername: max.username,
-          minutes: 5,
+          initialSeconds: 300,
           incrementSeconds: 0,
         })
         .expect(201);
@@ -331,18 +431,18 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
       const pam = await registerUser(app, 'pam_social');
       const quy = await registerUser(app, 'quy_social');
       await makeFriends(app, pam, quy);
-      const send = (minutes: number) =>
+      const send = (initialSeconds: number) =>
         as(pam)
           .post('/challenges')
           .send({
             opponentUsername: quy.username,
-            minutes,
+            initialSeconds,
             incrementSeconds: 0,
           })
           .expect(201);
 
-      const first = await send(5);
-      const second = await send(10);
+      const first = await send(300);
+      const second = await send(600);
 
       const list = await as(quy).get('/challenges').expect(200);
       expect(list.body.incoming.map((c: { id: string }) => c.id)).toEqual([
@@ -360,7 +460,7 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
         .post('/challenges')
         .send({
           opponentUsername: una.username,
-          minutes: 5,
+          initialSeconds: 300,
           incrementSeconds: 0,
         })
         .expect(201);
@@ -394,7 +494,7 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
         .post('/challenges')
         .send({
           opponentUsername: sue.username,
-          minutes: 5,
+          initialSeconds: 300,
           incrementSeconds: 0,
         })
         .expect(201);

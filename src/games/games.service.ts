@@ -30,6 +30,7 @@ import type { AppConfig } from '../config/configuration.js';
 import { ServerChessEngine, type MoveOutcome } from '../chess/chess-engine.js';
 import {
   classifyTimeControl,
+  formatTimeControl,
   incrementMs,
   toClockMs,
   type GameType,
@@ -324,7 +325,7 @@ export class GamesService implements OnModuleDestroy {
       whiteId: white.id,
       black,
       blackId: black.id,
-      minutes: tc.minutes,
+      initialSeconds: tc.initialSeconds,
       incrementSeconds: tc.incrementSeconds,
       gameType,
       rated: rated && !white.isGuest && !black.isGuest,
@@ -351,7 +352,7 @@ export class GamesService implements OnModuleDestroy {
     this.movesCache.set(saved.id, []);
     this.scheduleFlagFall(saved);
     this.logger.debug(
-      `game ${saved.id} created: ${white.id} vs ${black.id}, ${tc.minutes}+${tc.incrementSeconds} (${gameType}), rated=${saved.rated}`,
+      `game ${saved.id} created: ${white.id} vs ${black.id}, ${formatTimeControl(tc)} (${gameType}), rated=${saved.rated}`,
     );
     this.events.emit(DOMAIN_EVENTS.GAME_CREATED, {
       game: saved,
@@ -388,6 +389,23 @@ export class GamesService implements OnModuleDestroy {
 
   countActiveGames(): Promise<number> {
     return this.games.count({ where: { status: 'active' } });
+  }
+
+  /**
+   * Throws while the user has a game in progress, so nobody plays two at
+   * once. `message` overrides what's said, for checking someone else.
+   */
+  async assertNotPlaying(
+    userId: string,
+    message = 'Finish your game in progress first',
+  ): Promise<void> {
+    const playing = await this.games.exists({
+      where: [
+        { status: 'active', whiteId: userId },
+        { status: 'active', blackId: userId },
+      ],
+    });
+    if (playing) throw new ConflictException(message);
   }
 
   /** Each of these users' game in progress, keyed by user id. */
@@ -461,7 +479,7 @@ export class GamesService implements OnModuleDestroy {
         whiteUsername: game.white.username,
         blackUsername: game.black.username,
       },
-      game.moves.map((m) => m.san),
+      game.moves,
     );
   }
 
@@ -538,7 +556,7 @@ export class GamesService implements OnModuleDestroy {
         ? remainingAfterElapsed
         : remainingAfterElapsed +
           incrementMs({
-            minutes: game.minutes,
+            initialSeconds: game.initialSeconds,
             incrementSeconds: game.incrementSeconds,
           });
 
@@ -1037,6 +1055,7 @@ export class GamesService implements OnModuleDestroy {
     );
     this.clearFlagFallTimer(game.id);
     const cachedEngine = this.engines.get(game.id);
+    const cachedMoves = this.movesCache.get(game.id);
     this.engines.delete(game.id);
     this.gameCache.delete(game.id);
     this.movesCache.delete(game.id);
@@ -1061,25 +1080,27 @@ export class GamesService implements OnModuleDestroy {
     }
 
     if (status === 'completed') {
-      // The move-by-move SAN sequence already lives in the cached engine
-      // (chess.js's own history) - reuse it instead of re-reading every
-      // Move row back out of the database. Falls back to a DB read only if
-      // the cache was somehow cold (e.g. a resign immediately post-restart).
-      const sans = cachedEngine
-        ? cachedEngine.history()
-        : (
-            await this.moves.find({
+      // Every move, with its clock, is already in movesCache - reuse it
+      // instead of re-reading each Move row, whose last write may not have
+      // landed yet anyway (see applyMove). After a cold restart the cache
+      // only holds the moves since, so it's used only when it has as many
+      // as the engine's own history; otherwise read them back.
+      const moves =
+        cachedMoves &&
+        cachedEngine &&
+        cachedMoves.length === cachedEngine.history().length
+          ? cachedMoves
+          : await this.moves.find({
               where: { gameId: game.id },
               order: { ply: 'ASC' },
-            })
-          ).map((m) => m.san);
+            });
       game.pgn = buildPgnText(
         game,
         {
           whiteUsername: game.white.username,
           blackUsername: game.black.username,
         },
-        sans,
+        moves,
       );
     }
 

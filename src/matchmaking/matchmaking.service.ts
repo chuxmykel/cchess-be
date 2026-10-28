@@ -65,7 +65,7 @@ type WireSeekResult =
 
 type SeekStatus = {
   seeking: boolean;
-  minutes?: number;
+  initialSeconds?: number;
   incrementSeconds?: number;
   rated?: boolean;
   ratingRange?: RatingRange | null;
@@ -166,6 +166,7 @@ export class MatchmakingService {
   }
 
   async seek(user: User, request: SeekRequest): Promise<SeekResult> {
+    await this.gamesService.assertNotPlaying(user.id);
     return this.runMatchmakerRouted<SeekResult, WireSeekResult>(
       MM_RPC.SEEK,
       { user: toWireSeekUser(user), request },
@@ -179,7 +180,7 @@ export class MatchmakingService {
     request: SeekRequest,
   ): Promise<SeekResult> {
     const tc: TimeControl = {
-      minutes: request.minutes,
+      initialSeconds: request.initialSeconds,
       incrementSeconds: request.incrementSeconds,
     };
     if (!isValidTimeControl(tc)) {
@@ -264,7 +265,7 @@ export class MatchmakingService {
     if (!seek) return { seeking: false };
     return {
       seeking: true,
-      minutes: seek.minutes,
+      initialSeconds: seek.initialSeconds,
       incrementSeconds: seek.incrementSeconds,
       rated: seek.rated,
       ratingRange: seek.ratingRange,

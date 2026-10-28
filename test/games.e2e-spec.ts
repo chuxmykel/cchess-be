@@ -40,7 +40,7 @@ describe('Games via challenges (e2e)', () => {
       .set('Authorization', `Bearer ${ivan.accessToken}`)
       .send({
         opponentUsername: judy.username,
-        minutes: 5,
+        initialSeconds: 300,
         incrementSeconds: 0,
         color: 'white',
       })
@@ -107,6 +107,9 @@ describe('Games via challenges (e2e)', () => {
     expect(pgn.text).toContain(
       '[White "ivan_games"]'.replace('ivan_games', ivan.username),
     );
+    expect(pgn.text).toContain('[Round "-"]');
+    expect(pgn.text).toContain('[TimeControl "300+0"]');
+    expect(pgn.text).toMatch(/1\. \S+ \{ \[%clk 0:0[45]:\d\d\] \} 1\.\.\. /);
     expect(pgn.text).toContain('0-1');
   });
 
@@ -117,14 +120,14 @@ describe('Games via challenges (e2e)', () => {
     await request(app.getHttpServer())
       .post('/matchmaking/seek')
       .set('Authorization', `Bearer ${kim.accessToken}`)
-      .send({ minutes: 3, incrementSeconds: 0 })
+      .send({ initialSeconds: 180, incrementSeconds: 0 })
       .expect(201)
       .expect(({ body }) => expect(body.status).toBe('queued'));
 
     const matched = await request(app.getHttpServer())
       .post('/matchmaking/seek')
       .set('Authorization', `Bearer ${liam.accessToken}`)
-      .send({ minutes: 3, incrementSeconds: 0 })
+      .send({ initialSeconds: 180, incrementSeconds: 0 })
       .expect(201);
     expect(matched.body.status).toBe('matched');
     const gameId = matched.body.game.id;
@@ -150,7 +153,7 @@ describe('Games via challenges (e2e)', () => {
         .send(body);
     }
 
-    const fiveMinutes = { minutes: 5, incrementSeconds: 0 };
+    const fiveMinutes = { initialSeconds: 300, incrementSeconds: 0 };
 
     it('plays casual seeks as unrated games', async () => {
       const mia = await registerUser(app, 'mia_seeks');
@@ -238,7 +241,7 @@ describe('Games via challenges (e2e)', () => {
       .set('Authorization', `Bearer ${yara.accessToken}`)
       .send({
         opponentUsername: zane.username,
-        minutes: 5,
+        initialSeconds: 300,
         incrementSeconds: 0,
       })
       .expect(201);

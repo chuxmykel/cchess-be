@@ -115,7 +115,7 @@ describe('GamesService', () => {
     const game = await ctx.gamesService.createGame(
       white,
       black,
-      { minutes: 5, incrementSeconds: 0 },
+      { initialSeconds: 300, incrementSeconds: 0 },
       true,
     );
 
@@ -132,7 +132,7 @@ describe('GamesService', () => {
     const game = await ctx.gamesService.createGame(
       white,
       black,
-      { minutes: 5, incrementSeconds: 0 },
+      { initialSeconds: 300, incrementSeconds: 0 },
       true,
     );
 
@@ -183,7 +183,7 @@ describe('GamesService', () => {
     const game = await ctx.gamesService.createGame(
       white,
       black,
-      { minutes: 5, incrementSeconds: 0 },
+      { initialSeconds: 300, incrementSeconds: 0 },
       true,
     );
 
@@ -229,7 +229,7 @@ describe('GamesService', () => {
       const game = await ctx.gamesService.createGame(
         white,
         black,
-        { minutes: 5, incrementSeconds: 0 },
+        { initialSeconds: 300, incrementSeconds: 0 },
         true,
       );
       await playFoolsMate(game.id, white.id, black.id);
@@ -264,7 +264,7 @@ describe('GamesService', () => {
       const game = await ctx.gamesService.createGame(
         white,
         black,
-        { minutes: 5, incrementSeconds: 0 },
+        { initialSeconds: 300, incrementSeconds: 0 },
         true,
       );
       await playFoolsMate(game.id, white.id, black.id);
@@ -281,7 +281,7 @@ describe('GamesService', () => {
     const game = await ctx.gamesService.createGame(
       white,
       black,
-      { minutes: 5, incrementSeconds: 0 },
+      { initialSeconds: 300, incrementSeconds: 0 },
       true,
     );
 
@@ -297,7 +297,7 @@ describe('GamesService', () => {
     const game = await ctx.gamesService.createGame(
       white,
       black,
-      { minutes: 5, incrementSeconds: 0 },
+      { initialSeconds: 300, incrementSeconds: 0 },
       true,
     );
 
@@ -320,7 +320,7 @@ describe('GamesService', () => {
     const withinLimit = await ctx.gamesService.createGame(
       white,
       black,
-      { minutes: 5, incrementSeconds: 0 },
+      { initialSeconds: 300, incrementSeconds: 0 },
       true,
     );
     await ctx.gamesService.applyMove(withinLimit.id, white.id, 'e2', 'e4');
@@ -331,7 +331,7 @@ describe('GamesService', () => {
     const pastLimit = await ctx.gamesService.createGame(
       white,
       black,
-      { minutes: 5, incrementSeconds: 0 },
+      { initialSeconds: 300, incrementSeconds: 0 },
       true,
     );
     await ctx.gamesService.applyMove(pastLimit.id, white.id, 'e2', 'e4');
@@ -347,7 +347,7 @@ describe('GamesService', () => {
     const game = await ctx.gamesService.createGame(
       white,
       black,
-      { minutes: 5, incrementSeconds: 0 },
+      { initialSeconds: 300, incrementSeconds: 0 },
       true,
     );
 
@@ -363,12 +363,11 @@ describe('GamesService', () => {
   it('flags a player on time, persisting their zeroed clock and updating ratings', async () => {
     const white = await makeUser('white8');
     const black = await makeUser('black8');
-    const gameMinutes = 0.05 / 60;
-    // Short so the test is fast, and non-zero so the assertions below can
-    // pin an exact stale value that would otherwise leak through unzeroed
-    // on an unfixed handleFlagFall.
+    // The shortest clock there is, so the test is fast, and non-zero so the
+    // assertions below can pin an exact stale value that would otherwise
+    // leak through unzeroed on an unfixed handleFlagFall.
     const timeControl: TimeControl = {
-      minutes: gameMinutes,
+      initialSeconds: 1,
       incrementSeconds: 0,
     };
     const game = await ctx.gamesService.createGame(
@@ -415,7 +414,7 @@ describe('GamesService', () => {
       const game = await ctx.gamesService.createGame(
         white,
         black,
-        { minutes: 1, incrementSeconds: 0 },
+        { initialSeconds: 60, incrementSeconds: 0 },
         true,
       );
       await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
@@ -452,13 +451,13 @@ describe('GamesService', () => {
   it("doesn't run either clock until both sides have moved", async () => {
     const white = await makeUser('white8f');
     const black = await makeUser('black8f');
-    const fiveMinutes = toClockMs({ minutes: 5, incrementSeconds: 3 });
+    const fiveMinutes = toClockMs({ initialSeconds: 300, incrementSeconds: 3 });
     const dateSpy = vi.spyOn(Date, 'now');
     try {
       const game = await ctx.gamesService.createGame(
         white,
         black,
-        { minutes: 5, incrementSeconds: 3 },
+        { initialSeconds: 300, incrementSeconds: 3 },
         true,
       );
       dateSpy.mockReturnValue(Date.now() + 10_000);
@@ -486,7 +485,7 @@ describe('GamesService', () => {
       const game = await ctx.gamesService.createGame(
         white,
         black,
-        { minutes: 5, incrementSeconds: 0 },
+        { initialSeconds: 300, incrementSeconds: 0 },
         true,
       );
       dateSpy.mockReturnValue(Date.now() + 31_000);
@@ -512,7 +511,7 @@ describe('GamesService', () => {
       const game = await ctx.gamesService.createGame(
         white,
         black,
-        { minutes: 5, incrementSeconds: 0 },
+        { initialSeconds: 300, incrementSeconds: 0 },
         true,
       );
       const gameEnded = waitForGameEnded(ctx.eventEmitter, game.id);
@@ -533,7 +532,7 @@ describe('GamesService', () => {
     const game = await ctx.gamesService.createGame(
       white,
       guest,
-      { minutes: 5, incrementSeconds: 0 },
+      { initialSeconds: 300, incrementSeconds: 0 },
       true,
     );
     expect(game.rated).toBe(false);
@@ -555,7 +554,7 @@ describe('GamesService', () => {
       const game = await ctx.gamesService.createGame(
         white,
         black,
-        { minutes: 5, incrementSeconds: 0 },
+        { initialSeconds: 300, incrementSeconds: 0 },
         true,
       );
 
@@ -572,7 +571,7 @@ describe('GamesService', () => {
       const game = await ctx.gamesService.createGame(
         white,
         guest,
-        { minutes: 5, incrementSeconds: 0 },
+        { initialSeconds: 300, incrementSeconds: 0 },
         true,
       );
 
@@ -586,7 +585,7 @@ describe('GamesService', () => {
       const game = await ctx.gamesService.createGame(
         white,
         black,
-        { minutes: 5, incrementSeconds: 0 },
+        { initialSeconds: 300, incrementSeconds: 0 },
         true,
       );
 
@@ -605,7 +604,7 @@ describe('GamesService', () => {
       const game = await ctx.gamesService.createGame(
         white,
         black,
-        { minutes: 5, incrementSeconds: 0 },
+        { initialSeconds: 300, incrementSeconds: 0 },
         true,
       );
       const whiteRatingAfterAnotherGameEnded = 1900;
@@ -634,7 +633,7 @@ describe('GamesService', () => {
       const game = await ctx.gamesService.createGame(
         white,
         black,
-        { minutes: 5, incrementSeconds: 0 },
+        { initialSeconds: 300, incrementSeconds: 0 },
         false,
       );
 
@@ -652,7 +651,7 @@ describe('GamesService', () => {
       const game = await ctx.gamesService.createGame(
         white,
         black,
-        { minutes: 5, incrementSeconds: 0 },
+        { initialSeconds: 300, incrementSeconds: 0 },
         true,
       );
 
@@ -669,7 +668,7 @@ describe('GamesService', () => {
       const game = await ctx.gamesService.createGame(
         white,
         black,
-        { minutes: 5, incrementSeconds: 0 },
+        { initialSeconds: 300, incrementSeconds: 0 },
         true,
       );
       const ended = waitForGameEnded(ctx.eventEmitter, game.id);

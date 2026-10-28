@@ -116,7 +116,7 @@ export class InitialSchema1791550933491 implements MigrationInterface {
           },
           { name: 'challengerId', type: 'uuid' },
           { name: 'opponentId', type: 'uuid' },
-          { name: 'minutes', type: 'double precision' },
+          { name: 'initialSeconds', type: 'int' },
           { name: 'incrementSeconds', type: 'int' },
           {
             name: 'challengerColor',
@@ -182,7 +182,7 @@ export class InitialSchema1791550933491 implements MigrationInterface {
           },
           { name: 'whiteId', type: 'uuid' },
           { name: 'blackId', type: 'uuid' },
-          { name: 'minutes', type: 'double precision' },
+          { name: 'initialSeconds', type: 'int' },
           { name: 'incrementSeconds', type: 'int' },
           { name: 'gameType', type: 'varchar', length: '16' },
           { name: 'rated', type: 'boolean', default: true },

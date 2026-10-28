@@ -84,7 +84,7 @@ export class GameStateDto {
   black!: GamePlayerDto;
 
   @ApiProperty()
-  minutes!: number;
+  initialSeconds!: number;
 
   @ApiProperty()
   incrementSeconds!: number;
@@ -205,7 +205,7 @@ export function toGameStateDto(game: Game): GameStateDto {
       game.blackRatingAtStart,
       game.blackDeviationAtStart,
     ),
-    minutes: game.minutes,
+    initialSeconds: game.initialSeconds,
     incrementSeconds: game.incrementSeconds,
     gameType: game.gameType,
     rated: game.rated,

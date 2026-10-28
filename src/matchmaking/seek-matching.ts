@@ -50,7 +50,7 @@ function acceptsRating(seek: SeekCriteria, rating: number | null): boolean {
 export function canPair(first: SeekCriteria, second: SeekCriteria): boolean {
   return (
     first.userId !== second.userId &&
-    first.minutes === second.minutes &&
+    first.initialSeconds === second.initialSeconds &&
     first.incrementSeconds === second.incrementSeconds &&
     first.rated === second.rated &&
     acceptsRating(first, second.rating) &&

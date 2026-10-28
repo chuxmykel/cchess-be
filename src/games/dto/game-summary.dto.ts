@@ -18,7 +18,7 @@ export class GameSummaryDto {
   gameType!: GameType;
 
   @ApiProperty()
-  minutes!: number;
+  initialSeconds!: number;
 
   @ApiProperty()
   incrementSeconds!: number;
@@ -85,7 +85,7 @@ export function toGameSummaryDto(game: Game, viewerId: string): GameSummaryDto {
   return {
     id: game.id,
     gameType: game.gameType,
-    minutes: game.minutes,
+    initialSeconds: game.initialSeconds,
     incrementSeconds: game.incrementSeconds,
     rated: game.rated,
     status: game.status,

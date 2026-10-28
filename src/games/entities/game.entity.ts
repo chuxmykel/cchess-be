@@ -53,10 +53,9 @@ export class Game {
   @Column()
   blackId!: string;
 
-  // double precision, not int - minutes is fractional (e.g. 5 seconds is
-  // 5/60 ≈ 0.08333), see chess/time-control.ts.
-  @Column({ type: 'double precision' })
-  minutes!: number;
+  // Whole seconds, so sub-minute starts like 5 seconds are exact.
+  @Column({ type: 'int' })
+  initialSeconds!: number;
 
   @Column({ type: 'int' })
   incrementSeconds!: number;

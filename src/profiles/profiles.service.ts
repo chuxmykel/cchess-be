@@ -6,14 +6,21 @@ import { Game } from '../games/entities/game.entity.js';
 import { GamesService } from '../games/games.service.js';
 import { FriendsService } from '../friends/friends.service.js';
 import { PresenceService } from '../presence/presence.service.js';
-import { toProfileDto } from '../users/dto/profile.dto.js';
+import type { GameType } from '../chess/time-control.js';
+import { toProfileDto, toRatingDto } from '../users/dto/profile.dto.js';
 import type { User } from '../users/entities/user.entity.js';
 import { UsersService } from '../users/users.service.js';
 import type {
   PublicProfileDto,
   ViewerFriendshipDto,
 } from './dto/public-profile.dto.js';
+import type { RatingStatsDto } from './dto/rating-stats.dto.js';
 import { type ActivityDay, scoreFor, summarizeActivity } from './game-stats.js';
+import {
+  periodStart,
+  type RatingStatsPeriod,
+  summarizeRatingStats,
+} from './rating-stats.js';
 
 const ACTIVITY_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -82,6 +89,35 @@ export class ProfilesService {
       })
       .getMany();
     return summarizeActivity(games, user.id);
+  }
+
+  async getRatingStats(
+    username: string,
+    category: GameType,
+    period: RatingStatsPeriod,
+  ): Promise<RatingStatsDto> {
+    const user = await this.findUserOrThrow(username);
+    const rating = await this.usersService.findRating(user.id, category);
+    if (!rating) throw new NotFoundException('No rating in this category');
+    const query = this.games
+      .createQueryBuilder('g')
+      .innerJoin('g.white', 'white')
+      .innerJoin('g.black', 'black')
+      .addSelect(['white.username', 'white.displayName'])
+      .addSelect(['black.username', 'black.displayName'])
+      .where('(g.whiteId = :userId OR g.blackId = :userId)', {
+        userId: user.id,
+      })
+      .andWhere("g.status = 'completed'")
+      .andWhere('g.gameType = :category', { category });
+    const since = periodStart(period, new Date());
+    if (since) query.andWhere('g.endedAt > :since', { since });
+    const games = await query.getMany();
+    return {
+      period,
+      rating: toRatingDto(rating),
+      ...summarizeRatingStats(games, user.id),
+    };
   }
 
   private async finishedGameTotals(
