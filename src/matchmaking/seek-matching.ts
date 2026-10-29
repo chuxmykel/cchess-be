@@ -9,9 +9,14 @@ export interface RatingRange {
   above: number | null;
 }
 
+/** The color a seeker wants to play - random when they don't mind. */
+export type SeekColor = 'white' | 'black' | 'random';
+export const SEEK_COLORS: readonly SeekColor[] = ['white', 'black', 'random'];
+
 export interface SeekRequest extends TimeControl {
   rated?: boolean;
   ratingRange?: RatingRange;
+  color?: SeekColor;
 }
 
 export interface SeekCriteria extends TimeControl {
@@ -21,6 +26,7 @@ export interface SeekCriteria extends TimeControl {
   rating: number | null;
   /** Null when any opponent's rating is acceptable. */
   ratingRange: RatingRange | null;
+  color: SeekColor;
 }
 
 function isValidDelta(delta: unknown): boolean {
@@ -47,9 +53,27 @@ function acceptsRating(seek: SeekCriteria, rating: number | null): boolean {
   );
 }
 
+/** Two seeks fit unless both want the same color. */
+function colorsFit(first: SeekColor, second: SeekColor): boolean {
+  return first === 'random' || second === 'random' || first !== second;
+}
+
+/** Whether `first` plays white against `second`: each gets the color it
+ * asked for, and a coin decides when neither minds. */
+export function firstPlaysWhite(
+  first: SeekColor,
+  second: SeekColor,
+  coin: () => boolean = () => Math.random() < 0.5,
+): boolean {
+  if (first === 'white' || second === 'black') return true;
+  if (first === 'black' || second === 'white') return false;
+  return coin();
+}
+
 export function canPair(first: SeekCriteria, second: SeekCriteria): boolean {
   return (
     first.userId !== second.userId &&
+    colorsFit(first.color, second.color) &&
     first.initialSeconds === second.initialSeconds &&
     first.incrementSeconds === second.incrementSeconds &&
     first.rated === second.rated &&

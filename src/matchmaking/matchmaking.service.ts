@@ -24,8 +24,11 @@ import { UsersService } from '../users/users.service.js';
 import type { User } from '../users/entities/user.entity.js';
 import {
   findBestOpponent,
+  firstPlaysWhite,
   isValidRatingRange,
   type RatingRange,
+  SEEK_COLORS,
+  type SeekColor,
   type SeekCriteria,
   type SeekRequest,
 } from './seek-matching.js';
@@ -69,6 +72,7 @@ type SeekStatus = {
   incrementSeconds?: number;
   rated?: boolean;
   ratingRange?: RatingRange | null;
+  color?: SeekColor;
 };
 
 function seekResultFromWire(wire: WireSeekResult): SeekResult {
@@ -189,6 +193,9 @@ export class MatchmakingService {
     if (request.ratingRange && !isValidRatingRange(request.ratingRange)) {
       throw new BadRequestException('Invalid rating range');
     }
+    if (request.color && !SEEK_COLORS.includes(request.color)) {
+      throw new BadRequestException('Invalid color');
+    }
     if (this.seeksByUser.has(user.id)) {
       throw new ConflictException(
         'Already in the matchmaking queue - cancel it first',
@@ -208,6 +215,7 @@ export class MatchmakingService {
       rated: request.rated !== false && !user.isGuest,
       rating,
       ratingRange: request.ratingRange ?? null,
+      color: request.color ?? 'random',
       gameType,
       createdAt: Date.now(),
     };
@@ -220,9 +228,9 @@ export class MatchmakingService {
 
     this.seeksByUser.delete(opponentSeek.userId);
 
-    const whiteFirst = Math.random() < 0.5;
-    const white = whiteFirst ? user : opponentSeek.user;
-    const black = whiteFirst ? opponentSeek.user : user;
+    const seekerWhite = firstPlaysWhite(seek.color, opponentSeek.color);
+    const white = seekerWhite ? user : opponentSeek.user;
+    const black = seekerWhite ? opponentSeek.user : user;
 
     // createGame handles its own ownership routing (see games.service.ts) -
     // the new game need not be owned by this (the matchmaker) worker.
@@ -269,6 +277,7 @@ export class MatchmakingService {
       incrementSeconds: seek.incrementSeconds,
       rated: seek.rated,
       ratingRange: seek.ratingRange,
+      color: seek.color,
     };
   }
 }

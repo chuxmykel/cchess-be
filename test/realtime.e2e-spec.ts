@@ -146,13 +146,15 @@ describe('Realtime gateway (e2e)', () => {
     whiteSocket.emit('game:join', { gameId });
     await waitForEvent(whiteSocket, 'game:state');
 
-    const error = waitForEvent<{ gameId: string; message: string }>(
-      whiteSocket,
-      'game:error',
-    );
+    const error = waitForEvent<{
+      gameId: string;
+      event: string;
+      message: string;
+    }>(whiteSocket, 'game:error');
     whiteSocket.emit('game:move', { gameId, from: 'e2', to: 'e5' });
     await expect(error).resolves.toMatchObject({
       gameId,
+      event: 'game:move',
       message: 'Illegal move',
     });
 
