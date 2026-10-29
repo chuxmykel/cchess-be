@@ -353,6 +353,7 @@ export class GamesService implements OnModuleDestroy {
         new Date(),
       );
 
+    const startFen = this.startFen();
     const game = this.games.create({
       id: gameId,
       white,
@@ -372,11 +373,11 @@ export class GamesService implements OnModuleDestroy {
       status: 'active',
       result: null,
       resultReason: null,
-      fen: STARTING_FEN,
+      fen: startFen,
       pgn: '',
       whiteTimeRemainingMs: clockMs,
       blackTimeRemainingMs: clockMs,
-      turn: 'w',
+      turn: startFen.split(' ')[1] === 'b' ? 'b' : 'w',
       lastMoveAt: null,
       drawOfferedBy: null,
       rematchOfId: continued?.rematchOfId ?? null,
@@ -394,7 +395,10 @@ export class GamesService implements OnModuleDestroy {
         { rematchGameId: saved.id, rematchOfferedBy: null },
       );
     }
-    this.engines.set(saved.id, new ServerChessEngine());
+    this.engines.set(
+      saved.id,
+      new ServerChessEngine(startFen === STARTING_FEN ? undefined : startFen),
+    );
     this.gameCache.set(saved.id, saved);
     this.movesCache.set(saved.id, []);
     this.scheduleFlagFall(saved);
@@ -1039,6 +1043,18 @@ export class GamesService implements OnModuleDestroy {
     if (game.whiteId === userId) return 'w';
     if (game.blackId === userId) return 'b';
     throw new ForbiddenException('You are not a player in this game');
+  }
+
+  /** Where a new game starts: the usual position, or GAME_START_FEN's
+   * while testing. A game started from GAME_START_FEN can't be rebuilt
+   * from its moves after a restart, which replays them from the usual
+   * position - fine for trying a position out, not for keeping. */
+  private startFen(): string {
+    const fen = this.configService.get('game.startFen', { infer: true });
+    if (!fen) return STARTING_FEN;
+    new ServerChessEngine(fen); // throws on a FEN that isn't a position
+    this.logger.warn(`starting the game from GAME_START_FEN: ${fen}`);
+    return fen;
   }
 
   private async getOrBuildEngine(game: Game): Promise<ServerChessEngine> {

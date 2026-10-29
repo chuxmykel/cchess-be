@@ -21,6 +21,9 @@ export interface AppConfig {
     disconnectGraceMs: number;
     /** Half-moves before either side may abort instead of resign. */
     abortPlyLimit: number;
+    /** Where every new game starts, for testing a position; never in
+     * production. */
+    startFen?: string;
   };
 }
 
@@ -48,5 +51,11 @@ export default (): AppConfig => ({
   game: {
     disconnectGraceMs: Number(process.env.GAME_DISCONNECT_GRACE_MS ?? 60_000),
     abortPlyLimit: Number(process.env.GAME_ABORT_PLY_LIMIT ?? 2),
+    // For testing positions - promotions, endgames - without playing up to
+    // them: every new game starts here. Never in production.
+    startFen:
+      process.env.NODE_ENV === 'production'
+        ? undefined
+        : process.env.GAME_START_FEN || undefined,
   },
 });

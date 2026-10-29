@@ -21,6 +21,9 @@ export default defineConfig({
       // own comment), and a test process has no primary/worker IPC for
       // isMine()/ownerIndex() routing to actually reach.
       CLUSTER_WORKERS: '1',
+      // Games always start from the usual position here, whatever test
+      // position the dev .env sets.
+      GAME_START_FEN: '',
     },
     fileParallelism: false,
   },

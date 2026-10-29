@@ -24,14 +24,18 @@ import { rateGame } from './glicko2.js';
 import { truncateAllTables } from '../../test/utils/db.js';
 import { TimeControl, toClockMs } from '../chess/time-control.js';
 
-async function buildModule() {
+async function buildModule(gameConfig: Record<string, unknown> = {}) {
   const moduleRef = await Test.createTestingModule({
     imports: [
       ConfigModule.forRoot({
         isGlobal: true,
         load: [
           () => ({
-            game: { disconnectGraceMs: 60_000, abortPlyLimit: 2 },
+            game: {
+              disconnectGraceMs: 60_000,
+              abortPlyLimit: 2,
+              ...gameConfig,
+            },
             jwt: { refreshSecret: 'test' },
           }),
         ],
@@ -708,5 +712,49 @@ describe('GamesService', () => {
       expect(endedGame.whiteRatingDiff).toBe(-NEW_PLAYER_WIN);
       expect(endedGame.blackRatingDiff).toBe(NEW_PLAYER_WIN);
     });
+  });
+});
+
+describe('GamesService with GAME_START_FEN', () => {
+  // White's pawn on e7 is a move from promoting.
+  const START = 'k7/4P3/8/8/8/8/8/4K3 w - - 0 1';
+  let ctx: Awaited<ReturnType<typeof buildModule>>;
+
+  beforeEach(async () => {
+    ctx = await buildModule({ startFen: START });
+  });
+
+  afterEach(async () => {
+    await ctx.moduleRef.close();
+  });
+
+  it('starts new games from that position, playable from there', async () => {
+    const make = (username: string) =>
+      ctx.usersService.createRegisteredUser({
+        username,
+        email: `${username}@example.com`,
+        passwordHash: 'hash',
+      });
+    const white = await make('fenwhite');
+    const black = await make('fenblack');
+
+    const game = await ctx.gamesService.createGame(
+      white,
+      black,
+      { initialSeconds: 300, incrementSeconds: 0 },
+      false,
+    );
+    expect(game.fen).toBe(START);
+    expect(game.turn).toBe('w');
+
+    // e7-e8 is legal only from this position, not the usual one.
+    const { game: after } = await ctx.gamesService.applyMove(
+      game.id,
+      white.id,
+      'e7',
+      'e8',
+      'q',
+    );
+    expect(after.fen.split(' ')[0]).toBe('k3Q3/8/8/8/8/8/8/4K3');
   });
 });
