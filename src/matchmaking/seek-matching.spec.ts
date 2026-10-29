@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   canPair,
   findBestOpponent,
+  firstPlaysWhite,
   isValidRatingRange,
   type SeekCriteria,
 } from './seek-matching.js';
@@ -15,6 +16,7 @@ function makeSeek(overrides: Partial<SeekCriteria> = {}): SeekCriteria {
     rated: true,
     rating: 1500,
     ratingRange: null,
+    color: 'random',
     ...overrides,
   };
 }
@@ -22,6 +24,17 @@ function makeSeek(overrides: Partial<SeekCriteria> = {}): SeekCriteria {
 describe('canPair', () => {
   it('pairs two seeks for the same time control and rated choice', () => {
     expect(canPair(makeSeek(), makeSeek({ userId: 'opponent' }))).toBe(true);
+  });
+
+  it('pairs colors that fit, never two wanting the same one', () => {
+    const seek = (color: SeekCriteria['color'], userId = 'opponent') =>
+      makeSeek({ color, userId });
+
+    expect(canPair(seek('white', 'a'), seek('black'))).toBe(true);
+    expect(canPair(seek('white', 'a'), seek('random'))).toBe(true);
+    expect(canPair(seek('random', 'a'), seek('random'))).toBe(true);
+    expect(canPair(seek('white', 'a'), seek('white'))).toBe(false);
+    expect(canPair(seek('black', 'a'), seek('black'))).toBe(false);
   });
 
   it('never pairs a player with themselves', () => {
@@ -143,5 +156,25 @@ describe('isValidRatingRange', () => {
     expect(isValidRatingRange({ below: -1, above: 100 })).toBe(false);
     expect(isValidRatingRange({ below: 100, above: 50.5 })).toBe(false);
     expect(isValidRatingRange({ below: 100, above: 1001 })).toBe(false);
+  });
+});
+
+describe('firstPlaysWhite', () => {
+  const never = () => {
+    throw new Error('no coin needed');
+  };
+
+  it('gives each seeker the color it asked for', () => {
+    expect(firstPlaysWhite('white', 'black', never)).toBe(true);
+    expect(firstPlaysWhite('black', 'white', never)).toBe(false);
+    expect(firstPlaysWhite('white', 'random', never)).toBe(true);
+    expect(firstPlaysWhite('random', 'white', never)).toBe(false);
+    expect(firstPlaysWhite('random', 'black', never)).toBe(true);
+    expect(firstPlaysWhite('black', 'random', never)).toBe(false);
+  });
+
+  it('tosses a coin when neither minds', () => {
+    expect(firstPlaysWhite('random', 'random', () => true)).toBe(true);
+    expect(firstPlaysWhite('random', 'random', () => false)).toBe(false);
   });
 });

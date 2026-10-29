@@ -113,6 +113,37 @@ describe('Games via challenges (e2e)', () => {
     expect(pgn.text).toContain('0-1');
   });
 
+  it('pairs seeks only when their colors fit, giving each its color', async () => {
+    const ada = await registerUser(app, 'ada_games');
+    const bea = await registerUser(app, 'bea_games');
+    const cal = await registerUser(app, 'cal_games');
+    const seek = (token: string, color: string) =>
+      request(app.getHttpServer())
+        .post('/matchmaking/seek')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ initialSeconds: 120, incrementSeconds: 1, color })
+        .expect(201);
+
+    expect((await seek(ada.accessToken, 'white')).body.status).toBe('queued');
+    // Both want white: no game.
+    expect((await seek(bea.accessToken, 'white')).body.status).toBe('queued');
+
+    const matched = await seek(cal.accessToken, 'black');
+    expect(matched.body.status).toBe('matched');
+    // The longer wait doesn't matter - only who fits: either white-seeker
+    // could be white here, and cal is black either way.
+    expect(matched.body.game.black.username).toBe(cal.username);
+    expect([ada.username, bea.username]).toContain(
+      matched.body.game.white.username,
+    );
+
+    await request(app.getHttpServer())
+      .post('/matchmaking/seek')
+      .set('Authorization', `Bearer ${cal.accessToken}`)
+      .send({ initialSeconds: 120, incrementSeconds: 1, color: 'purple' })
+      .expect(400);
+  });
+
   it('matches two seeking players and lets them abort early', async () => {
     const kim = await registerUser(app, 'kim_games');
     const liam = await registerUser(app, 'liam_games');

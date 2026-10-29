@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsIn,
   IsInt,
   IsOptional,
   Max,
@@ -18,6 +19,8 @@ import {
 import {
   MAX_RATING_RANGE_DELTA,
   type RatingRange,
+  SEEK_COLORS,
+  type SeekColor,
   type SeekRequest,
 } from '../seek-matching.js';
 
@@ -81,4 +84,14 @@ export class CreateSeekDto implements SeekRequest {
   @ValidateNested()
   @Type(() => RatingRangeDto)
   ratingRange?: RatingRangeDto;
+
+  @ApiPropertyOptional({
+    enum: SEEK_COLORS,
+    default: 'random',
+    description:
+      'The color to play; pairs only with a seek that wants the other one, or minds not',
+  })
+  @IsOptional()
+  @IsIn(SEEK_COLORS)
+  color?: SeekColor;
 }
