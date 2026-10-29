@@ -532,8 +532,11 @@ export class RealtimeGateway
       await fn();
     } catch (error) {
       this.logIfUnexpected(`${event} (game ${gameId})`, error);
+      // `event` names what was refused, so a client can tell a refused move
+      // (and put its board back) from, say, a refused draw offer.
       socket.emit(WS_EVENTS.GAME_ERROR, {
         gameId,
+        event,
         message: (error as Error).message,
       });
     }
