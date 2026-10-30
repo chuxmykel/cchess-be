@@ -12,6 +12,7 @@ import type {
 import type { Move } from '../entities/move.entity.js';
 import { isProvisional } from '../../users/entities/rating.entity.js';
 import { chatClosesAt } from '../chat-window.js';
+import { remainingTimesAt } from '../clock.js';
 import { firstMoveDeadline } from '../first-move.js';
 import { seriesPointsAfter } from '../rematch-series.js';
 
@@ -134,10 +135,10 @@ export class GameStateDto {
   @ApiProperty()
   turn!: 'w' | 'b';
 
-  @ApiProperty()
+  @ApiProperty({ description: 'As of when this was sent.' })
   whiteTimeRemainingMs!: number;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'As of when this was sent.' })
   blackTimeRemainingMs!: number;
 
   @ApiProperty({ nullable: true })
@@ -227,7 +228,12 @@ export function toMoveDto(move: Move): MoveDto {
   };
 }
 
-export function toGameStateDto(game: Game): GameStateDto {
+/** A game as the app sees it, with the clocks as of `now` - when it's
+ * sent - rather than as of the last move. */
+export function toGameStateDto(
+  game: Game,
+  now: number = Date.now(),
+): GameStateDto {
   return {
     id: game.id,
     white: toPlayerDto(
@@ -251,8 +257,7 @@ export function toGameStateDto(game: Game): GameStateDto {
     resultReason: game.resultReason,
     fen: game.fen,
     turn: game.turn,
-    whiteTimeRemainingMs: game.whiteTimeRemainingMs,
-    blackTimeRemainingMs: game.blackTimeRemainingMs,
+    ...remainingTimesAt(game, now),
     lastMoveAt: game.lastMoveAt,
     drawOfferedBy: game.drawOfferedBy,
     rematchOfId: game.rematchOfId,

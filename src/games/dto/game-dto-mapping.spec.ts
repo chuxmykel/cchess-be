@@ -83,6 +83,26 @@ describe('toGameStateDto', () => {
     expect(dto.black.rating).toBeNull();
     expect(dto.black.provisional).toBe(false);
   });
+
+  it('gives the clocks as of when it is sent, not as of the last move', () => {
+    const lastMoveAt = new Date('2026-10-27T00:01:00Z');
+    const game = makeFinishedGame({
+      status: 'active',
+      result: null,
+      resultReason: null,
+      fen: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
+      turn: 'w',
+      whiteTimeRemainingMs: 60_000,
+      blackTimeRemainingMs: 60_000,
+      lastMoveAt,
+      endedAt: null,
+    });
+
+    const dto = toGameStateDto(game, lastMoveAt.getTime() + 10_000);
+
+    expect(dto.whiteTimeRemainingMs).toBe(50_000);
+    expect(dto.blackTimeRemainingMs).toBe(60_000);
+  });
 });
 
 describe('toGameSummaryDto', () => {
