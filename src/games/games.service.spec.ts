@@ -510,6 +510,45 @@ describe('GamesService', () => {
     }
   });
 
+  it("adds the increment from each side's second move, not its first", async () => {
+    const white = await makeUser('white8i');
+    const black = await makeUser('black8i');
+    const twoMinutes = toClockMs({ initialSeconds: 120, incrementSeconds: 1 });
+    const dateSpy = vi.spyOn(Date, 'now');
+    try {
+      const startedAt = Date.now();
+      dateSpy.mockReturnValue(startedAt);
+      const game = await ctx.gamesService.createGame(
+        white,
+        black,
+        { initialSeconds: 120, incrementSeconds: 1 },
+        true,
+      );
+      const { game: afterFirstMove } = await ctx.gamesService.applyMove(
+        game.id,
+        white.id,
+        'e2',
+        'e4',
+      );
+      expect(afterFirstMove.whiteTimeRemainingMs).toBe(twoMinutes);
+
+      await ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5');
+      dateSpy.mockReturnValue(startedAt + 4_000);
+      const { game: afterSecondMove } = await ctx.gamesService.applyMove(
+        game.id,
+        white.id,
+        'g1',
+        'f3',
+      );
+
+      // 4 seconds used, 1 second back.
+      expect(afterSecondMove.whiteTimeRemainingMs).toBe(twoMinutes - 3_000);
+      expect(afterSecondMove.blackTimeRemainingMs).toBe(twoMinutes);
+    } finally {
+      dateSpy.mockRestore();
+    }
+  });
+
   it('aborts a game whose first move comes too late', async () => {
     const white = await makeUser('white8g');
     const black = await makeUser('black8g');

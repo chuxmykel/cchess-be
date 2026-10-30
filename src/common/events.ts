@@ -52,6 +52,8 @@ export const WS_EVENTS = {
   GAME_CHAT_READ: 'game:chatRead',
   GAME_WATCH: 'game:watch',
   GAME_UNWATCH: 'game:unwatch',
+  USER_FOLLOW: 'user:follow',
+  USER_UNFOLLOW: 'user:unfollow',
   GAME_REMATCH_OFFER: 'game:rematchOffer',
   GAME_REMATCH_DECLINE: 'game:rematchDecline',
   MATCHMAKING_SEEK: 'matchmaking:seek',
@@ -77,5 +79,6 @@ export const WS_EVENTS = {
   FRIEND_REQUEST_RESOLVED: 'friend:requestResolved',
   FRIEND_REMOVED: 'friend:removed',
   FRIEND_STATUS: 'friend:status',
+  USER_GAME_STARTED: 'user:gameStarted',
   DIRECT_MESSAGE: 'dm:message',
 } as const;

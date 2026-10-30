@@ -662,6 +662,33 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
       await as(amy).post(`/games/${gameId}/abort`).expect(200);
       expect((await over).status).toBe('aborted');
     });
+
+    it('tells a follower when the player starts their next game, until unfollowed', async () => {
+      const ivy = await registerUser(app, 'ivy_social');
+      const jon = await registerUser(app, 'jon_social');
+      const kai = await registerUser(app, 'kai_social');
+      await makeFriends(app, ivy, jon);
+      const first = await startGame(ivy, jon);
+      const follower = await connectAs(kai);
+      follower.emit('user:follow', { userId: ivy.userId });
+      await as(jon).post(`/games/${first}/abort`).expect(200);
+
+      const started = waitForEvent<{ userId: string; gameId: string }>(
+        follower,
+        'user:gameStarted',
+      );
+      const second = await startGame(jon, ivy);
+      expect(await started).toEqual({ userId: ivy.userId, gameId: second });
+
+      follower.emit('user:unfollow', { userId: ivy.userId });
+      const heard: unknown[] = [];
+      follower.on('user:gameStarted', (payload) => heard.push(payload));
+      await as(ivy).post(`/games/${second}/abort`).expect(200);
+      await startGame(ivy, jon);
+      // It would have gone out as the game was created; allow it to arrive.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(heard).toEqual([]);
+    });
   });
 
   describe('rematches', () => {

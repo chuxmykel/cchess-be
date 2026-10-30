@@ -205,6 +205,8 @@ revisit `origin`/`credentials` together if that ever happens.
 | `game:leave`          | `{ gameId }`                                                         | `friend:requestReceived`                                           | `FriendRequestDto` - the requester, described like a friend                                                      |
 | `game:watch`          | `{ gameId }`                                                         | `friend:requestAccepted` / `friend:requestResolved`                | `{ id }` - accepted, or declined/cancelled, to both sides                                                        |
 | `game:unwatch`        | `{ gameId }`                                                         | `friend:removed`                                                   | `{ userIds }` - the two former friends                                                                           |
+| `user:follow`         | `{ userId }`                                                         | `user:gameStarted`                                                 | `{ userId, gameId }` - to sockets following that player, when a game of theirs starts                            |
+| `user:unfollow`       | `{ userId }`                                                         | -                                                                  | -                                                                                                                |
 | -                     | -                                                                    | `friend:status`                                                    | `{ userId, online, playingGameId }` - to the user's friends                                                      |
 | -                     | -                                                                    | `dm:message`                                                       | `{ id, senderId, recipientId, text, createdAt }` - to both people                                                |
 | `game:chat`           | `{ gameId, text }`                                                   | `game:chat`                                                        | `{ id, gameId, userId, kind, text, createdAt }` - to both players                                                |
@@ -291,7 +293,10 @@ Any user can bookmark any game: `GET`, `PUT` and `DELETE
 `game:watch` lets anyone follow a game they aren't playing: it answers
 with `game:state` and then sends that socket the game's `game:move` and
 `game:over` pushes, without presence or abandonment bookkeeping.
-`game:unwatch` stops them.
+`game:unwatch` stops them. To move on with a player to their next game,
+`user:follow` with their `userId`: that socket then gets
+`user:gameStarted` whenever a game of theirs starts, until
+`user:unfollow`.
 
 ### Friends, challenges and messages
 
