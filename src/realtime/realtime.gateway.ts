@@ -51,6 +51,12 @@ function watchRoom(gameId: string): string {
   return `game:${gameId}:watch`;
 }
 
+/** Sockets following a player, told when they start a game - a spectator
+ * moving on with them to their next one. */
+function followRoom(userId: string): string {
+  return `user:${userId}:follow`;
+}
+
 /** Sockets with a seek waiting for an opponent, who get `lobby:stats`. */
 const LOBBY_ROOM = 'lobby';
 const LOBBY_STATS_INTERVAL_MS = 5_000;
@@ -330,6 +336,24 @@ export class RealtimeGateway
     await socket.leave(watchRoom(payload.gameId));
   }
 
+  @SubscribeMessage(WS_EVENTS.USER_FOLLOW)
+  async onFollowUser(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() payload: { userId: string },
+  ) {
+    if (typeof payload?.userId !== 'string') return;
+    await socket.join(followRoom(payload.userId));
+  }
+
+  @SubscribeMessage(WS_EVENTS.USER_UNFOLLOW)
+  async onUnfollowUser(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() payload: { userId: string },
+  ) {
+    if (typeof payload?.userId !== 'string') return;
+    await socket.leave(followRoom(payload.userId));
+  }
+
   @SubscribeMessage(WS_EVENTS.GAME_LEAVE)
   onLeaveGame(
     @ConnectedSocket() socket: Socket,
@@ -570,6 +594,11 @@ export class RealtimeGateway
       .to(userRoom(game.whiteId))
       .to(userRoom(game.blackId))
       .emit(WS_EVENTS.GAME_CREATED, dto);
+    for (const userId of [game.whiteId, game.blackId]) {
+      this.server
+        .to(followRoom(userId))
+        .emit(WS_EVENTS.USER_GAME_STARTED, { userId, gameId: game.id });
+    }
     void this.sendFriendStatus(game.whiteId);
     void this.sendFriendStatus(game.blackId);
   }
