@@ -54,6 +54,11 @@ export class Move {
   @Column({ type: 'varchar' })
   fenAfter!: string;
 
+  /** The position the move was played from - see position-key.ts - so
+   * the opening explorer can find every move played from a position. */
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  positionKey!: string | null;
+
   /** The mover's own clock remaining immediately after this move (post-increment). */
   @Column({ type: 'int' })
   clockAfterMs!: number;

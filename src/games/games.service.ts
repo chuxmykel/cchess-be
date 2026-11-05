@@ -28,6 +28,7 @@ import { GAMES_RPC } from '../cluster/rpc-channels.js';
 import { KeyedMutex } from '../common/keyed-mutex.js';
 import type { AppConfig } from '../config/configuration.js';
 import { ServerChessEngine, type MoveOutcome } from '../chess/chess-engine.js';
+import { positionKey } from '../chess/position-key.js';
 import {
   classifyTimeControl,
   formatTimeControl,
@@ -889,6 +890,7 @@ export class GamesService implements OnModuleDestroy {
     chargeMs?: number,
   ): Promise<{ game: Game; move: Move }> {
     const isFirstMove = isAwaitingFirstMove(game);
+    const fenBefore = game.fen;
     const remainingAfterElapsed = isFirstMove
       ? await this.enforceFirstMoveDeadline(game, color, now)
       : await this.enforceClock(game, color, now, chargeMs);
@@ -910,7 +912,14 @@ export class GamesService implements OnModuleDestroy {
         : remainingAfterElapsed + incrementMs(tc);
 
     this.applyMoveToGameState(game, outcome, color, newRemaining, now);
-    const move = this.buildMoveEntity(game, outcome, ply, newRemaining, now);
+    const move = this.buildMoveEntity(
+      game,
+      outcome,
+      ply,
+      newRemaining,
+      now,
+      fenBefore,
+    );
     this.cacheMove(game.id, move);
 
     // Broadcast before persisting, not after - EventEmitter2 dispatches
@@ -1026,6 +1035,7 @@ export class GamesService implements OnModuleDestroy {
     ply: number,
     newRemaining: number,
     now: number,
+    fenBefore: string,
   ): Move {
     // id generated here (not left to the DB), same as createGameLocal
     // already does for Game.id - nothing the broadcast below sends
@@ -1042,6 +1052,7 @@ export class GamesService implements OnModuleDestroy {
       captured: outcome.move.captured ?? null,
       promotion: outcome.move.promotion ?? null,
       fenAfter: outcome.fen,
+      positionKey: positionKey(fenBefore),
       clockAfterMs: newRemaining,
       createdAt: new Date(now),
     });
@@ -1093,8 +1104,8 @@ export class GamesService implements OnModuleDestroy {
   ): Promise<void> {
     await manager.query(
       `INSERT INTO moves
-         (id, "gameId", ply, "from", "to", piece, color, san, captured, promotion, "fenAfter", "clockAfterMs", "createdAt")
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+         (id, "gameId", ply, "from", "to", piece, color, san, captured, promotion, "fenAfter", "positionKey", "clockAfterMs", "createdAt")
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
       [
         move.id,
         move.gameId,
@@ -1107,6 +1118,7 @@ export class GamesService implements OnModuleDestroy {
         move.captured,
         move.promotion,
         move.fenAfter,
+        move.positionKey,
         move.clockAfterMs,
         move.createdAt,
       ],

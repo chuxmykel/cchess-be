@@ -12,6 +12,7 @@ import { ClusterModule } from './cluster/cluster.module.js';
 import { DailySeeksModule } from './daily-seeks/daily-seeks.module.js';
 import configuration from './config/configuration.js';
 import { typeOrmModule } from './database/typeorm.module.js';
+import { ExplorerModule } from './explorer/explorer.module.js';
 import { FriendsModule } from './friends/friends.module.js';
 import { GamesModule } from './games/games.module.js';
 import { MatchmakingModule } from './matchmaking/matchmaking.module.js';
@@ -38,6 +39,7 @@ import { UsersModule } from './users/users.module.js';
     MatchmakingModule,
     ChallengesModule,
     DailySeeksModule,
+    ExplorerModule,
     RealtimeModule,
   ],
   controllers: [AppController],
