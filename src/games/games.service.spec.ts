@@ -19,7 +19,11 @@ import { User } from '../users/entities/user.entity.js';
 import { UsersService } from '../users/users.service.js';
 import { Game } from './entities/game.entity.js';
 import { Move } from './entities/move.entity.js';
-import { GameEvent, GamesService } from './games.service.js';
+import {
+  GameEvent,
+  GamesService,
+  MAX_ACTIVE_DAILY_GAMES,
+} from './games.service.js';
 import { rateGame } from './glicko2.js';
 import { truncateAllTables } from '../../test/utils/db.js';
 import { TimeControl, toClockMs } from '../chess/time-control.js';
@@ -928,6 +932,52 @@ describe('GamesService', () => {
       expect((await ctx.gamesService.getGameOrThrow(game.id)).status).toBe(
         'active',
       );
+    });
+
+    it("is played alongside a live game, and isn't the game a player is watched in", async () => {
+      const white = await makeUser('dailyw7');
+      const black = await makeUser('dailyb7');
+      await ctx.gamesService.createGame(white, black, THREE_DAYS, true);
+
+      await expect(
+        ctx.gamesService.assertNotPlaying(white.id),
+      ).resolves.toBeUndefined();
+      expect((await ctx.gamesService.activeGameIdsFor([white.id])).size).toBe(
+        0,
+      );
+      expect(await ctx.gamesService.countActiveGames()).toBe(0);
+
+      const live = await ctx.gamesService.createGame(
+        white,
+        black,
+        { initialSeconds: 300, incrementSeconds: 0 },
+        true,
+      );
+      await expect(ctx.gamesService.assertNotPlaying(white.id)).rejects.toThrow(
+        'Finish your game in progress first',
+      );
+      await expect(
+        ctx.gamesService.assertCanStart(white.id, THREE_DAYS),
+      ).resolves.toBeUndefined();
+      expect(
+        (await ctx.gamesService.activeGameIdsFor([white.id])).get(white.id),
+      ).toBe(live.id);
+    });
+
+    it(`holds a player to ${MAX_ACTIVE_DAILY_GAMES} daily games at once`, async () => {
+      const white = await makeUser('dailyw8');
+      const black = await makeUser('dailyb8');
+      for (let i = 0; i < MAX_ACTIVE_DAILY_GAMES - 1; i++) {
+        await ctx.gamesService.createGame(white, black, THREE_DAYS, false);
+      }
+      await expect(
+        ctx.gamesService.assertCanStart(black.id, THREE_DAYS),
+      ).resolves.toBeUndefined();
+
+      await ctx.gamesService.createGame(white, black, THREE_DAYS, false);
+      await expect(
+        ctx.gamesService.assertCanStart(black.id, THREE_DAYS),
+      ).rejects.toThrow('at most 50 daily games');
     });
   });
 

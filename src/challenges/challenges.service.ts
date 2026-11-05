@@ -11,7 +11,11 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { MoreThan, Repository } from 'typeorm';
 
-import { isValidTimeControl, type TimeControl } from '../chess/time-control.js';
+import {
+  isDailyTimeControl,
+  isValidTimeControl,
+  type TimeControl,
+} from '../chess/time-control.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
 import { Game } from '../games/entities/game.entity.js';
 import { GamesService } from '../games/games.service.js';
@@ -71,7 +75,7 @@ export class ChallengesService implements OnModuleDestroy {
     if (!opponent) throw new NotFoundException('User not found');
     if (opponent.id === challenger.id)
       throw new BadRequestException("You can't challenge yourself");
-    await this.gamesService.assertNotPlaying(challenger.id);
+    await this.gamesService.assertCanStart(challenger.id, tc);
 
     await this.cancelPendingBetween(challenger.id, opponent.id);
 
@@ -166,10 +170,17 @@ export class ChallengesService implements OnModuleDestroy {
     if (challenge.opponentId !== userId)
       throw new ForbiddenException('Not your challenge to accept');
     await this.assertPending(challenge);
-    await this.gamesService.assertNotPlaying(userId);
-    await this.gamesService.assertNotPlaying(
+    const tc: TimeControl = {
+      initialSeconds: challenge.initialSeconds,
+      incrementSeconds: challenge.incrementSeconds,
+    };
+    await this.gamesService.assertCanStart(userId, tc);
+    await this.gamesService.assertCanStart(
       challenge.challengerId,
-      `${challenge.challenger.displayName} is in the middle of a game`,
+      tc,
+      isDailyTimeControl(tc)
+        ? `${challenge.challenger.displayName} has no room for another daily game`
+        : `${challenge.challenger.displayName} is in the middle of a game`,
     );
 
     const challengerWhite =
@@ -183,10 +194,7 @@ export class ChallengesService implements OnModuleDestroy {
     const game = await this.gamesService.createGame(
       white,
       black,
-      {
-        initialSeconds: challenge.initialSeconds,
-        incrementSeconds: challenge.incrementSeconds,
-      },
+      tc,
       challenge.rated,
     );
 

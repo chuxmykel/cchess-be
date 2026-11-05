@@ -13,7 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { PieceSymbol, Square } from 'chess.js';
-import { EntityManager, In, IsNull, Repository } from 'typeorm';
+import { EntityManager, In, IsNull, Not, Repository } from 'typeorm';
 
 import { ClusterBus } from '../cluster/cluster-bus.js';
 import { isMine, ownerIndex } from '../cluster/cluster.util.js';
@@ -32,6 +32,7 @@ import {
   classifyTimeControl,
   formatTimeControl,
   incrementMs,
+  isDailyTimeControl,
   toClockMs,
   type GameType,
   type TimeControl,
@@ -85,6 +86,9 @@ const GAME_RELATIONS = { white: true, black: true } as const;
  * chess.com's 0.1s. Not nothing, or a run of them would cost nothing in a
  * time scramble. */
 export const PREMOVE_CHARGE_MS = 100;
+
+/** The most daily games a player may have in progress at once. */
+export const MAX_ACTIVE_DAILY_GAMES = 50;
 
 interface Premove {
   color: 'w' | 'b';
@@ -506,13 +510,19 @@ export class GamesService implements OnModuleDestroy {
     return game;
   }
 
+  /** Live games being played - a daily one isn't so much in play as
+   * waiting days on a move. */
   countActiveGames(): Promise<number> {
-    return this.games.count({ where: { status: 'active' } });
+    return this.games.count({
+      where: { status: 'active', gameType: Not('daily') },
+    });
   }
 
   /**
-   * Throws while the user has a game in progress, so nobody plays two at
-   * once. `message` overrides what's said, for checking someone else.
+   * Throws while the user has a live game in progress, so nobody plays two
+   * at once - daily games aside, which wait days between moves and are
+   * played alongside anything. `message` overrides what's said, for
+   * checking someone else.
    */
   async assertNotPlaying(
     userId: string,
@@ -520,21 +530,49 @@ export class GamesService implements OnModuleDestroy {
   ): Promise<void> {
     const playing = await this.games.exists({
       where: [
-        { status: 'active', whiteId: userId },
-        { status: 'active', blackId: userId },
+        { status: 'active', whiteId: userId, gameType: Not('daily') },
+        { status: 'active', blackId: userId, gameType: Not('daily') },
       ],
     });
     if (playing) throw new ConflictException(message);
   }
 
-  /** Each of these users' game in progress, keyed by user id. */
+  /** Throws when the user already has MAX_ACTIVE_DAILY_GAMES daily games
+   * in progress. */
+  async assertDailyRoom(
+    userId: string,
+    message = `You can have at most ${MAX_ACTIVE_DAILY_GAMES} daily games in progress`,
+  ): Promise<void> {
+    const count = await this.games.count({
+      where: [
+        { status: 'active', whiteId: userId, gameType: 'daily' },
+        { status: 'active', blackId: userId, gameType: 'daily' },
+      ],
+    });
+    if (count >= MAX_ACTIVE_DAILY_GAMES) throw new ConflictException(message);
+  }
+
+  /** Throws when the user can't start a game of this time control now:
+   * a live one while playing one, a daily one with no room for another. */
+  assertCanStart(
+    userId: string,
+    tc: TimeControl,
+    message?: string,
+  ): Promise<void> {
+    return isDailyTimeControl(tc)
+      ? this.assertDailyRoom(userId, message)
+      : this.assertNotPlaying(userId, message);
+  }
+
+  /** Each of these users' live game in progress, keyed by user id - the
+   * one they're playing right now, to watch. */
   async activeGameIdsFor(userIds: string[]): Promise<Map<string, string>> {
     if (userIds.length === 0) return new Map();
     const games = await this.games.find({
       select: { id: true, whiteId: true, blackId: true },
       where: [
-        { status: 'active', whiteId: In(userIds) },
-        { status: 'active', blackId: In(userIds) },
+        { status: 'active', whiteId: In(userIds), gameType: Not('daily') },
+        { status: 'active', blackId: In(userIds), gameType: Not('daily') },
       ],
     });
     const byUser = new Map<string, string>();
