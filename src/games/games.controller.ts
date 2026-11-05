@@ -23,6 +23,10 @@ import type { Response } from 'express';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/types.js';
 import {
+  AddConditionalLinesDto,
+  ConditionalLinesDto,
+} from './dto/conditional-moves.dto.js';
+import {
   DailyGameDto,
   ListDailyGamesQuery,
   toDailyGameDto,
@@ -34,6 +38,7 @@ import { GameSummaryDto, toGameSummaryDto } from './dto/game-summary.dto.js';
 import { ListGamesQuery } from './dto/list-games.query.js';
 import { MakeMoveDto } from './dto/make-move.dto.js';
 import { BookmarksService } from './bookmarks.service.js';
+import { ConditionalMovesService } from './conditional-moves.service.js';
 import { GameNotesService } from './game-notes.service.js';
 import { GamesService } from './games.service.js';
 
@@ -50,6 +55,7 @@ export class GamesController {
     private readonly gamesService: GamesService,
     private readonly bookmarksService: BookmarksService,
     private readonly gameNotesService: GameNotesService,
+    private readonly conditionalMovesService: ConditionalMovesService,
   ) {}
 
   @Get()
@@ -135,6 +141,46 @@ export class GamesController {
     @Body() dto: SaveGameNoteDto,
   ): Promise<GameNoteDto> {
     return this.gameNotesService.save(user.userId, id, dto.body);
+  }
+
+  @Get(':id/conditional-moves')
+  @ApiOperation({
+    summary:
+      'Your conditional moves in a daily game, from its position as it stands',
+  })
+  getConditionalMoves(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<ConditionalLinesDto> {
+    return this.conditionalMovesService.get(user.userId, id);
+  }
+
+  @Post(':id/conditional-moves')
+  @ApiOperation({
+    summary:
+      'Add conditional moves to a daily game, the opponent being to move: each played the moment they make the move it answers',
+  })
+  addConditionalMoves(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AddConditionalLinesDto,
+  ): Promise<ConditionalLinesDto> {
+    return this.conditionalMovesService.add(
+      user.userId,
+      id,
+      dto.basePly,
+      dto.lines,
+    );
+  }
+
+  @Delete(':id/conditional-moves')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Drop your conditional moves in a daily game' })
+  clearConditionalMoves(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    return this.conditionalMovesService.clear(user.userId, id);
   }
 
   @Get(':id/pgn')

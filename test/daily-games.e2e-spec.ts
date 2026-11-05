@@ -183,6 +183,64 @@ describe('Daily games (e2e)', () => {
       .expect(400);
   });
 
+  it('saves, plays and drops conditional moves', async () => {
+    const ivan = await registerUser(app, 'ivan_cond');
+    const judy = await registerUser(app, 'judy_cond');
+    const server = app.getHttpServer();
+    await request(server)
+      .post('/daily-seeks')
+      .set('Authorization', `Bearer ${ivan.accessToken}`)
+      .send({ days: 3, color: 'white' })
+      .expect(201);
+    const matched = await request(server)
+      .post('/daily-seeks')
+      .set('Authorization', `Bearer ${judy.accessToken}`)
+      .send({ days: 3 })
+      .expect(201);
+    const game = `/games/${matched.body.game.id}`;
+    await request(server)
+      .post(`${game}/moves`)
+      .set('Authorization', `Bearer ${ivan.accessToken}`)
+      .send({ from: 'e2', to: 'e4' })
+      .expect(201);
+
+    const saved = await request(server)
+      .post(`${game}/conditional-moves`)
+      .set('Authorization', `Bearer ${ivan.accessToken}`)
+      .send({ basePly: 1, lines: [['e7e5', 'g1f3', 'b8c6', 'f1b5']] })
+      .expect(201);
+    expect(saved.body).toEqual({
+      basePly: 1,
+      lines: [['e7e5', 'g1f3', 'b8c6', 'f1b5']],
+    });
+    const judys = await request(server)
+      .get(`${game}/conditional-moves`)
+      .set('Authorization', `Bearer ${judy.accessToken}`)
+      .expect(200);
+    expect(judys.body).toEqual({ basePly: null, lines: [] });
+
+    const reply = await request(server)
+      .post(`${game}/moves`)
+      .set('Authorization', `Bearer ${judy.accessToken}`)
+      .send({ from: 'e7', to: 'e5' })
+      .expect(201);
+    expect(reply.body.moves.map((move: { san: string }) => move.san)).toEqual([
+      'e4',
+      'e5',
+      'Nf3',
+    ]);
+
+    await request(server)
+      .delete(`${game}/conditional-moves`)
+      .set('Authorization', `Bearer ${ivan.accessToken}`)
+      .expect(204);
+    const none = await request(server)
+      .get(`${game}/conditional-moves`)
+      .set('Authorization', `Bearer ${ivan.accessToken}`)
+      .expect(200);
+    expect(none.body).toEqual({ basePly: null, lines: [] });
+  });
+
   it('refuses days not on offer', async () => {
     const ivan = await registerUser(app, 'ivan_daily2');
 

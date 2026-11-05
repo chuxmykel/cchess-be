@@ -9,6 +9,7 @@ import { truncateAllTables } from '../../test/utils/db.js';
 import { RefreshToken } from '../auth/entities/refresh-token.entity.js';
 import { ClusterModule } from '../cluster/cluster.module.js';
 import { requireEnv } from '../common/require-env.js';
+import { ConditionalMoveSet } from '../games/entities/conditional-move-set.entity.js';
 import { Game } from '../games/entities/game.entity.js';
 import { Move } from '../games/entities/move.entity.js';
 import { GamesService } from '../games/games.service.js';
@@ -41,10 +42,25 @@ async function buildModule() {
         username: requireEnv('DB_USERNAME'),
         password: requireEnv('DB_PASSWORD'),
         database: requireEnv('DB_NAME'),
-        entities: [User, Rating, RefreshToken, Game, Move, DailySeek],
+        entities: [
+          User,
+          Rating,
+          RefreshToken,
+          Game,
+          Move,
+          DailySeek,
+          ConditionalMoveSet,
+        ],
         synchronize: false,
       }),
-      TypeOrmModule.forFeature([User, Rating, Game, Move, DailySeek]),
+      TypeOrmModule.forFeature([
+        User,
+        Rating,
+        Game,
+        Move,
+        DailySeek,
+        ConditionalMoveSet,
+      ]),
     ],
     providers: [DailySeeksService, GamesService, UsersService],
   }).compile();

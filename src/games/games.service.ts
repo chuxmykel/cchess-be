@@ -61,6 +61,8 @@ import {
 } from './entities/game.entity.js';
 import { isDailyGame, MAX_ACTIVE_DAILY_GAMES, moveDeadline } from './daily.js';
 import { firstMoveDeadline, isAwaitingFirstMove } from './first-move.js';
+import { branchFor, fromUci, toUci } from './conditional-moves.js';
+import { ConditionalMoveSet } from './entities/conditional-move-set.entity.js';
 import { Move } from './entities/move.entity.js';
 import { buildPgnText } from './pgn.util.js';
 import {
@@ -171,6 +173,8 @@ export class GamesService implements OnModuleDestroy {
   constructor(
     @InjectRepository(Game) private readonly games: Repository<Game>,
     @InjectRepository(Move) private readonly moves: Repository<Move>,
+    @InjectRepository(ConditionalMoveSet)
+    private readonly conditionalMoves: Repository<ConditionalMoveSet>,
     private readonly usersService: UsersService,
     private readonly events: EventEmitter2,
     private readonly configService: ConfigService<AppConfig, true>,
@@ -781,6 +785,7 @@ export class GamesService implements OnModuleDestroy {
       const now = Date.now();
       const played = await this.playMove(game, color, from, to, promotion, now);
       await this.playQueuedPremove(game, now);
+      await this.playConditionalReply(game, played.move);
       return played;
     });
   }
@@ -875,6 +880,46 @@ export class GamesService implements OnModuleDestroy {
       );
     } catch (error) {
       if (!(error instanceof BadRequestException)) throw error;
+    }
+  }
+
+  /**
+   * In a daily game, plays the reply the side now to move set for the
+   * opponent's move just played, if they set one (see
+   * ConditionalMovesService), keeping what follows it for the opponent's
+   * next. A move they didn't foresee - or a set saved against a position
+   * since moved on - drops the lot.
+   */
+  private async playConditionalReply(game: Game, played: Move): Promise<void> {
+    if (!isDailyGame(game) || game.status !== 'active') return;
+    const userId = game.turn === 'w' ? game.whiteId : game.blackId;
+    const set = await this.conditionalMoves.findOneBy({
+      gameId: game.id,
+      userId,
+    });
+    if (!set) return;
+    const branch =
+      set.basePly === played.ply - 1
+        ? branchFor(set.tree, toUci(played))
+        : undefined;
+    if (!branch) {
+      await this.conditionalMoves.delete({ gameId: game.id, userId });
+      return;
+    }
+
+    const { from, to, promotion } = fromUci(branch.reply);
+    try {
+      await this.playMove(game, game.turn, from, to, promotion, Date.now());
+    } catch (error) {
+      if (!(error instanceof BadRequestException)) throw error;
+    }
+    if (game.status === 'active' && branch.next.length > 0) {
+      await this.conditionalMoves.update(
+        { gameId: game.id, userId },
+        { basePly: played.ply + 1, tree: branch.next },
+      );
+    } else {
+      await this.conditionalMoves.delete({ gameId: game.id, userId });
     }
   }
 
@@ -1494,6 +1539,9 @@ export class GamesService implements OnModuleDestroy {
     this.gameCache.delete(game.id);
     this.movesCache.delete(game.id);
     this.premoves.delete(game.id);
+    if (isDailyGame(game)) {
+      await this.conditionalMoves.delete({ gameId: game.id });
+    }
 
     game.status = status;
     game.result = result;

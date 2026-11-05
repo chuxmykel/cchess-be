@@ -5,6 +5,8 @@ import { UsersModule } from '../users/users.module.js';
 import { BookmarksService } from './bookmarks.service.js';
 import { DailyDeadlineSweeper } from './daily-deadline.sweeper.js';
 import { Bookmark } from './entities/bookmark.entity.js';
+import { ConditionalMovesService } from './conditional-moves.service.js';
+import { ConditionalMoveSet } from './entities/conditional-move-set.entity.js';
 import { GameChatMessage } from './entities/game-chat-message.entity.js';
 import { GameNote } from './entities/game-note.entity.js';
 import { GameChatRead } from './entities/game-chat-read.entity.js';
@@ -25,6 +27,7 @@ import { RematchService } from './rematch.service.js';
       GameChatRead,
       Bookmark,
       GameNote,
+      ConditionalMoveSet,
     ]),
     UsersModule,
   ],
@@ -36,6 +39,7 @@ import { RematchService } from './rematch.service.js';
     RematchService,
     DailyDeadlineSweeper,
     GameNotesService,
+    ConditionalMovesService,
   ],
   exports: [GamesService, GameChatService, RematchService],
 })

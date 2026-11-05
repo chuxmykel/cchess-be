@@ -17,6 +17,8 @@ import {
 } from '../users/entities/rating.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import { UsersService } from '../users/users.service.js';
+import { ConditionalMovesService } from './conditional-moves.service.js';
+import { ConditionalMoveSet } from './entities/conditional-move-set.entity.js';
 import { Game } from './entities/game.entity.js';
 import { Move } from './entities/move.entity.js';
 import { MAX_ACTIVE_DAILY_GAMES } from './daily.js';
@@ -54,22 +56,23 @@ async function buildModule(gameConfig: Record<string, unknown> = {}) {
         username: requireEnv('DB_USERNAME'),
         password: requireEnv('DB_PASSWORD'),
         database: requireEnv('DB_NAME'),
-        entities: [User, Rating, RefreshToken, Game, Move],
+        entities: [User, Rating, RefreshToken, Game, Move, ConditionalMoveSet],
         // Schema already applied via real migrations (see
         // src/database/migrations) - this test module only registers a
         // subset of entities, so synchronize here would be misleading as
         // well as unnecessary.
         synchronize: false,
       }),
-      TypeOrmModule.forFeature([User, Rating, Game, Move]),
+      TypeOrmModule.forFeature([User, Rating, Game, Move, ConditionalMoveSet]),
     ],
-    providers: [GamesService, UsersService],
+    providers: [GamesService, UsersService, ConditionalMovesService],
   }).compile();
 
   await truncateAllTables(moduleRef.get(DataSource));
 
   return {
     gamesService: moduleRef.get(GamesService),
+    conditionalMoves: moduleRef.get(ConditionalMovesService),
     usersService: moduleRef.get(UsersService),
     ratingsRepo: moduleRef.get<Repository<Rating>>(getRepositoryToken(Rating)),
     eventEmitter: moduleRef.get(EventEmitter2),
@@ -1029,6 +1032,130 @@ describe('GamesService', () => {
       expect(
         await ctx.gamesService.listDailyGamesForUser(amy.id, 1),
       ).toHaveLength(1);
+    });
+
+    describe('conditional moves', () => {
+      async function startedGame(suffix: string) {
+        const alice = await makeUser(`condw${suffix}`);
+        const bob = await makeUser(`condb${suffix}`);
+        const game = await ctx.gamesService.createGame(
+          alice,
+          bob,
+          THREE_DAYS,
+          true,
+        );
+        await ctx.gamesService.applyMove(game.id, alice.id, 'e2', 'e4');
+        return { alice, bob, game };
+      }
+
+      it("plays the reply to the opponent's move the moment it lands, keeping what follows", async () => {
+        const { alice, bob, game } = await startedGame('1');
+        await ctx.conditionalMoves.add(alice.id, game.id, 1, [
+          ['e7e5', 'g1f3', 'b8c6', 'f1b5'],
+          ['c7c5', 'b1c3'],
+        ]);
+
+        await ctx.gamesService.applyMove(game.id, bob.id, 'e7', 'e5');
+
+        const after = await ctx.gamesService.getGameWithMoves(game.id);
+        expect(after.moves.map((move) => move.san)).toEqual([
+          'e4',
+          'e5',
+          'Nf3',
+        ]);
+        expect(after.turn).toBe('b');
+        expect(await ctx.conditionalMoves.get(alice.id, game.id)).toEqual({
+          basePly: 3,
+          lines: [['b8c6', 'f1b5']],
+        });
+      });
+
+      it("drops them all on a move they didn't foresee", async () => {
+        const { alice, bob, game } = await startedGame('2');
+        await ctx.conditionalMoves.add(alice.id, game.id, 1, [
+          ['e7e5', 'g1f3'],
+        ]);
+
+        await ctx.gamesService.applyMove(game.id, bob.id, 'd7', 'd5');
+
+        const after = await ctx.gamesService.getGameWithMoves(game.id);
+        expect(after.moves).toHaveLength(2);
+        expect(after.turn).toBe('w');
+        expect(await ctx.conditionalMoves.get(alice.id, game.id)).toEqual({
+          basePly: null,
+          lines: [],
+        });
+      });
+
+      it('adds to the lines saved from the same position', async () => {
+        const { alice, game } = await startedGame('3');
+        await ctx.conditionalMoves.add(alice.id, game.id, 1, [
+          ['e7e5', 'g1f3'],
+        ]);
+
+        const saved = await ctx.conditionalMoves.add(alice.id, game.id, 1, [
+          ['e7e5', 'g1f3', 'b8c6', 'f1c4'],
+          ['c7c5', 'b1c3', 'b8c6'],
+        ]);
+
+        expect(saved.lines).toEqual([
+          ['e7e5', 'g1f3', 'b8c6', 'f1c4'],
+          ['c7c5', 'b1c3'],
+        ]);
+      });
+
+      it('refuses lines on your own move, from a position gone, or not legal', async () => {
+        const { alice, bob, game } = await startedGame('4');
+
+        await expect(
+          ctx.conditionalMoves.add(bob.id, game.id, 1, [['g1f3', 'e7e5']]),
+        ).rejects.toThrow("It's your move");
+        await expect(
+          ctx.conditionalMoves.add(alice.id, game.id, 0, [['e7e5', 'g1f3']]),
+        ).rejects.toThrow('The game has moved on since');
+        await expect(
+          ctx.conditionalMoves.add(alice.id, game.id, 1, [['e7e5', 'e1e3']]),
+        ).rejects.toThrow('Illegal move in a line: e1e3');
+        await expect(
+          ctx.conditionalMoves.add(alice.id, game.id, 1, [
+            ['e7e5', 'g1f3'],
+            ['e7e5', 'f1c4'],
+          ]),
+        ).rejects.toThrow('Two different replies to e7e5');
+      });
+
+      it('has none in a live game', async () => {
+        const alice = await makeUser('condw5');
+        const bob = await makeUser('condb5');
+        const game = await ctx.gamesService.createGame(
+          alice,
+          bob,
+          { initialSeconds: 300, incrementSeconds: 0 },
+          true,
+        );
+        await ctx.gamesService.applyMove(game.id, alice.id, 'e2', 'e4');
+
+        await expect(
+          ctx.conditionalMoves.add(alice.id, game.id, 1, [['e7e5', 'g1f3']]),
+        ).rejects.toThrow('Only daily games have conditional moves');
+      });
+
+      it('drops them when the game ends', async () => {
+        const { alice, bob, game } = await startedGame('6');
+        await ctx.gamesService.applyMove(game.id, bob.id, 'e7', 'e5');
+        await ctx.gamesService.applyMove(game.id, alice.id, 'g1', 'f3');
+        await ctx.conditionalMoves.add(alice.id, game.id, 3, [
+          ['b8c6', 'f1b5'],
+        ]);
+
+        await ctx.gamesService.resign(game.id, bob.id);
+
+        expect(
+          await ctx.moduleRef
+            .get(DataSource)
+            .query('SELECT * FROM conditional_moves'),
+        ).toEqual([]);
+      });
     });
   });
 
