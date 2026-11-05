@@ -7,6 +7,8 @@
 export const GAMES_RPC = {
   CREATE: 'games:create',
   APPLY_MOVE: 'games:applyMove',
+  SET_PREMOVE: 'games:setPremove',
+  CANCEL_PREMOVE: 'games:cancelPremove',
   RESIGN: 'games:resign',
   ABORT: 'games:abort',
   OFFER_DRAW: 'games:offerDraw',

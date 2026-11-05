@@ -79,6 +79,19 @@ export interface GameMoveEvent {
 
 const GAME_RELATIONS = { white: true, black: true } as const;
 
+/** What a pre-move takes off its player's clock: a fixed charge, not the
+ * time it took to reach us, so it costs the same on any connection -
+ * chess.com's 0.1s. Not nothing, or a run of them would cost nothing in a
+ * time scramble. */
+export const PREMOVE_CHARGE_MS = 100;
+
+interface Premove {
+  color: 'w' | 'b';
+  from: string;
+  to: string;
+  promotion?: string;
+}
+
 interface RatingUpdates {
   white: Glicko2Rating;
   black: Glicko2Rating;
@@ -134,6 +147,11 @@ export class GamesService implements OnModuleDestroy {
   // server before the write does. Reading this cache instead of the
   // `moves` table removes that race rather than re-serializing around it.
   private readonly movesCache = new Map<string, Move[]>();
+  // The move each game's side not to move has queued, if any (see
+  // setPremove) - one a game, since only one side can be waiting. Kept
+  // only here, like gameCache: the worker owning the game is the only one
+  // to play it, and one lost to a restart is simply not played.
+  private readonly premoves = new Map<string, Premove>();
   private readonly mutex = new KeyedMutex();
 
   constructor(
@@ -167,6 +185,14 @@ export class GamesService implements OnModuleDestroy {
     this.clusterBus.onRequest(
       GAMES_RPC.APPLY_MOVE,
       this.handleApplyMoveRequest.bind(this),
+    );
+    this.clusterBus.onRequest(
+      GAMES_RPC.SET_PREMOVE,
+      this.handleSetPremoveRequest.bind(this),
+    );
+    this.clusterBus.onRequest(
+      GAMES_RPC.CANCEL_PREMOVE,
+      this.handleCancelPremoveRequest.bind(this),
     );
     this.clusterBus.onRequest(
       GAMES_RPC.RESIGN,
@@ -232,6 +258,31 @@ export class GamesService implements OnModuleDestroy {
       payload.promotion,
     );
     return { game: toWireGame(game), move: toWireMove(move) };
+  }
+
+  private async handleSetPremoveRequest(payload: {
+    gameId: string;
+    userId: string;
+    from: string;
+    to: string;
+    promotion?: string;
+  }) {
+    await this.setPremove(
+      payload.gameId,
+      payload.userId,
+      payload.from,
+      payload.to,
+      payload.promotion,
+    );
+    return null;
+  }
+
+  private async handleCancelPremoveRequest(payload: {
+    gameId: string;
+    userId: string;
+  }) {
+    await this.cancelPremove(payload.gameId, payload.userId);
+    return null;
   }
 
   private async handleResignRequest(payload: {
@@ -608,45 +659,149 @@ export class GamesService implements OnModuleDestroy {
       this.assertPlayersTurn(game, color);
 
       const now = Date.now();
-      const isFirstMove = isAwaitingFirstMove(game);
-      const remainingAfterElapsed = isFirstMove
-        ? await this.enforceFirstMoveDeadline(game, color, now)
-        : await this.enforceClock(game, color, now);
-
-      const engine = await this.getOrBuildEngine(game);
-      const outcome = this.attemptMoveOrThrow(engine, from, to, promotion);
-
-      const ply = engine.history().length;
-      const newRemaining = isFirstMove
-        ? remainingAfterElapsed
-        : remainingAfterElapsed +
-          incrementMs({
-            initialSeconds: game.initialSeconds,
-            incrementSeconds: game.incrementSeconds,
-          });
-
-      this.applyMoveToGameState(game, outcome, color, newRemaining, now);
-      const move = this.buildMoveEntity(game, outcome, ply, newRemaining, now);
-      this.cacheMove(game.id, move);
-
-      // Broadcast before persisting, not after - EventEmitter2 dispatches
-      // this synchronously into RealtimeGateway's listener, whose
-      // socket.io emit() writes to the OS socket buffer immediately, well
-      // before the `await` below even starts. Moving the DB write after
-      // this point is what cuts it out of the player-perceived latency;
-      // applyMove() itself still doesn't resolve until the write completes
-      // (same guarantee every caller already had), so there's no read-
-      // after-write gap and no detached-write error handling to add.
-      this.events.emit(DOMAIN_EVENTS.GAME_MOVE, {
-        game,
-        move,
-      } satisfies GameMoveEvent);
-
-      await this.persistMoveAndGame(move, game);
-      await this.finalizeIfGameOver(game, outcome, color);
-
-      return { game, move };
+      const played = await this.playMove(game, color, from, to, promotion, now);
+      await this.playQueuedPremove(game, now);
+      return played;
     });
+  }
+
+  /** Queues `userId`'s move to be played the moment the opponent's lands
+   * (see playQueuedPremove), replacing any queued before. Sent on your
+   * own turn - the opponent's move got here first - it's simply a move. */
+  async setPremove(
+    gameId: string,
+    userId: string,
+    from: string,
+    to: string,
+    promotion?: string,
+  ): Promise<void> {
+    return this.runOwnershipRouted(
+      gameId,
+      GAMES_RPC.SET_PREMOVE,
+      { gameId, userId, from, to, promotion },
+      wireToVoid,
+      this.setPremoveLocal.bind(this, gameId, userId, from, to, promotion),
+    );
+  }
+
+  private async setPremoveLocal(
+    gameId: string,
+    userId: string,
+    from: string,
+    to: string,
+    promotion?: string,
+  ): Promise<void> {
+    const queued = await this.mutex.runExclusive(gameId, async () => {
+      const game = await this.getGameOrThrow(gameId);
+      this.assertGameActive(game);
+      const color = this.colorOf(game, userId);
+      if (game.turn === color) return false;
+      this.premoves.set(gameId, { color, from, to, promotion });
+      return true;
+    });
+    if (!queued) await this.applyMoveLocal(gameId, userId, from, to, promotion);
+  }
+
+  async cancelPremove(gameId: string, userId: string): Promise<void> {
+    return this.runOwnershipRouted(
+      gameId,
+      GAMES_RPC.CANCEL_PREMOVE,
+      { gameId, userId },
+      wireToVoid,
+      this.cancelPremoveLocal.bind(this, gameId, userId),
+    );
+  }
+
+  private cancelPremoveLocal(gameId: string, userId: string): Promise<void> {
+    return this.mutex.runExclusive(gameId, async () => {
+      const game = await this.getGameOrThrow(gameId);
+      const color = this.colorOf(game, userId);
+      if (this.premoves.get(gameId)?.color === color)
+        this.premoves.delete(gameId);
+    });
+  }
+
+  /** Plays the pre-move queued by the side now to move, if any, charging
+   * it PREMOVE_CHARGE_MS rather than the time it took to get here - so it
+   * costs the same on any connection. One no longer legal is dropped, as
+   * is one its player hasn't the time left for: their clock runs on and
+   * flags as usual. Either way the queue is emptied. */
+  private async playQueuedPremove(game: Game, now: number): Promise<void> {
+    const premove = this.premoves.get(game.id);
+    if (!premove || game.status !== 'active' || premove.color !== game.turn)
+      return;
+    this.premoves.delete(game.id);
+
+    const remaining =
+      premove.color === 'w'
+        ? game.whiteTimeRemainingMs
+        : game.blackTimeRemainingMs;
+    if (!isAwaitingFirstMove(game) && remaining <= PREMOVE_CHARGE_MS) return;
+
+    try {
+      await this.playMove(
+        game,
+        premove.color,
+        premove.from,
+        premove.to,
+        premove.promotion,
+        now,
+        PREMOVE_CHARGE_MS,
+      );
+    } catch (error) {
+      if (!(error instanceof BadRequestException)) throw error;
+    }
+  }
+
+  /** Plays `color`'s move in `game`, already checked to be active and its
+   * turn, charging the time since the last move - or `chargeMs`. */
+  private async playMove(
+    game: Game,
+    color: 'w' | 'b',
+    from: string,
+    to: string,
+    promotion: string | undefined,
+    now: number,
+    chargeMs?: number,
+  ): Promise<{ game: Game; move: Move }> {
+    const isFirstMove = isAwaitingFirstMove(game);
+    const remainingAfterElapsed = isFirstMove
+      ? await this.enforceFirstMoveDeadline(game, color, now)
+      : await this.enforceClock(game, color, now, chargeMs);
+
+    const engine = await this.getOrBuildEngine(game);
+    const outcome = this.attemptMoveOrThrow(engine, from, to, promotion);
+
+    const ply = engine.history().length;
+    const newRemaining = isFirstMove
+      ? remainingAfterElapsed
+      : remainingAfterElapsed +
+        incrementMs({
+          initialSeconds: game.initialSeconds,
+          incrementSeconds: game.incrementSeconds,
+        });
+
+    this.applyMoveToGameState(game, outcome, color, newRemaining, now);
+    const move = this.buildMoveEntity(game, outcome, ply, newRemaining, now);
+    this.cacheMove(game.id, move);
+
+    // Broadcast before persisting, not after - EventEmitter2 dispatches
+    // this synchronously into RealtimeGateway's listener, whose
+    // socket.io emit() writes to the OS socket buffer immediately, well
+    // before the `await` below even starts. Moving the DB write after
+    // this point is what cuts it out of the player-perceived latency;
+    // applyMove() itself still doesn't resolve until the write completes
+    // (same guarantee every caller already had), so there's no read-
+    // after-write gap and no detached-write error handling to add.
+    this.events.emit(DOMAIN_EVENTS.GAME_MOVE, {
+      game,
+      move,
+    } satisfies GameMoveEvent);
+
+    await this.persistMoveAndGame(move, game);
+    await this.finalizeIfGameOver(game, outcome, color);
+
+    return { game, move };
   }
 
   private assertGameActive(game: Game): void {
@@ -676,7 +831,8 @@ export class GamesService implements OnModuleDestroy {
       : game.blackTimeRemainingMs;
   }
 
-  /** Deducts elapsed time from the mover's clock; if that leaves none,
+  /** Deducts elapsed time - or `chargeMs`, a pre-move's - from the
+   * mover's clock; if that leaves none,
    * finalizes the game as a timeout loss and throws - never applies a move
    * submitted after the flag already fell. Returns the mover's remaining
    * time immediately before this move; the caller adds the incrementMs
@@ -685,8 +841,10 @@ export class GamesService implements OnModuleDestroy {
     game: Game,
     color: 'w' | 'b',
     now: number,
+    chargeMs?: number,
   ): Promise<number> {
-    const sinceLastMove = game.lastMoveAt ? now - game.lastMoveAt.getTime() : 0;
+    const sinceLastMove =
+      chargeMs ?? (game.lastMoveAt ? now - game.lastMoveAt.getTime() : 0);
     const remainingBefore =
       color === 'w' ? game.whiteTimeRemainingMs : game.blackTimeRemainingMs;
     const remainingAfterElapsed = remainingBefore - Math.max(sinceLastMove, 0);
@@ -1163,6 +1321,7 @@ export class GamesService implements OnModuleDestroy {
     this.engines.delete(game.id);
     this.gameCache.delete(game.id);
     this.movesCache.delete(game.id);
+    this.premoves.delete(game.id);
 
     game.status = status;
     game.result = result;

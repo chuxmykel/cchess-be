@@ -549,6 +549,163 @@ describe('GamesService', () => {
     }
   });
 
+  describe('pre-moves', () => {
+    const tc: TimeControl = { initialSeconds: 120, incrementSeconds: 1 };
+    const twoMinutes = toClockMs(tc);
+
+    /** A game both sides have made their first move in, so the clocks are
+     * running, with Date.now() held at `startedAt` until moved on. */
+    async function gameUnderWay(name: string, timeControl = tc) {
+      const white = await makeUser(`${name}w`);
+      const black = await makeUser(`${name}b`);
+      const startedAt = Date.now();
+      const dateSpy = vi.spyOn(Date, 'now').mockReturnValue(startedAt);
+      const game = await ctx.gamesService.createGame(
+        white,
+        black,
+        timeControl,
+        true,
+      );
+      await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
+      await ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5');
+      return { white, black, game, startedAt, dateSpy };
+    }
+
+    function movesPlayed(gameId: string): string[] {
+      const sans: string[] = [];
+      ctx.eventEmitter.on(DOMAIN_EVENTS.GAME_MOVE, ({ game, move }) => {
+        if (game.id === gameId) sans.push(move.san);
+      });
+      return sans;
+    }
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("plays a queued pre-move the moment the opponent's move lands, charging it 100ms", async () => {
+      const { white, black, game, startedAt, dateSpy } =
+        await gameUnderWay('pm1');
+      const sans = movesPlayed(game.id);
+
+      await ctx.gamesService.setPremove(game.id, black.id, 'b8', 'c6');
+      expect(sans).toEqual([]);
+
+      dateSpy.mockReturnValue(startedAt + 4_000);
+      await ctx.gamesService.applyMove(game.id, white.id, 'g1', 'f3');
+
+      expect(sans).toEqual(['Nf3', 'Nc6']);
+      const after = await ctx.gamesService.getGameOrThrow(game.id);
+      expect(after.turn).toBe('w');
+      // 100ms charged, 1 second back - not the 4 seconds white took.
+      expect(after.blackTimeRemainingMs).toBe(twoMinutes - 100 + 1_000);
+      expect(after.whiteTimeRemainingMs).toBe(twoMinutes - 4_000 + 1_000);
+      expect(after.lastMoveAt?.getTime()).toBe(startedAt + 4_000);
+    });
+
+    it('drops a pre-move no longer legal once the opponent has moved', async () => {
+      const { white, black, game } = await gameUnderWay('pm2');
+      const sans = movesPlayed(game.id);
+
+      // exd4 - only a move if white plays d4.
+      await ctx.gamesService.setPremove(game.id, black.id, 'e5', 'd4');
+      await ctx.gamesService.applyMove(game.id, white.id, 'g1', 'f3');
+
+      expect(sans).toEqual(['Nf3']);
+      const after = await ctx.gamesService.getGameOrThrow(game.id);
+      expect(after.turn).toBe('b');
+
+      // And it's gone, not waiting for the next move.
+      await ctx.gamesService.applyMove(game.id, black.id, 'b8', 'c6');
+      await ctx.gamesService.applyMove(game.id, white.id, 'd2', 'd4');
+      expect(sans).toEqual(['Nf3', 'Nc6', 'd4']);
+    });
+
+    it('replaces a queued pre-move with a new one, and plays only that', async () => {
+      const { white, black, game } = await gameUnderWay('pm3');
+      const sans = movesPlayed(game.id);
+
+      await ctx.gamesService.setPremove(game.id, black.id, 'b8', 'c6');
+      await ctx.gamesService.setPremove(game.id, black.id, 'g8', 'f6');
+      await ctx.gamesService.applyMove(game.id, white.id, 'g1', 'f3');
+
+      expect(sans).toEqual(['Nf3', 'Nf6']);
+    });
+
+    it('plays nothing once a pre-move is cancelled', async () => {
+      const { white, black, game } = await gameUnderWay('pm4');
+      const sans = movesPlayed(game.id);
+
+      await ctx.gamesService.setPremove(game.id, black.id, 'b8', 'c6');
+      await ctx.gamesService.cancelPremove(game.id, black.id);
+      await ctx.gamesService.applyMove(game.id, white.id, 'g1', 'f3');
+
+      expect(sans).toEqual(['Nf3']);
+    });
+
+    it("plays a pre-move sent on the player's own turn as a move", async () => {
+      const { white, game } = await gameUnderWay('pm5');
+      const sans = movesPlayed(game.id);
+
+      // The opponent's move got there first: it's white's turn already.
+      await ctx.gamesService.setPremove(game.id, white.id, 'g1', 'f3');
+
+      expect(sans).toEqual(['Nf3']);
+      const after = await ctx.gamesService.getGameOrThrow(game.id);
+      expect(after.turn).toBe('b');
+    });
+
+    it("doesn't play a pre-move its player hasn't 100ms left for", async () => {
+      // No increment, which would put black back over 100ms.
+      const { white, black, game, startedAt, dateSpy } = await gameUnderWay(
+        'pm6',
+        { initialSeconds: 120, incrementSeconds: 0 },
+      );
+      const sans = movesPlayed(game.id);
+
+      await ctx.gamesService.applyMove(game.id, white.id, 'g1', 'f3');
+      // Black spends all but 50ms of their clock.
+      dateSpy.mockReturnValue(startedAt + twoMinutes - 50);
+      await ctx.gamesService.applyMove(game.id, black.id, 'b8', 'c6');
+      await ctx.gamesService.setPremove(game.id, black.id, 'g8', 'f6');
+      dateSpy.mockReturnValue(startedAt + twoMinutes + 950);
+      await ctx.gamesService.applyMove(game.id, white.id, 'f1', 'c4');
+
+      expect(sans).toEqual(['Nf3', 'Nc6', 'Bc4']);
+      const after = await ctx.gamesService.getGameOrThrow(game.id);
+      expect(after.turn).toBe('b');
+      expect(after.status).toBe('active');
+    });
+
+    it("plays a pre-move queued before either side's first move, charging nothing", async () => {
+      const white = await makeUser('pm7w');
+      const black = await makeUser('pm7b');
+      const game = await ctx.gamesService.createGame(white, black, tc, true);
+      const sans = movesPlayed(game.id);
+
+      await ctx.gamesService.setPremove(game.id, black.id, 'e7', 'e5');
+      await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
+
+      expect(sans).toEqual(['e4', 'e5']);
+      const after = await ctx.gamesService.getGameOrThrow(game.id);
+      expect(after.blackTimeRemainingMs).toBe(twoMinutes);
+    });
+
+    it('refuses a pre-move from someone not playing, or in a game over', async () => {
+      const { white, black, game } = await gameUnderWay('pm8');
+      const outsider = await makeUser('pm8o');
+
+      await expect(
+        ctx.gamesService.setPremove(game.id, outsider.id, 'b8', 'c6'),
+      ).rejects.toThrow('You are not a player in this game');
+
+      await ctx.gamesService.resign(game.id, white.id);
+      await expect(
+        ctx.gamesService.setPremove(game.id, black.id, 'b8', 'c6'),
+      ).rejects.toThrow('Game is not active');
+    });
+  });
+
   it('aborts a game whose first move comes too late', async () => {
     const white = await makeUser('white8g');
     const black = await makeUser('black8g');
