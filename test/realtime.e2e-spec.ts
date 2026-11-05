@@ -22,6 +22,37 @@ describe('Realtime gateway (e2e)', () => {
     await app.close();
   });
 
+  async function startGame(whiteName: string, blackName: string) {
+    const white = await registerUser(app, whiteName);
+    const black = await registerUser(app, blackName);
+    await makeFriends(app, white, black);
+    const challenge = await request(app.getHttpServer())
+      .post('/challenges')
+      .set('Authorization', `Bearer ${white.accessToken}`)
+      .send({
+        opponentUsername: black.username,
+        initialSeconds: 300,
+        incrementSeconds: 0,
+        color: 'white',
+      })
+      .expect(201);
+    const accepted = await request(app.getHttpServer())
+      .post(`/challenges/${challenge.body.id}/accept`)
+      .set('Authorization', `Bearer ${black.accessToken}`)
+      .expect(201);
+    const whiteSocket = await connect(baseUrl, white.accessToken);
+    const blackSocket = await connect(baseUrl, black.accessToken);
+    return {
+      gameId: accepted.body.id as string,
+      whiteId: accepted.body.white.id as string,
+      blackId: accepted.body.black.id as string,
+      white,
+      black,
+      whiteSocket,
+      blackSocket,
+    };
+  }
+
   it('rejects a connection with no/invalid token', async () => {
     // The Socket.IO/Engine.IO handshake completes (so the client does see
     // "connect") before our own handleConnection gets a chance to verify
@@ -161,6 +192,64 @@ describe('Realtime gateway (e2e)', () => {
     whiteSocket.disconnect();
   });
 
+  it("plays a pre-move straight after the opponent's move, never showing it to them first", async () => {
+    const { gameId, whiteSocket, blackSocket } = await startGame(
+      'pia_pm',
+      'quin_pm',
+    );
+    for (const socket of [whiteSocket, blackSocket]) {
+      const joined = waitForEvent(socket, 'game:state');
+      socket.emit('game:join', { gameId });
+      await joined;
+    }
+    const played = (socket: typeof whiteSocket, count: number) =>
+      new Promise<string[]>((resolve) => {
+        const sans: string[] = [];
+        socket.on('game:move', (payload: { move: { san: string } }) => {
+          sans.push(payload.move.san);
+          if (sans.length === count) resolve(sans);
+        });
+      });
+
+    const firstMoves = played(whiteSocket, 2);
+    whiteSocket.emit('game:move', { gameId, from: 'e2', to: 'e4' });
+    await waitForEvent(blackSocket, 'game:move');
+    blackSocket.emit('game:move', { gameId, from: 'e7', to: 'e5' });
+    await firstMoves;
+    whiteSocket.removeAllListeners('game:move');
+
+    const whiteHeard: string[] = [];
+    whiteSocket.onAny((event: string) => whiteHeard.push(event));
+    blackSocket.emit('game:premove', { gameId, from: 'b8', to: 'c6' });
+    // A round trip after it, so anything it sent white would be here first.
+    await blackSocket.emitWithAck('ping', Date.now());
+    expect(whiteHeard).toEqual([]);
+
+    const whiteSaw = played(whiteSocket, 2);
+    const blackSaw = played(blackSocket, 2);
+    whiteSocket.emit('game:move', { gameId, from: 'g1', to: 'f3' });
+    await expect(whiteSaw).resolves.toEqual(['Nf3', 'Nc6']);
+    await expect(blackSaw).resolves.toEqual(['Nf3', 'Nc6']);
+
+    whiteSocket.disconnect();
+    blackSocket.disconnect();
+  });
+
+  it('refuses a move for no game at all as one not found', async () => {
+    const { whiteSocket, blackSocket } = await startGame('ned_ng', 'olga_ng');
+
+    const error = waitForEvent(whiteSocket, 'game:error');
+    whiteSocket.emit('game:move', { gameId: null, from: 'e2', to: 'e4' });
+    await expect(error).resolves.toEqual({
+      gameId: null,
+      event: 'game:move',
+      message: 'Game not found',
+    });
+
+    whiteSocket.disconnect();
+    blackSocket.disconnect();
+  });
+
   it('tells each player whether the other is connected', async () => {
     const pia = await registerUser(app, 'pia_rt');
     const quin = await registerUser(app, 'quin_rt');
@@ -216,37 +305,6 @@ describe('Realtime gateway (e2e)', () => {
   });
 
   describe('chat', () => {
-    async function startGame(whiteName: string, blackName: string) {
-      const white = await registerUser(app, whiteName);
-      const black = await registerUser(app, blackName);
-      await makeFriends(app, white, black);
-      const challenge = await request(app.getHttpServer())
-        .post('/challenges')
-        .set('Authorization', `Bearer ${white.accessToken}`)
-        .send({
-          opponentUsername: black.username,
-          initialSeconds: 300,
-          incrementSeconds: 0,
-          color: 'white',
-        })
-        .expect(201);
-      const accepted = await request(app.getHttpServer())
-        .post(`/challenges/${challenge.body.id}/accept`)
-        .set('Authorization', `Bearer ${black.accessToken}`)
-        .expect(201);
-      const whiteSocket = await connect(baseUrl, white.accessToken);
-      const blackSocket = await connect(baseUrl, black.accessToken);
-      return {
-        gameId: accepted.body.id as string,
-        whiteId: accepted.body.white.id as string,
-        blackId: accepted.body.black.id as string,
-        white,
-        black,
-        whiteSocket,
-        blackSocket,
-      };
-    }
-
     it('sends a message to both players and keeps it for later joins', async () => {
       const { gameId, whiteId, whiteSocket, blackSocket } = await startGame(
         'rita_rt',

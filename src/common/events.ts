@@ -43,6 +43,8 @@ export const WS_EVENTS = {
   GAME_JOIN: 'game:join',
   GAME_LEAVE: 'game:leave',
   GAME_MOVE: 'game:move',
+  GAME_PREMOVE: 'game:premove',
+  GAME_PREMOVE_CANCEL: 'game:premoveCancel',
   GAME_RESIGN: 'game:resign',
   GAME_ABORT: 'game:abort',
   GAME_DRAW_OFFER: 'game:drawOffer',

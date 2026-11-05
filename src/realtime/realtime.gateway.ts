@@ -1,4 +1,9 @@
-import { HttpException, Logger, type OnModuleDestroy } from '@nestjs/common';
+import {
+  HttpException,
+  Logger,
+  NotFoundException,
+  type OnModuleDestroy,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
@@ -380,6 +385,43 @@ export class RealtimeGateway
     );
   }
 
+  /** Queues a move for when the opponent's lands. Never broadcast: the
+   * opponent, and anyone watching, mustn't see it coming. */
+  @SubscribeMessage(WS_EVENTS.GAME_PREMOVE)
+  async onPremove(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody()
+    payload: { gameId: string; from: string; to: string; promotion?: string },
+  ) {
+    await this.runGameAction(
+      socket,
+      WS_EVENTS.GAME_PREMOVE,
+      payload.gameId,
+      () =>
+        this.gamesService.setPremove(
+          payload.gameId,
+          this.userId(socket),
+          payload.from,
+          payload.to,
+          payload.promotion,
+        ),
+    );
+  }
+
+  @SubscribeMessage(WS_EVENTS.GAME_PREMOVE_CANCEL)
+  async onPremoveCancel(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() payload: { gameId: string },
+  ) {
+    await this.runGameAction(
+      socket,
+      WS_EVENTS.GAME_PREMOVE_CANCEL,
+      payload.gameId,
+      () =>
+        this.gamesService.cancelPremove(payload.gameId, this.userId(socket)),
+    );
+  }
+
   @SubscribeMessage(WS_EVENTS.GAME_RESIGN)
   async onResign(
     @ConnectedSocket() socket: Socket,
@@ -553,6 +595,9 @@ export class RealtimeGateway
     fn: () => Promise<unknown>,
   ): Promise<void> {
     try {
+      // Payloads aren't validated: one with no game id would fail deep in
+      // ownership routing or TypeORM instead, logged as if it were a bug.
+      if (!gameId) throw new NotFoundException('Game not found');
       await fn();
     } catch (error) {
       this.logIfUnexpected(`${event} (game ${gameId})`, error);
