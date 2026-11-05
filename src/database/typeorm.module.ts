@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { RefreshToken } from '../auth/entities/refresh-token.entity.js';
 import { Challenge } from '../challenges/entities/challenge.entity.js';
+import { DailySeek } from '../daily-seeks/entities/daily-seek.entity.js';
 import {
   CLUSTER_WORKERS,
   CLUSTERING_ENABLED,
@@ -60,6 +61,7 @@ export const typeOrmModule = TypeOrmModule.forRootAsync({
       Bookmark,
       DirectMessage,
       Conversation,
+      DailySeek,
     ],
     // Schema is managed by real migrations (src/database/migrations),
     // not synchronize - see CLAUDE.md for the migration workflow.

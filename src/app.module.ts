@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard.js';
 import { ChallengesModule } from './challenges/challenges.module.js';
 import { ClusterModule } from './cluster/cluster.module.js';
+import { DailySeeksModule } from './daily-seeks/daily-seeks.module.js';
 import configuration from './config/configuration.js';
 import { typeOrmModule } from './database/typeorm.module.js';
 import { FriendsModule } from './friends/friends.module.js';
@@ -36,6 +37,7 @@ import { UsersModule } from './users/users.module.js';
     GamesModule,
     MatchmakingModule,
     ChallengesModule,
+    DailySeeksModule,
     RealtimeModule,
   ],
   controllers: [AppController],
