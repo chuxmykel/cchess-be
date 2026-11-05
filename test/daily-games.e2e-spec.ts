@@ -124,6 +124,65 @@ describe('Daily games (e2e)', () => {
     ]);
   });
 
+  it("keeps each player's notes on a game to themselves", async () => {
+    const ivan = await registerUser(app, 'ivan_notes');
+    const judy = await registerUser(app, 'judy_notes');
+    const server = app.getHttpServer();
+    await request(server)
+      .post('/daily-seeks')
+      .set('Authorization', `Bearer ${ivan.accessToken}`)
+      .send({ days: 3 })
+      .expect(201);
+    const matched = await request(server)
+      .post('/daily-seeks')
+      .set('Authorization', `Bearer ${judy.accessToken}`)
+      .send({ days: 3 })
+      .expect(201);
+    const notes = `/games/${matched.body.game.id}/notes`;
+
+    const none = await request(server)
+      .get(notes)
+      .set('Authorization', `Bearer ${ivan.accessToken}`)
+      .expect(200);
+    expect(none.body).toEqual({ body: '', updatedAt: null });
+
+    await request(server)
+      .put(notes)
+      .set('Authorization', `Bearer ${ivan.accessToken}`)
+      .send({ body: 'Castle long, then push the h-pawn' })
+      .expect(200);
+    const saved = await request(server)
+      .put(notes)
+      .set('Authorization', `Bearer ${ivan.accessToken}`)
+      .send({ body: 'Castle short after all' })
+      .expect(200);
+    expect(saved.body.body).toBe('Castle short after all');
+    expect(saved.body.updatedAt).not.toBeNull();
+
+    const judys = await request(server)
+      .get(notes)
+      .set('Authorization', `Bearer ${judy.accessToken}`)
+      .expect(200);
+    expect(judys.body.body).toBe('');
+
+    await request(server)
+      .put(notes)
+      .set('Authorization', `Bearer ${ivan.accessToken}`)
+      .send({ body: '   ' })
+      .expect(200);
+    const cleared = await request(server)
+      .get(notes)
+      .set('Authorization', `Bearer ${ivan.accessToken}`)
+      .expect(200);
+    expect(cleared.body).toEqual({ body: '', updatedAt: null });
+
+    await request(server)
+      .put(notes)
+      .set('Authorization', `Bearer ${ivan.accessToken}`)
+      .send({ body: 'x'.repeat(4001) })
+      .expect(400);
+  });
+
   it('refuses days not on offer', async () => {
     const ivan = await registerUser(app, 'ivan_daily2');
 

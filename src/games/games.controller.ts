@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Post,
   Put,
   Query,
@@ -27,11 +28,13 @@ import {
   toDailyGameDto,
 } from './dto/daily-game.dto.js';
 import { DrawRespondDto } from './dto/draw-respond.dto.js';
+import { GameNoteDto, SaveGameNoteDto } from './dto/game-note.dto.js';
 import { GameStateDto, toGameStateDto } from './dto/game-state.dto.js';
 import { GameSummaryDto, toGameSummaryDto } from './dto/game-summary.dto.js';
 import { ListGamesQuery } from './dto/list-games.query.js';
 import { MakeMoveDto } from './dto/make-move.dto.js';
 import { BookmarksService } from './bookmarks.service.js';
+import { GameNotesService } from './game-notes.service.js';
 import { GamesService } from './games.service.js';
 
 class BookmarkStateDto {
@@ -46,6 +49,7 @@ export class GamesController {
   constructor(
     private readonly gamesService: GamesService,
     private readonly bookmarksService: BookmarksService,
+    private readonly gameNotesService: GameNotesService,
   ) {}
 
   @Get()
@@ -112,6 +116,25 @@ export class GamesController {
   ): Promise<BookmarkStateDto> {
     await this.bookmarksService.unbookmark(user.userId, id);
     return { bookmarked: false };
+  }
+
+  @Get(':id/notes')
+  @ApiOperation({ summary: 'Your own notes on a game, seen by nobody else' })
+  getNotes(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<GameNoteDto> {
+    return this.gameNotesService.get(user.userId, id);
+  }
+
+  @Put(':id/notes')
+  @ApiOperation({ summary: 'Replace your notes on a game' })
+  saveNotes(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SaveGameNoteDto,
+  ): Promise<GameNoteDto> {
+    return this.gameNotesService.save(user.userId, id, dto.body);
   }
 
   @Get(':id/pgn')
