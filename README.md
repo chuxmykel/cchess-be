@@ -71,6 +71,8 @@ npm run test:cov             # coverage
 npm run migration:generate -- src/database/migrations/SomeName   # after changing an entity
 npm run migration:run        # apply pending migrations
 npm run migration:revert     # roll back the last migration
+npm run seed:run             # build + run pending seeders, recorded in `seeds` (bot_1-bot_5, password "password", for ../cchess's opponent)
+npm run seed:generate -- src/database/seeds/SomeName  # new seeder - dev data only; prod data is a migration
 ```
 
 Run a single test file: `npx vitest run src/games/games.service.spec.ts`.

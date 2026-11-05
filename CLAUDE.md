@@ -47,6 +47,9 @@ npm run format             # prettier --write
 npm run migration:generate -- src/database/migrations/SomeName  # after an entity change
 npm run migration:run      # build + apply pending migrations
 npm run migration:revert   # build + roll back the last migration
+npm run seed:run           # build + run pending seeders, recorded in `seeds` (bot_1-bot_5, password "password", for ../cchess's opponent)
+npm run seed:generate -- src/database/seeds/SomeName  # new seeder - dev data only; prod data is a migration
+                          # (scripts/seed-generate.mjs drops the template's `track = false`, so it's tracked)
 ```
 
 The migration scripts run `node --env-file=.env node_modules/typeorm/cli.js
