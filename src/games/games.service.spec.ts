@@ -19,11 +19,8 @@ import { User } from '../users/entities/user.entity.js';
 import { UsersService } from '../users/users.service.js';
 import { Game } from './entities/game.entity.js';
 import { Move } from './entities/move.entity.js';
-import {
-  GameEvent,
-  GamesService,
-  MAX_ACTIVE_DAILY_GAMES,
-} from './games.service.js';
+import { MAX_ACTIVE_DAILY_GAMES } from './daily.js';
+import { GameEvent, GamesService } from './games.service.js';
 import { rateGame } from './glicko2.js';
 import { truncateAllTables } from '../../test/utils/db.js';
 import { TimeControl, toClockMs } from '../chess/time-control.js';
@@ -978,6 +975,60 @@ describe('GamesService', () => {
       await expect(
         ctx.gamesService.assertCanStart(black.id, THREE_DAYS),
       ).rejects.toThrow('at most 50 daily games');
+    });
+
+    it("lists a player's daily games in progress, their move first, then by time left", async () => {
+      const amy = await makeUser('dailyw9');
+      const ben = await makeUser('dailyb9');
+      const ONE_DAY: TimeControl = {
+        initialSeconds: 24 * 60 * 60,
+        incrementSeconds: 0,
+      };
+      const threeDaysAmysMove = await ctx.gamesService.createGame(
+        amy,
+        ben,
+        THREE_DAYS,
+        true,
+      );
+      const oneDayAmysMove = await ctx.gamesService.createGame(
+        amy,
+        ben,
+        ONE_DAY,
+        true,
+      );
+      const bensMove = await ctx.gamesService.createGame(
+        amy,
+        ben,
+        ONE_DAY,
+        true,
+      );
+      await ctx.gamesService.applyMove(bensMove.id, amy.id, 'e2', 'e4');
+      await ctx.gamesService.createGame(
+        amy,
+        ben,
+        { initialSeconds: 300, incrementSeconds: 0 },
+        true,
+      );
+
+      const listed = await ctx.gamesService.listDailyGamesForUser(amy.id);
+
+      expect(listed.map(({ game }) => game.id)).toEqual([
+        oneDayAmysMove.id,
+        threeDaysAmysMove.id,
+        bensMove.id,
+      ]);
+      expect(listed.map(({ myTurn }) => myTurn)).toEqual([true, true, false]);
+      expect(listed[2].lastMove).toEqual({ from: 'e2', to: 'e4' });
+      expect(listed[0].lastMove).toBeNull();
+      expect(listed[2].game.black.username).toBe('dailyb9');
+      expect(
+        (await ctx.gamesService.listDailyGamesForUser(ben.id)).map(
+          ({ game }) => game.id,
+        )[0],
+      ).toBe(bensMove.id);
+      expect(
+        await ctx.gamesService.listDailyGamesForUser(amy.id, 1),
+      ).toHaveLength(1);
     });
   });
 

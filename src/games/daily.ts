@@ -1,5 +1,8 @@
 import type { Game } from './entities/game.entity.js';
 
+/** The most daily games a player may have in progress at once. */
+export const MAX_ACTIVE_DAILY_GAMES = 50;
+
 /** A daily game - days a move, not minutes a game (see time-control.ts's
  * DAILY_DAYS). */
 export function isDailyGame(game: Pick<Game, 'gameType'>): boolean {

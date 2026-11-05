@@ -21,6 +21,11 @@ import type { Response } from 'express';
 
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/types.js';
+import {
+  DailyGameDto,
+  ListDailyGamesQuery,
+  toDailyGameDto,
+} from './dto/daily-game.dto.js';
 import { DrawRespondDto } from './dto/draw-respond.dto.js';
 import { GameStateDto, toGameStateDto } from './dto/game-state.dto.js';
 import { GameSummaryDto, toGameSummaryDto } from './dto/game-summary.dto.js';
@@ -53,6 +58,22 @@ export class GamesController {
   ): Promise<GameSummaryDto[]> {
     const games = await this.gamesService.listGamesForUser(user.userId, query);
     return games.map((game) => toGameSummaryDto(game, user.userId));
+  }
+
+  @Get('daily')
+  @ApiOperation({
+    summary:
+      'Your daily games in progress: those on your move first, then each by when its move runs out',
+  })
+  async listMyDaily(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ListDailyGamesQuery,
+  ): Promise<DailyGameDto[]> {
+    const listings = await this.gamesService.listDailyGamesForUser(
+      user.userId,
+      query.limit,
+    );
+    return listings.map((listing) => toDailyGameDto(listing, user.userId));
   }
 
   @Get(':id')

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createTestApp, registerUser } from './utils/app.js';
 
-describe('Daily seeks (e2e)', () => {
+describe('Daily games (e2e)', () => {
   let app: INestApplication;
 
   beforeEach(async () => {
@@ -71,6 +71,57 @@ describe('Daily seeks (e2e)', () => {
       .set('Authorization', `Bearer ${ivan.accessToken}`)
       .expect(200);
     expect(empty.body).toEqual([]);
+  });
+
+  it('lists your daily games apart from live ones', async () => {
+    const ivan = await registerUser(app, 'ivan_daily3');
+    const judy = await registerUser(app, 'judy_daily3');
+    const server = app.getHttpServer();
+    await request(server)
+      .post('/daily-seeks')
+      .set('Authorization', `Bearer ${ivan.accessToken}`)
+      .send({ days: 2, color: 'white' })
+      .expect(201);
+    const matched = await request(server)
+      .post('/daily-seeks')
+      .set('Authorization', `Bearer ${judy.accessToken}`)
+      .send({ days: 2 })
+      .expect(201);
+    const gameId = matched.body.game.id;
+    await request(server)
+      .post(`/games/${gameId}/moves`)
+      .set('Authorization', `Bearer ${ivan.accessToken}`)
+      .send({ from: 'e2', to: 'e4' })
+      .expect(201);
+
+    const daily = await request(server)
+      .get('/games/daily')
+      .set('Authorization', `Bearer ${judy.accessToken}`)
+      .expect(200);
+    expect(daily.body).toEqual([
+      expect.objectContaining({
+        id: gameId,
+        turn: 'b',
+        myTurn: true,
+        playedAsWhite: false,
+        daysPerMove: 2,
+        lastMove: { from: 'e2', to: 'e4' },
+        opponent: expect.objectContaining({ username: ivan.username }),
+      }),
+    ]);
+
+    const live = await request(server)
+      .get('/games?status=active&kind=live')
+      .set('Authorization', `Bearer ${judy.accessToken}`)
+      .expect(200);
+    expect(live.body).toEqual([]);
+    const dailyOnly = await request(server)
+      .get('/games?status=active&kind=daily')
+      .set('Authorization', `Bearer ${judy.accessToken}`)
+      .expect(200);
+    expect(dailyOnly.body.map((game: { id: string }) => game.id)).toEqual([
+      gameId,
+    ]);
   });
 
   it('refuses days not on offer', async () => {

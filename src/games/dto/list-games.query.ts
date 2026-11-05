@@ -6,6 +6,10 @@ import type { GameStatus } from '../entities/game.entity.js';
 
 const STATUSES: GameStatus[] = ['active', 'completed', 'aborted'];
 
+/** Live games, or daily ones (see time-control.ts's DAILY_DAYS). */
+export type GameKind = 'live' | 'daily';
+const KINDS: GameKind[] = ['live', 'daily'];
+
 // Exported so GamesService.listGamesForUser enforces the same bounds this
 // DTO validates at the API boundary, instead of a second, separately
 // maintained "10 default, 50 max" at the service layer.
@@ -18,6 +22,11 @@ export class ListGamesQuery {
   @IsOptional()
   @IsIn(STATUSES)
   status?: GameStatus;
+
+  @ApiPropertyOptional({ enum: KINDS, description: 'Omit for both' })
+  @IsOptional()
+  @IsIn(KINDS)
+  kind?: GameKind;
 
   @ApiPropertyOptional({
     minimum: MIN_GAMES_LIST_LIMIT,

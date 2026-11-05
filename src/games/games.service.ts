@@ -41,6 +41,7 @@ import { DOMAIN_EVENTS } from '../common/events.js';
 import { UsersService } from '../users/users.service.js';
 import {
   DEFAULT_GAMES_LIST_LIMIT,
+  type GameKind,
   MAX_GAMES_LIST_LIMIT,
 } from './dto/list-games.query.js';
 import type { User } from '../users/entities/user.entity.js';
@@ -57,7 +58,7 @@ import {
   type GameResultReason,
   type GameStatus,
 } from './entities/game.entity.js';
-import { isDailyGame } from './daily.js';
+import { isDailyGame, MAX_ACTIVE_DAILY_GAMES, moveDeadline } from './daily.js';
 import { firstMoveDeadline, isAwaitingFirstMove } from './first-move.js';
 import { Move } from './entities/move.entity.js';
 import { buildPgnText } from './pgn.util.js';
@@ -79,6 +80,16 @@ export interface GameMoveEvent {
   move: Move;
 }
 
+/** A daily game in progress, as a player's list of them shows it. */
+export interface DailyGameListing {
+  game: Game;
+  lastMove: { from: string; to: string } | null;
+  /** When the side to move runs out of time. */
+  deadline: Date;
+  /** Whether it's the listing player's move. */
+  myTurn: boolean;
+}
+
 const GAME_RELATIONS = { white: true, black: true } as const;
 
 /** What a pre-move takes off its player's clock: a fixed charge, not the
@@ -86,9 +97,6 @@ const GAME_RELATIONS = { white: true, black: true } as const;
  * chess.com's 0.1s. Not nothing, or a run of them would cost nothing in a
  * time scramble. */
 export const PREMOVE_CHARGE_MS = 100;
-
-/** The most daily games a player may have in progress at once. */
-export const MAX_ACTIVE_DAILY_GAMES = 50;
 
 interface Premove {
   color: 'w' | 'b';
@@ -642,7 +650,12 @@ export class GamesService implements OnModuleDestroy {
 
   async listGamesForUser(
     userId: string,
-    options: { status?: GameStatus; limit?: number; before?: Date } = {},
+    options: {
+      status?: GameStatus;
+      kind?: GameKind;
+      limit?: number;
+      before?: Date;
+    } = {},
   ): Promise<Game[]> {
     const limit = Math.min(
       options.limit ?? DEFAULT_GAMES_LIST_LIMIT,
@@ -664,8 +677,70 @@ export class GamesService implements OnModuleDestroy {
     else qb.andWhere("g.status != 'aborted'");
     if (options.before)
       qb.andWhere('g.createdAt < :before', { before: options.before });
+    if (options.kind === 'daily') qb.andWhere(`g.gameType = 'daily'`);
+    else if (options.kind === 'live') qb.andWhere(`g.gameType != 'daily'`);
 
     return qb.getMany();
+  }
+
+  /**
+   * The user's daily games in progress, most pressing first: those waiting
+   * on their move, then the rest, each by when its side to move runs out
+   * of time. With each one's last move, for a board to mark. Games this
+   * worker owns are read from its cache, as getGameWithMoves does, since a
+   * move just broadcast may not have reached the database yet.
+   */
+  async listDailyGamesForUser(
+    userId: string,
+    limit = MAX_ACTIVE_DAILY_GAMES,
+  ): Promise<DailyGameListing[]> {
+    const rows = await this.games.find({
+      where: [
+        { status: 'active', gameType: 'daily', whiteId: userId },
+        { status: 'active', gameType: 'daily', blackId: userId },
+      ],
+      relations: GAME_RELATIONS,
+    });
+    if (rows.length === 0) return [];
+    const lastMoves = await this.lastMovesOf(rows.map((game) => game.id));
+
+    const listings = rows.map((row): DailyGameListing => {
+      const cached = this.gameCache.get(row.id);
+      const game: Game = cached
+        ? // eslint-disable-next-line typescript/no-misused-spread -- a plain copy, as getGameWithMovesLocal makes.
+          { ...cached, white: row.white, black: row.black }
+        : row;
+      const cachedMoves = this.movesCache.get(row.id);
+      const lastMove = cachedMoves?.length
+        ? cachedMoves[cachedMoves.length - 1]
+        : lastMoves.get(row.id);
+      return {
+        game,
+        lastMove: lastMove ? { from: lastMove.from, to: lastMove.to } : null,
+        deadline: moveDeadline(game) ?? new Date(0),
+        myTurn: game.turn === this.colorOf(game, userId),
+      };
+    });
+    listings.sort(
+      (a, b) =>
+        Number(b.myTurn) - Number(a.myTurn) ||
+        a.deadline.getTime() - b.deadline.getTime(),
+    );
+    return listings.slice(0, limit);
+  }
+
+  /** Each of these games' last move, by game id. */
+  private async lastMovesOf(
+    gameIds: string[],
+  ): Promise<Map<string, Pick<Move, 'from' | 'to'>>> {
+    const rows: Array<{ gameId: string; from: string; to: string }> =
+      await this.moves.query(
+        `SELECT DISTINCT ON ("gameId") "gameId", "from", "to" FROM moves
+         WHERE "gameId" = ANY($1) AND "deletedAt" IS NULL
+         ORDER BY "gameId", ply DESC`,
+        [gameIds],
+      );
+    return new Map(rows.map(({ gameId, from, to }) => [gameId, { from, to }]));
   }
 
   async applyMove(
