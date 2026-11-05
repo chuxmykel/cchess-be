@@ -14,7 +14,7 @@ import { AuthResponseDto } from './dto/auth-response.dto.js';
 import { RefreshToken } from './entities/refresh-token.entity.js';
 import { generateOpaqueToken, hashToken } from './token.util.js';
 
-const BCRYPT_ROUNDS = 12;
+export const BCRYPT_ROUNDS = 12;
 
 @Injectable()
 export class AuthService {
