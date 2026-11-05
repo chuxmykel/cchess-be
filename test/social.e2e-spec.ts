@@ -532,6 +532,56 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
       });
     });
 
+    it('sends a daily challenge, waiting days, accepted alongside a live game', async () => {
+      process.env.CHALLENGE_TTL_MS = '300';
+      const vic = await registerUser(app, 'vic_social');
+      const wes = await registerUser(app, 'wes_social');
+      await startGame(vic, wes);
+
+      const challenge = await as(vic)
+        .post('/challenges')
+        .send({
+          opponentUsername: wes.username,
+          initialSeconds: 7 * 24 * 60 * 60,
+          incrementSeconds: 0,
+        })
+        .expect(201);
+      expect(challenge.body.gameType).toBe('daily');
+      expect(
+        new Date(challenge.body.expiresAt).getTime() -
+          new Date(challenge.body.createdAt).getTime(),
+      ).toBe(3 * 24 * 60 * 60 * 1000);
+
+      // Well past a live challenge's time.
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      const list = await as(wes).get('/challenges').expect(200);
+      expect(list.body.incoming.map((c: { id: string }) => c.id)).toEqual([
+        challenge.body.id,
+      ]);
+
+      const accepted = await as(wes)
+        .post(`/challenges/${challenge.body.id}/accept`)
+        .expect(201);
+      expect(accepted.body).toMatchObject({
+        gameType: 'daily',
+        daysPerMove: 7,
+      });
+    });
+
+    it('refuses a daily challenge of days not on offer', async () => {
+      const xia = await registerUser(app, 'xia_social');
+      const yan = await registerUser(app, 'yan_social');
+
+      await as(xia)
+        .post('/challenges')
+        .send({
+          opponentUsername: yan.username,
+          initialSeconds: 4 * 24 * 60 * 60,
+          incrementSeconds: 0,
+        })
+        .expect(400);
+    });
+
     it('expires an unanswered challenge', async () => {
       process.env.CHALLENGE_TTL_MS = '300';
       const ray = await registerUser(app, 'ray_social');

@@ -9,11 +9,18 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
-import { MoreThan, Repository } from 'typeorm';
+import {
+  type FindOptionsWhere,
+  LessThan,
+  MoreThan,
+  MoreThanOrEqual,
+  Repository,
+} from 'typeorm';
 
 import {
   isDailyTimeControl,
   isValidTimeControl,
+  SECONDS_PER_DAY,
   type TimeControl,
 } from '../chess/time-control.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
@@ -26,7 +33,12 @@ import {
   type ChallengeStatus,
   type ColorPreference,
 } from './entities/challenge.entity.js';
-import { challengeTtlMs, isChallengeExpired } from './challenge-expiry.js';
+import {
+  challengeTtlMs,
+  DAILY_CHALLENGE_TTL_MS,
+  isChallengeExpired,
+  ttlMsOf,
+} from './challenge-expiry.js';
 
 const RELATIONS = { challenger: true, opponent: true } as const;
 
@@ -94,7 +106,7 @@ export class ChallengesService implements OnModuleDestroy {
       }),
     );
 
-    this.scheduleExpiry(challenge.id);
+    this.scheduleExpiry(challenge);
     this.events.emit(DOMAIN_EVENTS.CHALLENGE_CREATED, {
       challenge,
     } satisfies ChallengeCreatedEvent);
@@ -118,11 +130,16 @@ export class ChallengesService implements OnModuleDestroy {
     }
   }
 
-  private scheduleExpiry(challengeId: string): void {
+  /** Tells both players when the challenge runs out. Only a courtesy for
+   * a daily game's, days away - lost to a restart in between, it's
+   * expired all the same: the lists leave it out, and it can't be
+   * accepted. */
+  private scheduleExpiry(challenge: Challenge): void {
+    const challengeId = challenge.id;
     const timer = setTimeout(() => {
       this.expiryTimers.delete(challengeId);
       void this.expireIfPending(challengeId);
-    }, challengeTtlMs());
+    }, ttlMsOf(challenge));
     timer.unref?.();
     this.expiryTimers.set(challengeId, timer);
   }
@@ -239,7 +256,7 @@ export class ChallengesService implements OnModuleDestroy {
 
   async listIncoming(userId: string): Promise<Challenge[]> {
     return this.challenges.find({
-      where: { opponentId: userId, status: 'pending', ...this.unexpired() },
+      where: this.unexpired({ opponentId: userId, status: 'pending' }),
       relations: RELATIONS,
       order: { createdAt: 'DESC' },
     });
@@ -247,14 +264,30 @@ export class ChallengesService implements OnModuleDestroy {
 
   async listOutgoing(userId: string): Promise<Challenge[]> {
     return this.challenges.find({
-      where: { challengerId: userId, status: 'pending', ...this.unexpired() },
+      where: this.unexpired({ challengerId: userId, status: 'pending' }),
       relations: RELATIONS,
       order: { createdAt: 'DESC' },
     });
   }
 
-  private unexpired() {
-    return { createdAt: MoreThan(new Date(Date.now() - challengeTtlMs())) };
+  /** `where`, for the challenges still in time: a live game's made in the
+   * last few minutes, a daily game's in the last few days. */
+  private unexpired(
+    where: FindOptionsWhere<Challenge>,
+  ): FindOptionsWhere<Challenge>[] {
+    const now = Date.now();
+    return [
+      {
+        ...where,
+        initialSeconds: LessThan(SECONDS_PER_DAY),
+        createdAt: MoreThan(new Date(now - challengeTtlMs())),
+      },
+      {
+        ...where,
+        initialSeconds: MoreThanOrEqual(SECONDS_PER_DAY),
+        createdAt: MoreThan(new Date(now - DAILY_CHALLENGE_TTL_MS)),
+      },
+    ];
   }
 
   private async getOrThrow(id: string): Promise<Challenge> {
