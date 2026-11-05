@@ -90,7 +90,7 @@ Each domain is its own Nest module under `src/`:
 auth/          Register/login/guest/refresh/logout. Access JWT (short-lived) +
                opaque refresh token (random, stored only as an HMAC hash, rotated
                on every use - see token.util.ts).
-users/         Profile CRUD + per-category Glicko-2 ratings (bullet/blitz/rapid/classical).
+users/         Profile CRUD + per-category Glicko-2 ratings (bullet/blitz/rapid/classical/daily).
 friends/       Friend requests as a single self-referencing table with a status
                (pending/accepted/declined), not a separate "friends" table.
 profiles/      Another player's profile as you see it (presence, totals, your
@@ -107,6 +107,9 @@ games/         The chess authority: Game/Move entities, GamesService (moves, clo
 matchmaking/   An in-memory seek queue (see "Known limitations" below) that pairs
                players whose time control, rated choice and rating ranges all
                agree, nearest rating first.
+daily-seeks/   Daily games' seeks, kept in the database: posted, and left until
+               another agrees with it, by the same rules (see "Daily games").
+explorer/      An opening explorer from the games finished here.
 challenges/    Challenges to any player (accept -> creates a Game).
 realtime/      One Socket.IO gateway for everything live: moves, clocks, draw/resign/
                abort, matchmaking pushes, challenge + friend-request notifications.
@@ -167,6 +170,11 @@ were chosen specifically so they agree with every one of that app's presets
 starting clock (1 second to 3 hours) as well as the increment - so a
 sub-minute start like 5 seconds is exact, and it's stored as an `int`.
 
+A starting clock of whole days with no increment - 1, 2, 3, 5, 7 or 14 -
+is a daily game instead, its own category (see "Daily games"): the days a
+move, kept in `initialSeconds` like any other clock, so seeks, challenges
+and rematches need nothing more to carry it.
+
 ### Guests
 
 `POST /auth/guest` creates a real `User` row (`isGuest: true`, no
@@ -197,7 +205,7 @@ revisit `origin`/`credentials` together if that ever happens.
 | Client -> Server      | Payload                                                              | Server -> Client                                                   | Payload                                                                                                          |
 | --------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
 | `game:join`           | `{ gameId }`                                                         | `game:state`                                                       | Full `GameStateDto`                                                                                              |
-| `game:move`           | `{ gameId, from, to, promotion? }`                                   | `game:move`                                                        | `{ gameId, move, fen, turn, whiteTimeRemainingMs, blackTimeRemainingMs, firstMoveDeadline }`                     |
+| `game:move`           | `{ gameId, from, to, promotion? }`                                   | `game:move`                                                        | `{ gameId, move, fen, turn, whiteTimeRemainingMs, blackTimeRemainingMs, firstMoveDeadline, moveDeadlineAt }`     |
 | `game:resign`         | `{ gameId }`                                                         | `game:over`                                                        | Full `GameStateDto` (also sent on checkmate/timeout/draw/abort)                                                  |
 | `game:abort`          | `{ gameId }`                                                         | `game:drawOffered`                                                 | `{ gameId, by }`                                                                                                 |
 | `game:drawOffer`      | `{ gameId }`                                                         | `game:drawDeclined`                                                | `{ gameId }`                                                                                                     |
@@ -230,16 +238,17 @@ play: a seek pairs only with one that wants the other color or doesn't
 mind, and each player gets the color they asked for (a coin decides when
 neither minds), as challenges' `color` already does.
 
-Nobody plays two games at once. While you have a game in progress,
+Nobody plays two live games at once. While you have one in progress,
 seeking (`matchmaking:error`, or 409 from `POST /matchmaking/seek`),
-sending a challenge and accepting one all fail with "Finish your game in
-progress first", and accepting a challenge from someone who's since
+sending a live challenge and accepting one all fail with "Finish your game
+in progress first", and accepting a challenge from someone who's since
 started a game fails with "<name> is in the middle of a game" (both
-`GamesService.assertNotPlaying`).
+`GamesService.assertNotPlaying`). Daily games are played alongside
+anything - see "Daily games".
 
 While a seek waits, its socket gets `lobby:stats` straight away and then
 every 5 seconds: `playersOnline` counts users with a connected socket and
-`gamesInPlay` counts active games. Under clustering, worker 0 sends them.
+`gamesInPlay` counts active live games. Under clustering, worker 0 sends them.
 
 Once a game is over, either player can send `game:rematchOffer`; when the
 other has offered too, the rematch starts - same time control and rated
@@ -300,6 +309,57 @@ with `game:state` and then sends that socket the game's `game:move` and
 `user:gameStarted` whenever a game of theirs starts, until
 `user:unfollow`.
 
+### Daily games
+
+A daily game gives each move 1, 2, 3, 5, 7 or 14 days, as chess.com's do.
+Its time doesn't build up: every move resets the mover's clock to the full
+days, and the side to move loses on time when `moveDeadlineAt` (in
+`GameStateDto` and the `game:move` push; `null` for a live game) passes.
+The first moves have those days too, with no `firstMoveDeadline` - missing
+one aborts the game, as a live game's first-move timeout does. It isn't
+forfeited by going offline, it takes no pre-moves, it never continues a
+rematch series, and it's rated in a `daily` category of its own.
+
+Days away, a timeout can't wait on a timer that a restart would lose:
+`DailyDeadlineSweeper` looks every minute, and on boot, for daily games
+out of time, each worker ending those it owns.
+
+A player can have up to 50 daily games in progress, played alongside a
+live game; a profile's or friend's `playingGameId`, and the lobby's
+`gamesInPlay`, count live games only. `GET /games/daily` lists yours in
+progress - those on your move first, then each by when its move runs out -
+with each one's position, last move, deadline and opponent, enough to draw
+it. `GET /games` takes `kind=live` or `kind=daily`.
+
+`POST /daily-seeks { days, rated?, ratingRange?, color? }` starts a game
+with a seek already waiting that agrees with it, by the same rules as live
+seeks (`{ status: 'matched', game }`), or leaves it waiting, however long
+(`{ status: 'queued', seek }`) - the game then arrives as `game:created`.
+A waiting seek is claimed by deleting it, so of two seekers at once only
+one gets it, on any worker. `GET /daily-seeks` lists yours, at most 10
+waiting at once, and `DELETE /daily-seeks/:id` withdraws one. Challenges
+send a daily game's days in `initialSeconds`, and wait three days for an
+answer.
+
+Conditional moves answer the opponent's next moves in advance:
+`POST /games/:id/conditional-moves { basePly, lines }`, while the opponent
+is to move, `basePly` the game's move count and each line their move, your
+reply, theirs... in UCI - checked legal, and added to any saved from that
+position (a last move with no reply is dropped; two different replies to
+one move are refused). The moment the opponent plays a move one answers,
+its reply is played and what follows kept; a move none foresaw drops them
+all. `GET` lists yours, `DELETE` drops them, and the opponent never sees
+them.
+
+`GET` and `PUT /games/:id/notes { body }` keep your own notes on a game,
+up to 4000 characters, seen by nobody else; saving none clears them.
+
+`GET /explorer?fen=` lists every move played from a position in finished
+games here, the most played first (at most 20), with how those games
+ended, and `totalGames`. Games still being played are left out, so a daily
+game can't be looked up while it's on. Each move keeps the position it was
+played from (`moves.positionKey`, its EPD), so transpositions meet.
+
 ### Friends, challenges and messages
 
 `GET /friends` describes each friend with their ratings, whether they're
@@ -311,8 +371,8 @@ live between two users.
 Anyone can challenge any player, friend or not. `POST /challenges` takes
 `{ opponentUsername, initialSeconds, incrementSeconds, color?, rated? }` (rated
 unless `rated: false`), replaces any pending challenge to the same player,
-and expires after `CHALLENGE_TTL_MS` (default 2 minutes; `expiresAt` in
-`ChallengeDto`). Expiry is pushed as `challenge:resolved` with status
+and expires after `CHALLENGE_TTL_MS` (default 2 minutes; three days for a
+daily game; `expiresAt` in `ChallengeDto`). Expiry is pushed as `challenge:resolved` with status
 `expired`, and accepting an expired one fails.
 
 `GET /users/:username` is a player's profile as the caller sees it: ratings,
@@ -356,7 +416,8 @@ separate emit.
 Disconnecting a socket starts a `GAME_DISCONNECT_GRACE_MS` (default 60s)
 countdown per joined game; reconnecting and re-emitting `game:join` before it
 elapses cancels it, otherwise the disconnected player forfeits by
-abandonment. Disconnecting also cancels any pending matchmaking seek.
+abandonment - in a live game; nobody forfeits a daily one so. Disconnecting
+also cancels any pending matchmaking seek, but not a daily seek.
 
 ## Performance notes
 
