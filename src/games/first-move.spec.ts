@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { STARTING_FEN, type Game } from './entities/game.entity.js';
-import { firstMoveDeadline, isAwaitingFirstMove } from './first-move.js';
+import {
+  firstMoveDeadline,
+  isAwaitingFirstMove,
+  shownFirstMoveDeadline,
+} from './first-move.js';
 
 const AFTER_E4 = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
 const AFTER_E4_E5 =
@@ -52,6 +56,19 @@ describe('first move', () => {
 
     expect(firstMoveDeadline(makeGame())).toEqual(
       new Date('2026-10-27T10:00:01Z'),
+    );
+  });
+
+  it("gives a daily game's first moves its days a move, shown on the clock rather than as a countdown", () => {
+    const game = makeGame({
+      gameType: 'daily',
+      initialSeconds: 3 * 24 * 60 * 60,
+    });
+
+    expect(firstMoveDeadline(game)).toEqual(new Date('2026-10-30T10:00:00Z'));
+    expect(shownFirstMoveDeadline(game)).toBeNull();
+    expect(shownFirstMoveDeadline(makeGame())).toEqual(
+      new Date('2026-10-27T10:00:30Z'),
     );
   });
 });

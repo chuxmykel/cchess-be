@@ -6,6 +6,7 @@ import {
 
 import {
   classifyTimeControl,
+  isDailyTimeControl,
   isValidTimeControl,
   type GameType,
   type TimeControl,
@@ -189,6 +190,13 @@ export class MatchmakingService {
     };
     if (!isValidTimeControl(tc)) {
       throw new BadRequestException('Invalid time control');
+    }
+    if (isDailyTimeControl(tc)) {
+      // A daily seek waits days, not seconds - it's posted over REST and
+      // kept in the database (see DailySeeksService), not queued here.
+      throw new BadRequestException(
+        'Daily games are sought with POST /daily-seeks',
+      );
     }
     if (request.ratingRange && !isValidRatingRange(request.ratingRange)) {
       throw new BadRequestException('Invalid rating range');

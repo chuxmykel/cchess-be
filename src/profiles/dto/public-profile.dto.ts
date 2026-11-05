@@ -62,7 +62,7 @@ export class ActivityDayDto extends ScoreDto {
   @ApiProperty({ description: 'The UTC day, YYYY-MM-DD' })
   date!: string;
 
-  @ApiProperty({ enum: ['bullet', 'blitz', 'rapid', 'classical'] })
+  @ApiProperty({ enum: ['bullet', 'blitz', 'rapid', 'classical', 'daily'] })
   category!: string;
 
   @ApiProperty()

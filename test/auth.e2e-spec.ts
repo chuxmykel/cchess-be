@@ -26,7 +26,7 @@ describe('Auth (e2e)', () => {
       .expect(201);
 
     expect(register.body.user.username).toBe('carol');
-    expect(register.body.user.ratings).toHaveLength(4);
+    expect(register.body.user.ratings).toHaveLength(5);
 
     const login = await request(app.getHttpServer())
       .post('/auth/login')

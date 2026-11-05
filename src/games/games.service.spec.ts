@@ -755,6 +755,102 @@ describe('GamesService', () => {
     }
   });
 
+  describe('daily games', () => {
+    const THREE_DAYS: TimeControl = {
+      initialSeconds: 3 * 24 * 60 * 60,
+      incrementSeconds: 0,
+    };
+    const THREE_DAYS_MS = toClockMs(THREE_DAYS);
+
+    it("resets the mover's clock to the full days with every move, first moves included", async () => {
+      const white = await makeUser('dailyw1');
+      const black = await makeUser('dailyb1');
+      const dateSpy = vi.spyOn(Date, 'now');
+      try {
+        const game = await ctx.gamesService.createGame(
+          white,
+          black,
+          THREE_DAYS,
+          true,
+        );
+        expect(game.gameType).toBe('daily');
+        expect(game.seriesWhitePoints).toBe(0);
+
+        const start = Date.now();
+        dateSpy.mockReturnValue(start + 2 * 86_400_000);
+        await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
+        dateSpy.mockReturnValue(start + 4 * 86_400_000);
+        await ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5');
+        dateSpy.mockReturnValue(start + 5 * 86_400_000);
+        const { game: after } = await ctx.gamesService.applyMove(
+          game.id,
+          white.id,
+          'g1',
+          'f3',
+        );
+
+        expect(after.whiteTimeRemainingMs).toBe(THREE_DAYS_MS);
+        expect(after.blackTimeRemainingMs).toBe(THREE_DAYS_MS);
+      } finally {
+        dateSpy.mockRestore();
+      }
+    });
+
+    it('flags a move made after its days have run out', async () => {
+      const white = await makeUser('dailyw2');
+      const black = await makeUser('dailyb2');
+      const dateSpy = vi.spyOn(Date, 'now');
+      try {
+        const game = await ctx.gamesService.createGame(
+          white,
+          black,
+          THREE_DAYS,
+          true,
+        );
+        await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
+        await ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5');
+
+        dateSpy.mockReturnValue(Date.now() + THREE_DAYS_MS + 1_000);
+        await expect(
+          ctx.gamesService.applyMove(game.id, white.id, 'g1', 'f3'),
+        ).rejects.toThrow('Flagged on time');
+
+        const finalGame = await ctx.gamesService.getGameOrThrow(game.id);
+        expect(finalGame.resultReason).toBe('timeout');
+        expect(finalGame.result).toBe('black');
+      } finally {
+        dateSpy.mockRestore();
+      }
+    });
+
+    it('aborts a game whose first move comes after its days', async () => {
+      const white = await makeUser('dailyw3');
+      const black = await makeUser('dailyb3');
+      const dateSpy = vi.spyOn(Date, 'now');
+      try {
+        const game = await ctx.gamesService.createGame(
+          white,
+          black,
+          THREE_DAYS,
+          true,
+        );
+        // Well past a live game's 30 seconds, still inside its days.
+        dateSpy.mockReturnValue(Date.now() + 86_400_000);
+        await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
+
+        dateSpy.mockReturnValue(Date.now() + 86_400_000 + THREE_DAYS_MS + 1);
+        await expect(
+          ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5'),
+        ).rejects.toThrow('Too late for the first move');
+        expect((await ctx.gamesService.getGameOrThrow(game.id)).status).toBe(
+          'aborted',
+        );
+      } finally {
+        dateSpy.mockRestore();
+      }
+    });
+  });
+
   it('does not let guest games affect ratings', async () => {
     const white = await makeUser('white9');
     const guest = await ctx.usersService.createGuestUser();

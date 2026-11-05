@@ -28,7 +28,11 @@ import type {
   ChallengeCreatedEvent,
   ChallengeResolvedEvent,
 } from '../challenges/challenges.service.js';
-import { toGameStateDto, toMoveDto } from '../games/dto/game-state.dto.js';
+import {
+  dailyFields,
+  toGameStateDto,
+  toMoveDto,
+} from '../games/dto/game-state.dto.js';
 import type { GameEvent, GameMoveEvent } from '../games/games.service.js';
 import { GamesService } from '../games/games.service.js';
 import {
@@ -36,7 +40,7 @@ import {
   type GameChatEvent,
 } from '../games/game-chat.service.js';
 import { toChatMessageDto } from '../games/dto/chat-message.dto.js';
-import { firstMoveDeadline } from '../games/first-move.js';
+import { shownFirstMoveDeadline } from '../games/first-move.js';
 import { RematchService, type RematchEvent } from '../games/rematch.service.js';
 import {
   FriendsService,
@@ -661,7 +665,8 @@ export class RealtimeGateway
         turn: game.turn,
         whiteTimeRemainingMs: game.whiteTimeRemainingMs,
         blackTimeRemainingMs: game.blackTimeRemainingMs,
-        firstMoveDeadline: firstMoveDeadline(game),
+        firstMoveDeadline: shownFirstMoveDeadline(game),
+        moveDeadlineAt: dailyFields(game).moveDeadlineAt,
       });
   }
 

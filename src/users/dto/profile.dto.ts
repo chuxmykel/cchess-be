@@ -5,7 +5,7 @@ import { isProvisional, type Rating } from '../entities/rating.entity.js';
 import type { User } from '../entities/user.entity.js';
 
 export class RatingDto {
-  @ApiProperty({ enum: ['bullet', 'blitz', 'rapid', 'classical'] })
+  @ApiProperty({ enum: ['bullet', 'blitz', 'rapid', 'classical', 'daily'] })
   category!: GameType;
 
   @ApiProperty()

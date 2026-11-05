@@ -56,6 +56,7 @@ import {
   type GameResultReason,
   type GameStatus,
 } from './entities/game.entity.js';
+import { isDailyGame } from './daily.js';
 import { firstMoveDeadline, isAwaitingFirstMove } from './first-move.js';
 import { Move } from './entities/move.entity.js';
 import { buildPgnText } from './pgn.util.js';
@@ -382,27 +383,32 @@ export class GamesService implements OnModuleDestroy {
     const gameType = classifyTimeControl(tc);
     const clockMs = toClockMs(tc);
     const isRated = rated && !white.isGuest && !black.isGuest;
+    // A daily game is one of many at once, played over weeks - never part
+    // of a rematch series, which is a run of games played back to back.
+    const continuesSeries = !series && gameType !== 'daily';
     const [whiteAtStart, blackAtStart, lastOfWhite, lastOfBlack] =
       await Promise.all([
         this.ratingAtStart(white, gameType),
         this.ratingAtStart(black, gameType),
-        series ? null : this.lastFinishedGameOf(white.id),
-        series ? null : this.lastFinishedGameOf(black.id),
+        continuesSeries ? this.lastFinishedGameOf(white.id) : null,
+        continuesSeries ? this.lastFinishedGameOf(black.id) : null,
       ]);
     const continued =
       series ??
-      seriesContinuedBy(
-        {
-          whiteId: white.id,
-          blackId: black.id,
-          initialSeconds: tc.initialSeconds,
-          incrementSeconds: tc.incrementSeconds,
-          rated: isRated,
-        },
-        lastOfWhite,
-        lastOfBlack,
-        new Date(),
-      );
+      (continuesSeries
+        ? seriesContinuedBy(
+            {
+              whiteId: white.id,
+              blackId: black.id,
+              initialSeconds: tc.initialSeconds,
+              incrementSeconds: tc.incrementSeconds,
+              rated: isRated,
+            },
+            lastOfWhite,
+            lastOfBlack,
+            new Date(),
+          )
+        : null);
 
     const startFen = this.startFen();
     const game = this.games.create({
@@ -773,13 +779,17 @@ export class GamesService implements OnModuleDestroy {
     const outcome = this.attemptMoveOrThrow(engine, from, to, promotion);
 
     const ply = engine.history().length;
-    const newRemaining = isFirstMove
-      ? remainingAfterElapsed
-      : remainingAfterElapsed +
-        incrementMs({
-          initialSeconds: game.initialSeconds,
-          incrementSeconds: game.incrementSeconds,
-        });
+    const tc: TimeControl = {
+      initialSeconds: game.initialSeconds,
+      incrementSeconds: game.incrementSeconds,
+    };
+    // A daily game's time doesn't build up: each move resets the mover's
+    // clock to the full days a move.
+    const newRemaining = isDailyGame(game)
+      ? toClockMs(tc)
+      : isFirstMove
+        ? remainingAfterElapsed
+        : remainingAfterElapsed + incrementMs(tc);
 
     this.applyMoveToGameState(game, outcome, color, newRemaining, now);
     const move = this.buildMoveEntity(game, outcome, ply, newRemaining, now);
@@ -1236,9 +1246,12 @@ export class GamesService implements OnModuleDestroy {
   }
 
   /** Schedules whatever ends the game if the side to move does nothing:
-   * missing the first-move deadline, or running out of time. */
+   * missing the first-move deadline, or running out of time. Not a daily
+   * game's - days away, a timer would be lost to any restart in between;
+   * expireOverdueDailyGames finds those from the database instead. */
   private scheduleFlagFall(game: Game): void {
     this.clearFlagFallTimer(game.id);
+    if (isDailyGame(game)) return;
     const deadline = firstMoveDeadline(game);
     const remaining = deadline
       ? deadline.getTime() - Date.now()

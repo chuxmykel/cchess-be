@@ -96,7 +96,7 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
         online: false,
         playingGameId: null,
       });
-      expect(before.body[0].ratings).toHaveLength(4);
+      expect(before.body[0].ratings).toHaveLength(5);
 
       await connectAs(ben);
       const gameId = await startGame(ann, ben);
