@@ -849,6 +849,86 @@ describe('GamesService', () => {
         dateSpy.mockRestore();
       }
     });
+
+    it('ends daily games out of time from the database, and only those', async () => {
+      const white = await makeUser('dailyw4');
+      const black = await makeUser('dailyb4');
+      const dateSpy = vi.spyOn(Date, 'now');
+      try {
+        const played = await ctx.gamesService.createGame(
+          white,
+          black,
+          { initialSeconds: 24 * 60 * 60, incrementSeconds: 0 },
+          true,
+        );
+        await ctx.gamesService.applyMove(played.id, white.id, 'e2', 'e4');
+        await ctx.gamesService.applyMove(played.id, black.id, 'e7', 'e5');
+        const unstarted = await ctx.gamesService.createGame(
+          white,
+          black,
+          { initialSeconds: 24 * 60 * 60, incrementSeconds: 0 },
+          true,
+        );
+        const longer = await ctx.gamesService.createGame(
+          white,
+          black,
+          THREE_DAYS,
+          true,
+        );
+
+        const twoDaysOn = Date.now() + 2 * 86_400_000;
+        dateSpy.mockReturnValue(twoDaysOn);
+        expect(
+          await ctx.gamesService.expireOverdueDailyGames(new Date(twoDaysOn)),
+        ).toBe(2);
+
+        const timedOut = await ctx.gamesService.getGameWithMoves(played.id);
+        expect(timedOut.resultReason).toBe('timeout');
+        expect(timedOut.result).toBe('black');
+        expect(
+          (await ctx.gamesService.getGameWithMoves(unstarted.id)).status,
+        ).toBe('aborted');
+        expect(
+          (await ctx.gamesService.getGameWithMoves(longer.id)).status,
+        ).toBe('active');
+      } finally {
+        dateSpy.mockRestore();
+      }
+    });
+
+    it('refuses a pre-move', async () => {
+      const white = await makeUser('dailyw5');
+      const black = await makeUser('dailyb5');
+      const game = await ctx.gamesService.createGame(
+        white,
+        black,
+        THREE_DAYS,
+        true,
+      );
+
+      await expect(
+        ctx.gamesService.setPremove(game.id, black.id, 'e7', 'e5'),
+      ).rejects.toThrow('Daily games have no pre-moves');
+    });
+
+    it('is not forfeited by its player going offline', async () => {
+      const white = await makeUser('dailyw6');
+      const black = await makeUser('dailyb6');
+      const game = await ctx.gamesService.createGame(
+        white,
+        black,
+        THREE_DAYS,
+        true,
+      );
+      await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
+      await ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5');
+
+      await ctx.gamesService.forfeitByAbandonment(game.id, white.id);
+
+      expect((await ctx.gamesService.getGameOrThrow(game.id)).status).toBe(
+        'active',
+      );
+    });
   });
 
   it('does not let guest games affect ratings', async () => {

@@ -701,6 +701,11 @@ export class GamesService implements OnModuleDestroy {
       const game = await this.getGameOrThrow(gameId);
       this.assertGameActive(game);
       const color = this.colorOf(game, userId);
+      // Days apart, a daily game's moves need no pre-moves - and one held
+      // only in memory, as these are, wouldn't last that long anyway.
+      if (isDailyGame(game)) {
+        throw new BadRequestException('Daily games have no pre-moves');
+      }
       if (game.turn === color) return false;
       this.premoves.set(gameId, { color, from, to, promotion });
       return true;
@@ -1197,7 +1202,7 @@ export class GamesService implements OnModuleDestroy {
   ): Promise<void> {
     return this.mutex.runExclusive(gameId, async () => {
       const game = await this.getGameOrThrow(gameId);
-      if (game.status !== 'active') return;
+      if (game.status !== 'active' || isDailyGame(game)) return;
       const color = this.colorOf(game, userId);
       await this.finalize(
         game,
@@ -1276,19 +1281,47 @@ export class GamesService implements OnModuleDestroy {
     }
   }
 
-  private async handleFlagFall(gameId: string): Promise<void> {
-    await this.mutex.runExclusive(gameId, async () => {
+  /**
+   * Ends every daily game this worker owns whose side to move has run out
+   * of time - or, still on the first moves, aborts it - as the flag timer
+   * does a live game's. Found from the database, so a restart loses none;
+   * run every minute by DailyDeadlineSweeper. Returns how many it ended.
+   */
+  async expireOverdueDailyGames(now = new Date()): Promise<number> {
+    const rows: Array<{ id: string }> = await this.games.query(
+      `SELECT id FROM games
+       WHERE status = 'active' AND "gameType" = 'daily' AND "deletedAt" IS NULL
+         AND COALESCE("lastMoveAt", "createdAt")
+           + (CASE WHEN turn = 'w' THEN "whiteTimeRemainingMs"
+                   ELSE "blackTimeRemainingMs" END) * interval '1 millisecond'
+           <= $1`,
+      [now],
+    );
+    let ended = 0;
+    for (const { id } of rows) {
+      if (!isMine(id)) continue;
+      // Rechecked under the game's lock against its cached state, which a
+      // move just made may not have written back yet.
+      if (await this.handleFlagFall(id)) ended++;
+    }
+    return ended;
+  }
+
+  /** Ends the game if the side to move has run out of time - or
+   * reschedules its timer if not. True if it ended it. */
+  private async handleFlagFall(gameId: string): Promise<boolean> {
+    return this.mutex.runExclusive(gameId, async () => {
       const game = await this.getGameOrThrow(gameId);
-      if (game.status !== 'active') return;
+      if (game.status !== 'active') return false;
 
       const deadline = firstMoveDeadline(game);
       if (deadline) {
         if (Date.now() < deadline.getTime()) {
           this.scheduleFlagFall(game);
-          return;
+          return false;
         }
         await this.finalize(game, null, 'abort', 'aborted');
-        return;
+        return true;
       }
 
       const elapsedSinceLastMove = game.lastMoveAt
@@ -1301,7 +1334,7 @@ export class GamesService implements OnModuleDestroy {
       if (remaining - elapsedSinceLastMove > 0) {
         // A move landed concurrently and reset the clock - re-schedule rather than flag.
         this.scheduleFlagFall(game);
-        return;
+        return false;
       }
 
       const loserColor = game.turn;
@@ -1312,6 +1345,7 @@ export class GamesService implements OnModuleDestroy {
         loserColor === 'w' ? 'black' : 'white',
         'timeout',
       );
+      return true;
     });
   }
 

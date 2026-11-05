@@ -40,6 +40,7 @@ import {
   type GameChatEvent,
 } from '../games/game-chat.service.js';
 import { toChatMessageDto } from '../games/dto/chat-message.dto.js';
+import { isDailyGame } from '../games/daily.js';
 import { shownFirstMoveDeadline } from '../games/first-move.js';
 import { RematchService, type RematchEvent } from '../games/rematch.service.js';
 import {
@@ -85,10 +86,16 @@ function abandonmentTimerKey(gameId: string, userId: string): string {
   return `${gameId}:${userId}`;
 }
 
+interface JoinedGame {
+  opponentId: string;
+  /** A daily game, which nobody forfeits by going offline. */
+  daily: boolean;
+}
+
 interface SocketData {
   user: AuthenticatedUser;
-  /** Each game this socket joined, mapped to the opponent's user id. */
-  joinedGames: Map<string, string>;
+  /** Each game this socket joined, by id. */
+  joinedGames: Map<string, JoinedGame>;
 }
 
 // Wildcard origin, no credentials - WS auth travels in the handshake's own
@@ -221,8 +228,9 @@ export class RealtimeGateway
     const graceMs = this.configService.get('game.disconnectGraceMs', {
       infer: true,
     });
-    for (const [gameId, opponentId] of data.joinedGames ?? []) {
-      this.scheduleAbandonmentForfeit(gameId, userId, graceMs);
+    for (const [gameId, { opponentId, daily }] of data.joinedGames ?? []) {
+      // A daily game's moves are days apart - its players come and go.
+      if (!daily) this.scheduleAbandonmentForfeit(gameId, userId, graceMs);
       this.sendPresence(opponentId, gameId, userId, false);
     }
     await this.usersService.touchLastSeen(userId);
@@ -309,7 +317,10 @@ export class RealtimeGateway
     const game = await this.gamesService.getGameWithMoves(payload.gameId);
     const opponentId =
       game.whiteId === user.userId ? game.blackId : game.whiteId;
-    (socket.data as SocketData).joinedGames.set(payload.gameId, opponentId);
+    (socket.data as SocketData).joinedGames.set(payload.gameId, {
+      opponentId,
+      daily: isDailyGame(game),
+    });
     socket.emit(WS_EVENTS.GAME_STATE, toGameStateDto(game));
 
     this.sendPresence(opponentId, payload.gameId, user.userId, true);
