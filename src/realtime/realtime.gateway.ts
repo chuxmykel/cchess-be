@@ -1,4 +1,9 @@
-import { HttpException, Logger, type OnModuleDestroy } from '@nestjs/common';
+import {
+  HttpException,
+  Logger,
+  NotFoundException,
+  type OnModuleDestroy,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
@@ -590,6 +595,9 @@ export class RealtimeGateway
     fn: () => Promise<unknown>,
   ): Promise<void> {
     try {
+      // Payloads aren't validated: one with no game id would fail deep in
+      // ownership routing or TypeORM instead, logged as if it were a bug.
+      if (!gameId) throw new NotFoundException('Game not found');
       await fn();
     } catch (error) {
       this.logIfUnexpected(`${event} (game ${gameId})`, error);

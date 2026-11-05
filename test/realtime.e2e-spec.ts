@@ -235,6 +235,21 @@ describe('Realtime gateway (e2e)', () => {
     blackSocket.disconnect();
   });
 
+  it('refuses a move for no game at all as one not found', async () => {
+    const { whiteSocket, blackSocket } = await startGame('ned_ng', 'olga_ng');
+
+    const error = waitForEvent(whiteSocket, 'game:error');
+    whiteSocket.emit('game:move', { gameId: null, from: 'e2', to: 'e4' });
+    await expect(error).resolves.toEqual({
+      gameId: null,
+      event: 'game:move',
+      message: 'Game not found',
+    });
+
+    whiteSocket.disconnect();
+    blackSocket.disconnect();
+  });
+
   it('tells each player whether the other is connected', async () => {
     const pia = await registerUser(app, 'pia_rt');
     const quin = await registerUser(app, 'quin_rt');
