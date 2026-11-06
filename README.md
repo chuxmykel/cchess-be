@@ -386,9 +386,7 @@ first, as `/friends` describes yours (presence, ratings) plus `friendsSince`.
 `GET /users/:username/activity` groups their last 30 days of finished games
 by UTC day and category, and `GET /users/:username/games` lists their games
 like `GET /games` does yours (`limit`, `before`). Both leave out aborted
-games unless asked for them with `status=aborted`, and both narrow to
-`result=win|draw|loss` - for the player whose games they are - and to a
-`gameType`.
+games unless asked for them with `status=aborted`.
 `GET /games/counts` and `GET /users/:username/games/counts` count finished
 games by how each ended for that player and its type - `{ result,
 gameType, count }`, one for each pair played - so a history's filters can
