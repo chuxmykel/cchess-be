@@ -84,6 +84,11 @@ soft-deleted (`softDelete`). An upsert that brings a row back sets
 something, as the daily seek claim does. Raw SQL has to filter on `deletedAt`
 itself. Repository finds skip soft-deleted rows on their own.
 
+Migrations are written with `queryRunner`'s schema methods (`createTable`,
+`addColumn`, `createIndex`, `createForeignKey`, ...), naming their
+constraints and indexes, and move data with `queryRunner.manager`'s query
+builder - not raw SQL through `queryRunner.query`.
+
 The app boots with `migrationsRun: true`, so a running `nest start --watch`
 applies a file the moment it lands in `src/database/migrations/`. Check drift
 with `migration:generate -- <path> --dryrun`, never by generating a throwaway
