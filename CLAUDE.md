@@ -76,6 +76,19 @@ list instead: it's also loaded straight from `src/*.ts` by the e2e suite,
 and a glob there does a raw Node `import()` that bypasses vitest's TS
 transform and breaks on non-compiled files.
 
+Every table has `createdAt`, `updatedAt` and `deletedAt` (`timestamptz`,
+`@CreateDateColumn`/`@UpdateDateColumn`/`@DeleteDateColumn`), and rows are
+soft-deleted (`softDelete`). An upsert that brings a row back sets
+`deletedAt: null`, as `bookmarks.service.ts` does. `softDelete` doesn't add
+`deletedAt IS NULL` to its own criteria: put it there when `affected` decides
+something, as the daily seek claim does. Raw SQL has to filter on `deletedAt`
+itself. Repository finds skip soft-deleted rows on their own.
+
+The app boots with `migrationsRun: true`, so a running `nest start --watch`
+applies a file the moment it lands in `src/database/migrations/`. Check drift
+with `migration:generate -- <path> --dryrun`, never by generating a throwaway
+migration there.
+
 There's no `lint:fix` - oxlint's type-aware mode here is check-only; fix
 flagged issues by hand.
 

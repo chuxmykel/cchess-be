@@ -1153,8 +1153,10 @@ describe('GamesService', () => {
         expect(
           await ctx.moduleRef
             .get(DataSource)
-            .query('SELECT * FROM conditional_moves'),
-        ).toEqual([]);
+            .query(
+              'SELECT "deletedAt" IS NOT NULL AS "dropped" FROM conditional_moves',
+            ),
+        ).toEqual([{ dropped: true }]);
       });
     });
   });

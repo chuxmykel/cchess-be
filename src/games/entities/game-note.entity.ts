@@ -1,6 +1,7 @@
 import {
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   JoinColumn,
   ManyToOne,
@@ -16,7 +17,7 @@ import { Game } from './game.entity.js';
 export const MAX_GAME_NOTE_LENGTH = 4000;
 
 /** A player's own notes on a game - plans for a daily game, say - seen by
- * nobody else. One a game; cleared notes are deleted. */
+ * nobody else. One a game; cleared notes are soft-deleted. */
 @Entity('game_notes')
 export class GameNote {
   @PrimaryColumn('uuid')
@@ -41,4 +42,7 @@ export class GameNote {
 
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
+
+  @DeleteDateColumn({ type: 'timestamptz' })
+  deletedAt!: Date | null;
 }

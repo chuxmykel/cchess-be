@@ -933,7 +933,7 @@ export class GamesService implements OnModuleDestroy {
         ? branchFor(set.tree, toUci(played))
         : undefined;
     if (!branch) {
-      await this.conditionalMoves.delete({ gameId: game.id, userId });
+      await this.conditionalMoves.softDelete({ gameId: game.id, userId });
       return;
     }
 
@@ -949,7 +949,7 @@ export class GamesService implements OnModuleDestroy {
         { basePly: played.ply + 1, tree: branch.next },
       );
     } else {
-      await this.conditionalMoves.delete({ gameId: game.id, userId });
+      await this.conditionalMoves.softDelete({ gameId: game.id, userId });
     }
   }
 
@@ -1570,7 +1570,7 @@ export class GamesService implements OnModuleDestroy {
     this.movesCache.delete(game.id);
     this.premoves.delete(game.id);
     if (isDailyGame(game)) {
-      await this.conditionalMoves.delete({ gameId: game.id });
+      await this.conditionalMoves.softDelete({ gameId: game.id });
     }
 
     game.status = status;
