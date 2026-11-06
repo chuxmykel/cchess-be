@@ -713,6 +713,35 @@ export class GamesService implements OnModuleDestroy {
    * worker owns are read from its cache, as getGameWithMoves does, since a
    * move just broadcast may not have reached the database yet.
    */
+  /**
+   * A player's finished games counted by how each ended for them and its
+   * type - one row for each pair they've played - for a history's filters
+   * to total whatever they're set to.
+   */
+  async countGamesForUser(
+    userId: string,
+  ): Promise<{ result: GameOutcome; gameType: GameType; count: number }[]> {
+    const rows = await this.games
+      .createQueryBuilder('g')
+      .select('g.gameType', 'gameType')
+      .addSelect(
+        `CASE WHEN g.result = 'draw' THEN 'draw'
+          WHEN (g.whiteId = :userId AND g.result = 'white')
+            OR (g.blackId = :userId AND g.result = 'black') THEN 'win'
+          ELSE 'loss' END`,
+        'result',
+      )
+      .addSelect('COUNT(*)', 'count')
+      .where('(g.whiteId = :userId OR g.blackId = :userId)', { userId })
+      .andWhere('g.deletedAt IS NULL')
+      .andWhere("g.status = 'completed'")
+      .andWhere('g.result IS NOT NULL')
+      .groupBy('1')
+      .addGroupBy('2')
+      .getRawMany<{ result: GameOutcome; gameType: GameType; count: string }>();
+    return rows.map((row) => ({ ...row, count: Number(row.count) }));
+  }
+
   async listDailyGamesForUser(
     userId: string,
     limit = MAX_ACTIVE_DAILY_GAMES,

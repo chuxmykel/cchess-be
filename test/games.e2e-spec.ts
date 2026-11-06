@@ -124,6 +124,22 @@ describe('Games via challenges (e2e)', () => {
       gameId,
     ]);
 
+    // Counted by result and type, from each player's side.
+    const judysCounts = await request(app.getHttpServer())
+      .get('/games/counts')
+      .set('Authorization', `Bearer ${judy.accessToken}`)
+      .expect(200);
+    expect(judysCounts.body).toEqual([
+      { result: 'win', gameType: 'blitz', count: 1 },
+    ]);
+    const ivansCounts = await request(app.getHttpServer())
+      .get(`/users/${ivan.username}/games/counts`)
+      .set('Authorization', `Bearer ${judy.accessToken}`)
+      .expect(200);
+    expect(ivansCounts.body).toEqual([
+      { result: 'loss', gameType: 'blitz', count: 1 },
+    ]);
+
     const pgn = await request(app.getHttpServer())
       .get(`/games/${gameId}/pgn`)
       .set('Authorization', `Bearer ${ivan.accessToken}`)

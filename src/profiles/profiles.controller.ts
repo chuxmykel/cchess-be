@@ -8,6 +8,7 @@ import {
   toGameSummaryDto,
 } from '../games/dto/game-summary.dto.js';
 import { UserFriendDto } from '../friends/dto/friend.dto.js';
+import { GameCountDto } from '../games/dto/game-counts.dto.js';
 import { ListGamesQuery } from '../games/dto/list-games.query.js';
 import { GamesService } from '../games/games.service.js';
 import { UsersService } from '../users/users.service.js';
@@ -111,5 +112,17 @@ export class ProfilesController {
     const user = await this.profilesService.findUserOrThrow(username);
     const games = await this.gamesService.listGamesForUser(user.id, query);
     return games.map((game) => toGameSummaryDto(game, user.id));
+  }
+
+  @Get(':username/games/counts')
+  @ApiOperation({
+    summary:
+      "How many of a user's finished games ended in a win, draw or loss for them, by game type",
+  })
+  async getGameCounts(
+    @Param('username') username: string,
+  ): Promise<GameCountDto[]> {
+    const user = await this.profilesService.findUserOrThrow(username);
+    return this.gamesService.countGamesForUser(user.id);
   }
 }

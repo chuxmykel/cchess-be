@@ -32,6 +32,7 @@ import {
   toDailyGameDto,
 } from './dto/daily-game.dto.js';
 import { DrawRespondDto } from './dto/draw-respond.dto.js';
+import { GameCountDto } from './dto/game-counts.dto.js';
 import { GameNoteDto, SaveGameNoteDto } from './dto/game-note.dto.js';
 import { GameStateDto, toGameStateDto } from './dto/game-state.dto.js';
 import { GameSummaryDto, toGameSummaryDto } from './dto/game-summary.dto.js';
@@ -68,6 +69,15 @@ export class GamesController {
   ): Promise<GameSummaryDto[]> {
     const games = await this.gamesService.listGamesForUser(user.userId, query);
     return games.map((game) => toGameSummaryDto(game, user.userId));
+  }
+
+  @Get('counts')
+  @ApiOperation({
+    summary:
+      'How many of your finished games ended in a win, draw or loss, by game type',
+  })
+  countMine(@CurrentUser() user: AuthenticatedUser): Promise<GameCountDto[]> {
+    return this.gamesService.countGamesForUser(user.userId);
   }
 
   @Get('daily')
