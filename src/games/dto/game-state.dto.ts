@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-import type { GameType } from '../../chess/time-control.js';
+import { daysPerMove, type GameType } from '../../chess/time-control.js';
 import type {
   DrawOfferBy,
   Game,
@@ -13,7 +13,8 @@ import type { Move } from '../entities/move.entity.js';
 import { isProvisional } from '../../users/entities/rating.entity.js';
 import { chatClosesAt } from '../chat-window.js';
 import { remainingTimesAt } from '../clock.js';
-import { firstMoveDeadline } from '../first-move.js';
+import { isDailyGame, moveDeadline } from '../daily.js';
+import { shownFirstMoveDeadline } from '../first-move.js';
 import { seriesPointsAfter } from '../rematch-series.js';
 
 export class GamePlayerDto {
@@ -100,7 +101,7 @@ export class GameStateDto {
   @ApiProperty()
   incrementSeconds!: number;
 
-  @ApiProperty({ enum: ['bullet', 'blitz', 'rapid', 'classical'] })
+  @ApiProperty({ enum: ['bullet', 'blitz', 'rapid', 'classical', 'daily'] })
   gameType!: GameType;
 
   @ApiProperty()
@@ -176,9 +177,25 @@ export class GameStateDto {
     type: Date,
     nullable: true,
     description:
-      'When the side to move must have played its first move by, or the game is aborted; null once both sides have moved',
+      'When the side to move must have played its first move by, or the game is aborted; null once both sides have moved, and always in a daily game, whose first moves have the days every move does (see moveDeadlineAt)',
   })
   firstMoveDeadline!: Date | null;
+
+  @ApiProperty({
+    type: Number,
+    nullable: true,
+    description:
+      "A daily game's days per move - its clock, reset to them by every move; null for a live game",
+  })
+  daysPerMove!: number | null;
+
+  @ApiProperty({
+    type: Date,
+    nullable: true,
+    description:
+      'When the side to move runs out of time, in a daily game still being played; null otherwise',
+  })
+  moveDeadlineAt!: Date | null;
 
   @ApiProperty({ type: [MoveDto] })
   moves!: MoveDto[];
@@ -264,10 +281,23 @@ export function toGameStateDto(
     series: game.rematchOfId ? seriesPointsAfter(game) : null,
     rematchOfferedBy: game.rematchOfferedBy,
     rematchGameId: game.rematchGameId,
-    firstMoveDeadline: firstMoveDeadline(game),
+    firstMoveDeadline: shownFirstMoveDeadline(game),
+    ...dailyFields(game),
     moves: (game.moves ?? []).map(toMoveDto),
     createdAt: game.createdAt,
     endedAt: game.endedAt,
     chatClosesAt: chatClosesAt(game),
+  };
+}
+
+/** A daily game's days per move and the side to move's deadline - null
+ * for a live game. */
+export function dailyFields(
+  game: Game,
+): Pick<GameStateDto, 'daysPerMove' | 'moveDeadlineAt'> {
+  if (!isDailyGame(game)) return { daysPerMove: null, moveDeadlineAt: null };
+  return {
+    daysPerMove: daysPerMove(game),
+    moveDeadlineAt: moveDeadline(game),
   };
 }

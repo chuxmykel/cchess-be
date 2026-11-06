@@ -10,8 +10,8 @@ import {
 } from 'class-validator';
 
 import {
+  MAX_DAILY_SECONDS,
   MAX_INCREMENT,
-  MAX_INITIAL_SECONDS,
   MIN_INCREMENT,
   MIN_INITIAL_SECONDS,
 } from '../../chess/time-control.js';
@@ -25,13 +25,14 @@ export class CreateChallengeDto {
   opponentUsername!: string;
 
   @ApiProperty({
-    description: 'Starting clock per side, in seconds',
+    description:
+      "Starting clock per side, in seconds - up to 3 hours, or a daily game's days per move in whole days (1, 2, 3, 5, 7 or 14, with no increment)",
     minimum: MIN_INITIAL_SECONDS,
-    maximum: MAX_INITIAL_SECONDS,
+    maximum: MAX_DAILY_SECONDS,
   })
   @IsInt()
   @Min(MIN_INITIAL_SECONDS)
-  @Max(MAX_INITIAL_SECONDS)
+  @Max(MAX_DAILY_SECONDS)
   initialSeconds!: number;
 
   @ApiProperty({ minimum: MIN_INCREMENT, maximum: MAX_INCREMENT })

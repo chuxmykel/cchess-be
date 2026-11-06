@@ -43,7 +43,7 @@ describe('Bot seeder (e2e)', () => {
         .send({ usernameOrEmail: username, password: BOT_PASSWORD })
         .expect(200);
       expect(login.body.user.username).toBe(username);
-      expect(login.body.user.ratings).toHaveLength(4);
+      expect(login.body.user.ratings).toHaveLength(5);
     }
   });
 

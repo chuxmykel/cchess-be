@@ -23,6 +23,7 @@ export const GAME_TYPES: readonly GameType[] = [
   'blitz',
   'rapid',
   'classical',
+  'daily',
 ];
 
 // Postgres's own SQLSTATE code for unique_violation - not an app-specific

@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Post,
   Put,
   Query,
@@ -21,12 +22,25 @@ import type { Response } from 'express';
 
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/types.js';
+import {
+  AddConditionalLinesDto,
+  ConditionalLinesDto,
+} from './dto/conditional-moves.dto.js';
+import {
+  DailyGameDto,
+  ListDailyGamesQuery,
+  toDailyGameDto,
+} from './dto/daily-game.dto.js';
 import { DrawRespondDto } from './dto/draw-respond.dto.js';
+import { GameCountDto } from './dto/game-counts.dto.js';
+import { GameNoteDto, SaveGameNoteDto } from './dto/game-note.dto.js';
 import { GameStateDto, toGameStateDto } from './dto/game-state.dto.js';
 import { GameSummaryDto, toGameSummaryDto } from './dto/game-summary.dto.js';
 import { ListGamesQuery } from './dto/list-games.query.js';
 import { MakeMoveDto } from './dto/make-move.dto.js';
 import { BookmarksService } from './bookmarks.service.js';
+import { ConditionalMovesService } from './conditional-moves.service.js';
+import { GameNotesService } from './game-notes.service.js';
 import { GamesService } from './games.service.js';
 
 class BookmarkStateDto {
@@ -41,6 +55,8 @@ export class GamesController {
   constructor(
     private readonly gamesService: GamesService,
     private readonly bookmarksService: BookmarksService,
+    private readonly gameNotesService: GameNotesService,
+    private readonly conditionalMovesService: ConditionalMovesService,
   ) {}
 
   @Get()
@@ -53,6 +69,31 @@ export class GamesController {
   ): Promise<GameSummaryDto[]> {
     const games = await this.gamesService.listGamesForUser(user.userId, query);
     return games.map((game) => toGameSummaryDto(game, user.userId));
+  }
+
+  @Get('counts')
+  @ApiOperation({
+    summary:
+      'How many of your finished games ended in a win, draw or loss, by game type',
+  })
+  countMine(@CurrentUser() user: AuthenticatedUser): Promise<GameCountDto[]> {
+    return this.gamesService.countGamesForUser(user.userId);
+  }
+
+  @Get('daily')
+  @ApiOperation({
+    summary:
+      'Your daily games in progress: those on your move first, then each by when its move runs out',
+  })
+  async listMyDaily(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ListDailyGamesQuery,
+  ): Promise<DailyGameDto[]> {
+    const listings = await this.gamesService.listDailyGamesForUser(
+      user.userId,
+      query.limit,
+    );
+    return listings.map((listing) => toDailyGameDto(listing, user.userId));
   }
 
   @Get(':id')
@@ -91,6 +132,84 @@ export class GamesController {
   ): Promise<BookmarkStateDto> {
     await this.bookmarksService.unbookmark(user.userId, id);
     return { bookmarked: false };
+  }
+
+  @Get(':id/notes')
+  @ApiOperation({ summary: 'Your own notes on a game, seen by nobody else' })
+  getNotes(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<GameNoteDto> {
+    return this.gameNotesService.get(user.userId, id);
+  }
+
+  @Put(':id/notes')
+  @ApiOperation({ summary: 'Replace your notes on a game' })
+  saveNotes(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SaveGameNoteDto,
+  ): Promise<GameNoteDto> {
+    return this.gameNotesService.save(user.userId, id, dto.body);
+  }
+
+  @Get(':id/conditional-moves')
+  @ApiOperation({
+    summary:
+      'Your conditional moves in a daily game, from its position as it stands',
+  })
+  getConditionalMoves(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<ConditionalLinesDto> {
+    return this.conditionalMovesService.get(user.userId, id);
+  }
+
+  @Post(':id/conditional-moves')
+  @ApiOperation({
+    summary:
+      'Add conditional moves to a daily game, the opponent being to move: each played the moment they make the move it answers',
+  })
+  addConditionalMoves(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AddConditionalLinesDto,
+  ): Promise<ConditionalLinesDto> {
+    return this.conditionalMovesService.add(
+      user.userId,
+      id,
+      dto.basePly,
+      dto.lines,
+    );
+  }
+
+  @Put(':id/conditional-moves')
+  @ApiOperation({
+    summary:
+      'Replace your conditional moves in a daily game with these, the opponent being to move - none clears them',
+  })
+  replaceConditionalMoves(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AddConditionalLinesDto,
+  ): Promise<ConditionalLinesDto> {
+    return this.conditionalMovesService.add(
+      user.userId,
+      id,
+      dto.basePly,
+      dto.lines,
+      { replace: true },
+    );
+  }
+
+  @Delete(':id/conditional-moves')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Drop your conditional moves in a daily game' })
+  clearConditionalMoves(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    return this.conditionalMovesService.clear(user.userId, id);
   }
 
   @Get(':id/pgn')

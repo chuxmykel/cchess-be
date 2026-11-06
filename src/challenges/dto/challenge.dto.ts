@@ -43,7 +43,7 @@ export class ChallengeDto {
   @ApiProperty()
   incrementSeconds!: number;
 
-  @ApiProperty({ enum: ['bullet', 'blitz', 'rapid', 'classical'] })
+  @ApiProperty({ enum: ['bullet', 'blitz', 'rapid', 'classical', 'daily'] })
   gameType!: GameType;
 
   @ApiProperty()

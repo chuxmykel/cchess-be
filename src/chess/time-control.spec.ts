@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   classifyTimeControl,
+  DAILY_DAYS,
   formatTimeControl,
   isValidTimeControl,
   MAX_INITIAL_SECONDS,
@@ -85,6 +86,40 @@ describe('isValidTimeControl', () => {
         incrementSeconds: 0,
       }),
     ).toBe(false);
+  });
+});
+
+describe('daily time controls', () => {
+  const DAY = 24 * 60 * 60;
+
+  it.each(DAILY_DAYS)('classifies %s days a move as daily', (days) => {
+    const tc = { initialSeconds: days * DAY, incrementSeconds: 0 };
+    expect(classifyTimeControl(tc)).toBe('daily');
+    expect(isValidTimeControl(tc)).toBe(true);
+  });
+
+  it('rejects days not on offer', () => {
+    expect(
+      isValidTimeControl({ initialSeconds: 4 * DAY, incrementSeconds: 0 }),
+    ).toBe(false);
+    expect(
+      isValidTimeControl({ initialSeconds: 1.5 * DAY, incrementSeconds: 0 }),
+    ).toBe(false);
+  });
+
+  it('rejects an increment, since every move resets the clock anyway', () => {
+    expect(
+      isValidTimeControl({ initialSeconds: DAY, incrementSeconds: 5 }),
+    ).toBe(false);
+  });
+
+  it('names its days', () => {
+    expect(
+      formatTimeControl({ initialSeconds: DAY, incrementSeconds: 0 }),
+    ).toBe('1 day');
+    expect(
+      formatTimeControl({ initialSeconds: 3 * DAY, incrementSeconds: 0 }),
+    ).toBe('3 days');
   });
 });
 

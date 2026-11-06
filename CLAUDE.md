@@ -182,6 +182,20 @@ access 'X' before initialization` at runtime for any circular entity
   assume they survive a restart. Under `CLUSTER_WORKERS > 1` they're made
   _routable_ across worker processes (see below) rather than moved out of
   memory entirely; a bare restart still loses them the same as today.
+- **Daily games keep nothing that matters in memory** (README's "Daily
+  games"). Their moves are days apart, so a restart in between is the
+  usual case, not a corner one: no flag timer (`DailyDeadlineSweeper`
+  finds games out of time in the database every minute, each worker ending
+  those it owns), no disconnect forfeit, no pre-moves, and their seeks
+  (`src/daily-seeks/`) and conditional moves (`conditional_moves`, played
+  in `applyMove` after the opponent's move) are rows. A daily time control
+  is just whole days in `initialSeconds` (`isDailyTimeControl`), so a
+  deadline is `(lastMoveAt ?? createdAt) + remaining` (`daily.ts`'s
+  `moveDeadline`), never stored. Anything new that waits on a player
+  should check `isDailyGame` and, if it'd wait days, live in the database.
+  `assertNotPlaying` is about live games only: daily games are played
+  alongside anything, up to `MAX_ACTIVE_DAILY_GAMES` (`assertCanStart`
+  picks the check for a time control).
 - **Multi-process sharding (`src/cluster/`, opt-in via `CLUSTER_WORKERS`)**
   parallelizes the one thing that actually needed it - `GamesService`'s
   per-move work - without touching its logic. `main.ts` forks one Node

@@ -13,7 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { PieceSymbol, Square } from 'chess.js';
-import { EntityManager, In, IsNull, Repository } from 'typeorm';
+import { EntityManager, In, IsNull, Not, Repository } from 'typeorm';
 
 import { ClusterBus } from '../cluster/cluster-bus.js';
 import { isMine, ownerIndex } from '../cluster/cluster.util.js';
@@ -28,10 +28,12 @@ import { GAMES_RPC } from '../cluster/rpc-channels.js';
 import { KeyedMutex } from '../common/keyed-mutex.js';
 import type { AppConfig } from '../config/configuration.js';
 import { ServerChessEngine, type MoveOutcome } from '../chess/chess-engine.js';
+import { positionKey } from '../chess/position-key.js';
 import {
   classifyTimeControl,
   formatTimeControl,
   incrementMs,
+  isDailyTimeControl,
   toClockMs,
   type GameType,
   type TimeControl,
@@ -40,6 +42,8 @@ import { DOMAIN_EVENTS } from '../common/events.js';
 import { UsersService } from '../users/users.service.js';
 import {
   DEFAULT_GAMES_LIST_LIMIT,
+  type GameKind,
+  type GameOutcome,
   MAX_GAMES_LIST_LIMIT,
 } from './dto/list-games.query.js';
 import type { User } from '../users/entities/user.entity.js';
@@ -56,7 +60,10 @@ import {
   type GameResultReason,
   type GameStatus,
 } from './entities/game.entity.js';
+import { isDailyGame, MAX_ACTIVE_DAILY_GAMES, moveDeadline } from './daily.js';
 import { firstMoveDeadline, isAwaitingFirstMove } from './first-move.js';
+import { branchFor, fromUci, toUci } from './conditional-moves.js';
+import { ConditionalMoveSet } from './entities/conditional-move-set.entity.js';
 import { Move } from './entities/move.entity.js';
 import { buildPgnText } from './pgn.util.js';
 import {
@@ -75,6 +82,16 @@ export interface DrawEvent extends GameEvent {
 export interface GameMoveEvent {
   game: Game;
   move: Move;
+}
+
+/** A daily game in progress, as a player's list of them shows it. */
+export interface DailyGameListing {
+  game: Game;
+  lastMove: { from: string; to: string } | null;
+  /** When the side to move runs out of time. */
+  deadline: Date;
+  /** Whether it's the listing player's move. */
+  myTurn: boolean;
 }
 
 const GAME_RELATIONS = { white: true, black: true } as const;
@@ -157,6 +174,8 @@ export class GamesService implements OnModuleDestroy {
   constructor(
     @InjectRepository(Game) private readonly games: Repository<Game>,
     @InjectRepository(Move) private readonly moves: Repository<Move>,
+    @InjectRepository(ConditionalMoveSet)
+    private readonly conditionalMoves: Repository<ConditionalMoveSet>,
     private readonly usersService: UsersService,
     private readonly events: EventEmitter2,
     private readonly configService: ConfigService<AppConfig, true>,
@@ -382,27 +401,32 @@ export class GamesService implements OnModuleDestroy {
     const gameType = classifyTimeControl(tc);
     const clockMs = toClockMs(tc);
     const isRated = rated && !white.isGuest && !black.isGuest;
+    // A daily game is one of many at once, played over weeks - never part
+    // of a rematch series, which is a run of games played back to back.
+    const continuesSeries = !series && gameType !== 'daily';
     const [whiteAtStart, blackAtStart, lastOfWhite, lastOfBlack] =
       await Promise.all([
         this.ratingAtStart(white, gameType),
         this.ratingAtStart(black, gameType),
-        series ? null : this.lastFinishedGameOf(white.id),
-        series ? null : this.lastFinishedGameOf(black.id),
+        continuesSeries ? this.lastFinishedGameOf(white.id) : null,
+        continuesSeries ? this.lastFinishedGameOf(black.id) : null,
       ]);
     const continued =
       series ??
-      seriesContinuedBy(
-        {
-          whiteId: white.id,
-          blackId: black.id,
-          initialSeconds: tc.initialSeconds,
-          incrementSeconds: tc.incrementSeconds,
-          rated: isRated,
-        },
-        lastOfWhite,
-        lastOfBlack,
-        new Date(),
-      );
+      (continuesSeries
+        ? seriesContinuedBy(
+            {
+              whiteId: white.id,
+              blackId: black.id,
+              initialSeconds: tc.initialSeconds,
+              incrementSeconds: tc.incrementSeconds,
+              rated: isRated,
+            },
+            lastOfWhite,
+            lastOfBlack,
+            new Date(),
+          )
+        : null);
 
     const startFen = this.startFen();
     const game = this.games.create({
@@ -500,13 +524,19 @@ export class GamesService implements OnModuleDestroy {
     return game;
   }
 
+  /** Live games being played - a daily one isn't so much in play as
+   * waiting days on a move. */
   countActiveGames(): Promise<number> {
-    return this.games.count({ where: { status: 'active' } });
+    return this.games.count({
+      where: { status: 'active', gameType: Not('daily') },
+    });
   }
 
   /**
-   * Throws while the user has a game in progress, so nobody plays two at
-   * once. `message` overrides what's said, for checking someone else.
+   * Throws while the user has a live game in progress, so nobody plays two
+   * at once - daily games aside, which wait days between moves and are
+   * played alongside anything. `message` overrides what's said, for
+   * checking someone else.
    */
   async assertNotPlaying(
     userId: string,
@@ -514,21 +544,49 @@ export class GamesService implements OnModuleDestroy {
   ): Promise<void> {
     const playing = await this.games.exists({
       where: [
-        { status: 'active', whiteId: userId },
-        { status: 'active', blackId: userId },
+        { status: 'active', whiteId: userId, gameType: Not('daily') },
+        { status: 'active', blackId: userId, gameType: Not('daily') },
       ],
     });
     if (playing) throw new ConflictException(message);
   }
 
-  /** Each of these users' game in progress, keyed by user id. */
+  /** Throws when the user already has MAX_ACTIVE_DAILY_GAMES daily games
+   * in progress. */
+  async assertDailyRoom(
+    userId: string,
+    message = `You can have at most ${MAX_ACTIVE_DAILY_GAMES} daily games in progress`,
+  ): Promise<void> {
+    const count = await this.games.count({
+      where: [
+        { status: 'active', whiteId: userId, gameType: 'daily' },
+        { status: 'active', blackId: userId, gameType: 'daily' },
+      ],
+    });
+    if (count >= MAX_ACTIVE_DAILY_GAMES) throw new ConflictException(message);
+  }
+
+  /** Throws when the user can't start a game of this time control now:
+   * a live one while playing one, a daily one with no room for another. */
+  assertCanStart(
+    userId: string,
+    tc: TimeControl,
+    message?: string,
+  ): Promise<void> {
+    return isDailyTimeControl(tc)
+      ? this.assertDailyRoom(userId, message)
+      : this.assertNotPlaying(userId, message);
+  }
+
+  /** Each of these users' live game in progress, keyed by user id - the
+   * one they're playing right now, to watch. */
   async activeGameIdsFor(userIds: string[]): Promise<Map<string, string>> {
     if (userIds.length === 0) return new Map();
     const games = await this.games.find({
       select: { id: true, whiteId: true, blackId: true },
       where: [
-        { status: 'active', whiteId: In(userIds) },
-        { status: 'active', blackId: In(userIds) },
+        { status: 'active', whiteId: In(userIds), gameType: Not('daily') },
+        { status: 'active', blackId: In(userIds), gameType: Not('daily') },
       ],
     });
     const byUser = new Map<string, string>();
@@ -598,7 +656,12 @@ export class GamesService implements OnModuleDestroy {
 
   async listGamesForUser(
     userId: string,
-    options: { status?: GameStatus; limit?: number; before?: Date } = {},
+    options: {
+      status?: GameStatus;
+      kind?: GameKind;
+      limit?: number;
+      before?: Date;
+    } = {},
   ): Promise<Game[]> {
     const limit = Math.min(
       options.limit ?? DEFAULT_GAMES_LIST_LIMIT,
@@ -620,8 +683,99 @@ export class GamesService implements OnModuleDestroy {
     else qb.andWhere("g.status != 'aborted'");
     if (options.before)
       qb.andWhere('g.createdAt < :before', { before: options.before });
+    if (options.kind === 'daily') qb.andWhere(`g.gameType = 'daily'`);
+    else if (options.kind === 'live') qb.andWhere(`g.gameType != 'daily'`);
 
     return qb.getMany();
+  }
+
+  /**
+   * The user's daily games in progress, most pressing first: those waiting
+   * on their move, then the rest, each by when its side to move runs out
+   * of time. With each one's last move, for a board to mark. Games this
+   * worker owns are read from its cache, as getGameWithMoves does, since a
+   * move just broadcast may not have reached the database yet.
+   */
+  /**
+   * A player's finished games counted by how each ended for them and its
+   * type - one row for each pair they've played - for a history's filters
+   * to total whatever they're set to.
+   */
+  async countGamesForUser(
+    userId: string,
+  ): Promise<{ result: GameOutcome; gameType: GameType; count: number }[]> {
+    const rows = await this.games
+      .createQueryBuilder('g')
+      .select('g.gameType', 'gameType')
+      .addSelect(
+        `CASE WHEN g.result = 'draw' THEN 'draw'
+          WHEN (g.whiteId = :userId AND g.result = 'white')
+            OR (g.blackId = :userId AND g.result = 'black') THEN 'win'
+          ELSE 'loss' END`,
+        'result',
+      )
+      .addSelect('COUNT(*)', 'count')
+      .where('(g.whiteId = :userId OR g.blackId = :userId)', { userId })
+      .andWhere('g.deletedAt IS NULL')
+      .andWhere("g.status = 'completed'")
+      .andWhere('g.result IS NOT NULL')
+      .groupBy('1')
+      .addGroupBy('2')
+      .getRawMany<{ result: GameOutcome; gameType: GameType; count: string }>();
+    return rows.map((row) => ({ ...row, count: Number(row.count) }));
+  }
+
+  async listDailyGamesForUser(
+    userId: string,
+    limit = MAX_ACTIVE_DAILY_GAMES,
+  ): Promise<DailyGameListing[]> {
+    const rows = await this.games.find({
+      where: [
+        { status: 'active', gameType: 'daily', whiteId: userId },
+        { status: 'active', gameType: 'daily', blackId: userId },
+      ],
+      relations: GAME_RELATIONS,
+    });
+    if (rows.length === 0) return [];
+    const lastMoves = await this.lastMovesOf(rows.map((game) => game.id));
+
+    const listings = rows.map((row): DailyGameListing => {
+      const cached = this.gameCache.get(row.id);
+      const game: Game = cached
+        ? // eslint-disable-next-line typescript/no-misused-spread -- a plain copy, as getGameWithMovesLocal makes.
+          { ...cached, white: row.white, black: row.black }
+        : row;
+      const cachedMoves = this.movesCache.get(row.id);
+      const lastMove = cachedMoves?.length
+        ? cachedMoves[cachedMoves.length - 1]
+        : lastMoves.get(row.id);
+      return {
+        game,
+        lastMove: lastMove ? { from: lastMove.from, to: lastMove.to } : null,
+        deadline: moveDeadline(game) ?? new Date(0),
+        myTurn: game.turn === this.colorOf(game, userId),
+      };
+    });
+    listings.sort(
+      (a, b) =>
+        Number(b.myTurn) - Number(a.myTurn) ||
+        a.deadline.getTime() - b.deadline.getTime(),
+    );
+    return listings.slice(0, limit);
+  }
+
+  /** Each of these games' last move, by game id. */
+  private async lastMovesOf(
+    gameIds: string[],
+  ): Promise<Map<string, Pick<Move, 'from' | 'to'>>> {
+    const rows: Array<{ gameId: string; from: string; to: string }> =
+      await this.moves.query(
+        `SELECT DISTINCT ON ("gameId") "gameId", "from", "to" FROM moves
+         WHERE "gameId" = ANY($1) AND "deletedAt" IS NULL
+         ORDER BY "gameId", ply DESC`,
+        [gameIds],
+      );
+    return new Map(rows.map(({ gameId, from, to }) => [gameId, { from, to }]));
   }
 
   async applyMove(
@@ -661,6 +815,7 @@ export class GamesService implements OnModuleDestroy {
       const now = Date.now();
       const played = await this.playMove(game, color, from, to, promotion, now);
       await this.playQueuedPremove(game, now);
+      await this.playConditionalReply(game, played.move);
       return played;
     });
   }
@@ -695,6 +850,11 @@ export class GamesService implements OnModuleDestroy {
       const game = await this.getGameOrThrow(gameId);
       this.assertGameActive(game);
       const color = this.colorOf(game, userId);
+      // Days apart, a daily game's moves need no pre-moves - and one held
+      // only in memory, as these are, wouldn't last that long anyway.
+      if (isDailyGame(game)) {
+        throw new BadRequestException('Daily games have no pre-moves');
+      }
       if (game.turn === color) return false;
       this.premoves.set(gameId, { color, from, to, promotion });
       return true;
@@ -753,6 +913,46 @@ export class GamesService implements OnModuleDestroy {
     }
   }
 
+  /**
+   * In a daily game, plays the reply the side now to move set for the
+   * opponent's move just played, if they set one (see
+   * ConditionalMovesService), keeping what follows it for the opponent's
+   * next. A move they didn't foresee - or a set saved against a position
+   * since moved on - drops the lot.
+   */
+  private async playConditionalReply(game: Game, played: Move): Promise<void> {
+    if (!isDailyGame(game) || game.status !== 'active') return;
+    const userId = game.turn === 'w' ? game.whiteId : game.blackId;
+    const set = await this.conditionalMoves.findOneBy({
+      gameId: game.id,
+      userId,
+    });
+    if (!set) return;
+    const branch =
+      set.basePly === played.ply - 1
+        ? branchFor(set.tree, toUci(played))
+        : undefined;
+    if (!branch) {
+      await this.conditionalMoves.delete({ gameId: game.id, userId });
+      return;
+    }
+
+    const { from, to, promotion } = fromUci(branch.reply);
+    try {
+      await this.playMove(game, game.turn, from, to, promotion, Date.now());
+    } catch (error) {
+      if (!(error instanceof BadRequestException)) throw error;
+    }
+    if (game.status === 'active' && branch.next.length > 0) {
+      await this.conditionalMoves.update(
+        { gameId: game.id, userId },
+        { basePly: played.ply + 1, tree: branch.next },
+      );
+    } else {
+      await this.conditionalMoves.delete({ gameId: game.id, userId });
+    }
+  }
+
   /** Plays `color`'s move in `game`, already checked to be active and its
    * turn, charging the time since the last move - or `chargeMs`. */
   private async playMove(
@@ -765,6 +965,7 @@ export class GamesService implements OnModuleDestroy {
     chargeMs?: number,
   ): Promise<{ game: Game; move: Move }> {
     const isFirstMove = isAwaitingFirstMove(game);
+    const fenBefore = game.fen;
     const remainingAfterElapsed = isFirstMove
       ? await this.enforceFirstMoveDeadline(game, color, now)
       : await this.enforceClock(game, color, now, chargeMs);
@@ -773,16 +974,27 @@ export class GamesService implements OnModuleDestroy {
     const outcome = this.attemptMoveOrThrow(engine, from, to, promotion);
 
     const ply = engine.history().length;
-    const newRemaining = isFirstMove
-      ? remainingAfterElapsed
-      : remainingAfterElapsed +
-        incrementMs({
-          initialSeconds: game.initialSeconds,
-          incrementSeconds: game.incrementSeconds,
-        });
+    const tc: TimeControl = {
+      initialSeconds: game.initialSeconds,
+      incrementSeconds: game.incrementSeconds,
+    };
+    // A daily game's time doesn't build up: each move resets the mover's
+    // clock to the full days a move.
+    const newRemaining = isDailyGame(game)
+      ? toClockMs(tc)
+      : isFirstMove
+        ? remainingAfterElapsed
+        : remainingAfterElapsed + incrementMs(tc);
 
     this.applyMoveToGameState(game, outcome, color, newRemaining, now);
-    const move = this.buildMoveEntity(game, outcome, ply, newRemaining, now);
+    const move = this.buildMoveEntity(
+      game,
+      outcome,
+      ply,
+      newRemaining,
+      now,
+      fenBefore,
+    );
     this.cacheMove(game.id, move);
 
     // Broadcast before persisting, not after - EventEmitter2 dispatches
@@ -898,6 +1110,7 @@ export class GamesService implements OnModuleDestroy {
     ply: number,
     newRemaining: number,
     now: number,
+    fenBefore: string,
   ): Move {
     // id generated here (not left to the DB), same as createGameLocal
     // already does for Game.id - nothing the broadcast below sends
@@ -914,6 +1127,7 @@ export class GamesService implements OnModuleDestroy {
       captured: outcome.move.captured ?? null,
       promotion: outcome.move.promotion ?? null,
       fenAfter: outcome.fen,
+      positionKey: positionKey(fenBefore),
       clockAfterMs: newRemaining,
       createdAt: new Date(now),
     });
@@ -965,8 +1179,8 @@ export class GamesService implements OnModuleDestroy {
   ): Promise<void> {
     await manager.query(
       `INSERT INTO moves
-         (id, "gameId", ply, "from", "to", piece, color, san, captured, promotion, "fenAfter", "clockAfterMs", "createdAt")
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+         (id, "gameId", ply, "from", "to", piece, color, san, captured, promotion, "fenAfter", "positionKey", "clockAfterMs", "createdAt")
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
       [
         move.id,
         move.gameId,
@@ -979,6 +1193,7 @@ export class GamesService implements OnModuleDestroy {
         move.captured,
         move.promotion,
         move.fenAfter,
+        move.positionKey,
         move.clockAfterMs,
         move.createdAt,
       ],
@@ -1187,7 +1402,7 @@ export class GamesService implements OnModuleDestroy {
   ): Promise<void> {
     return this.mutex.runExclusive(gameId, async () => {
       const game = await this.getGameOrThrow(gameId);
-      if (game.status !== 'active') return;
+      if (game.status !== 'active' || isDailyGame(game)) return;
       const color = this.colorOf(game, userId);
       await this.finalize(
         game,
@@ -1236,9 +1451,12 @@ export class GamesService implements OnModuleDestroy {
   }
 
   /** Schedules whatever ends the game if the side to move does nothing:
-   * missing the first-move deadline, or running out of time. */
+   * missing the first-move deadline, or running out of time. Not a daily
+   * game's - days away, a timer would be lost to any restart in between;
+   * expireOverdueDailyGames finds those from the database instead. */
   private scheduleFlagFall(game: Game): void {
     this.clearFlagFallTimer(game.id);
+    if (isDailyGame(game)) return;
     const deadline = firstMoveDeadline(game);
     const remaining = deadline
       ? deadline.getTime() - Date.now()
@@ -1263,19 +1481,47 @@ export class GamesService implements OnModuleDestroy {
     }
   }
 
-  private async handleFlagFall(gameId: string): Promise<void> {
-    await this.mutex.runExclusive(gameId, async () => {
+  /**
+   * Ends every daily game this worker owns whose side to move has run out
+   * of time - or, still on the first moves, aborts it - as the flag timer
+   * does a live game's. Found from the database, so a restart loses none;
+   * run every minute by DailyDeadlineSweeper. Returns how many it ended.
+   */
+  async expireOverdueDailyGames(now = new Date()): Promise<number> {
+    const rows: Array<{ id: string }> = await this.games.query(
+      `SELECT id FROM games
+       WHERE status = 'active' AND "gameType" = 'daily' AND "deletedAt" IS NULL
+         AND COALESCE("lastMoveAt", "createdAt")
+           + (CASE WHEN turn = 'w' THEN "whiteTimeRemainingMs"
+                   ELSE "blackTimeRemainingMs" END) * interval '1 millisecond'
+           <= $1`,
+      [now],
+    );
+    let ended = 0;
+    for (const { id } of rows) {
+      if (!isMine(id)) continue;
+      // Rechecked under the game's lock against its cached state, which a
+      // move just made may not have written back yet.
+      if (await this.handleFlagFall(id)) ended++;
+    }
+    return ended;
+  }
+
+  /** Ends the game if the side to move has run out of time - or
+   * reschedules its timer if not. True if it ended it. */
+  private async handleFlagFall(gameId: string): Promise<boolean> {
+    return this.mutex.runExclusive(gameId, async () => {
       const game = await this.getGameOrThrow(gameId);
-      if (game.status !== 'active') return;
+      if (game.status !== 'active') return false;
 
       const deadline = firstMoveDeadline(game);
       if (deadline) {
         if (Date.now() < deadline.getTime()) {
           this.scheduleFlagFall(game);
-          return;
+          return false;
         }
         await this.finalize(game, null, 'abort', 'aborted');
-        return;
+        return true;
       }
 
       const elapsedSinceLastMove = game.lastMoveAt
@@ -1288,7 +1534,7 @@ export class GamesService implements OnModuleDestroy {
       if (remaining - elapsedSinceLastMove > 0) {
         // A move landed concurrently and reset the clock - re-schedule rather than flag.
         this.scheduleFlagFall(game);
-        return;
+        return false;
       }
 
       const loserColor = game.turn;
@@ -1299,6 +1545,7 @@ export class GamesService implements OnModuleDestroy {
         loserColor === 'w' ? 'black' : 'white',
         'timeout',
       );
+      return true;
     });
   }
 
@@ -1322,6 +1569,9 @@ export class GamesService implements OnModuleDestroy {
     this.gameCache.delete(game.id);
     this.movesCache.delete(game.id);
     this.premoves.delete(game.id);
+    if (isDailyGame(game)) {
+      await this.conditionalMoves.delete({ gameId: game.id });
+    }
 
     game.status = status;
     game.result = result;

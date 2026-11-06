@@ -14,7 +14,7 @@ export class GameSummaryDto {
   @ApiProperty()
   id!: string;
 
-  @ApiProperty({ enum: ['bullet', 'blitz', 'rapid', 'classical'] })
+  @ApiProperty({ enum: ['bullet', 'blitz', 'rapid', 'classical', 'daily'] })
   gameType!: GameType;
 
   @ApiProperty()

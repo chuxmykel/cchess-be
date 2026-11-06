@@ -9,6 +9,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 
+import type { TimeControl } from '../chess/time-control.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
 import { Game, type Side } from './entities/game.entity.js';
 import { GamesService } from './games.service.js';
@@ -43,7 +44,7 @@ export class RematchService {
     if (game.rematchOfferedBy === theirs) return this.start(game, theirs);
     if (game.rematchOfferedBy === mine) return null;
 
-    await this.gamesService.assertNotPlaying(userId);
+    await this.gamesService.assertCanStart(userId, timeControlOf(game));
     const { affected } = await this.games.update(
       { id: gameId, rematchGameId: IsNull() },
       { rematchOfferedBy: mine },
@@ -76,8 +77,9 @@ export class RematchService {
   }
 
   private async start(game: Game, offeredBy: Side): Promise<Game> {
-    await this.gamesService.assertNotPlaying(game.whiteId);
-    await this.gamesService.assertNotPlaying(game.blackId);
+    const tc = timeControlOf(game);
+    await this.gamesService.assertCanStart(game.whiteId, tc);
+    await this.gamesService.assertCanStart(game.blackId, tc);
     // Only one acceptance may start the rematch: the first to clear the
     // offer wins, and a second, racing one finds it gone.
     const { affected } = await this.games.update(
@@ -89,10 +91,7 @@ export class RematchService {
     const rematch = await this.gamesService.createGame(
       game.black,
       game.white,
-      {
-        initialSeconds: game.initialSeconds,
-        incrementSeconds: game.incrementSeconds,
-      },
+      tc,
       game.rated,
       seriesForRematchOf(game),
     );
@@ -123,4 +122,11 @@ export class RematchService {
     if (game.blackId === userId) return 'black';
     throw new ForbiddenException('You are not playing in this game');
   }
+}
+
+function timeControlOf(game: Game): TimeControl {
+  return {
+    initialSeconds: game.initialSeconds,
+    incrementSeconds: game.incrementSeconds,
+  };
 }

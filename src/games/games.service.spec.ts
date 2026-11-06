@@ -17,8 +17,11 @@ import {
 } from '../users/entities/rating.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import { UsersService } from '../users/users.service.js';
+import { ConditionalMovesService } from './conditional-moves.service.js';
+import { ConditionalMoveSet } from './entities/conditional-move-set.entity.js';
 import { Game } from './entities/game.entity.js';
 import { Move } from './entities/move.entity.js';
+import { MAX_ACTIVE_DAILY_GAMES } from './daily.js';
 import { GameEvent, GamesService } from './games.service.js';
 import { rateGame } from './glicko2.js';
 import { truncateAllTables } from '../../test/utils/db.js';
@@ -53,22 +56,23 @@ async function buildModule(gameConfig: Record<string, unknown> = {}) {
         username: requireEnv('DB_USERNAME'),
         password: requireEnv('DB_PASSWORD'),
         database: requireEnv('DB_NAME'),
-        entities: [User, Rating, RefreshToken, Game, Move],
+        entities: [User, Rating, RefreshToken, Game, Move, ConditionalMoveSet],
         // Schema already applied via real migrations (see
         // src/database/migrations) - this test module only registers a
         // subset of entities, so synchronize here would be misleading as
         // well as unnecessary.
         synchronize: false,
       }),
-      TypeOrmModule.forFeature([User, Rating, Game, Move]),
+      TypeOrmModule.forFeature([User, Rating, Game, Move, ConditionalMoveSet]),
     ],
-    providers: [GamesService, UsersService],
+    providers: [GamesService, UsersService, ConditionalMovesService],
   }).compile();
 
   await truncateAllTables(moduleRef.get(DataSource));
 
   return {
     gamesService: moduleRef.get(GamesService),
+    conditionalMoves: moduleRef.get(ConditionalMovesService),
     usersService: moduleRef.get(UsersService),
     ratingsRepo: moduleRef.get<Repository<Rating>>(getRepositoryToken(Rating)),
     eventEmitter: moduleRef.get(EventEmitter2),
@@ -753,6 +757,406 @@ describe('GamesService', () => {
     } finally {
       delete process.env.GAME_FIRST_MOVE_TIMEOUT_MS;
     }
+  });
+
+  describe('daily games', () => {
+    const THREE_DAYS: TimeControl = {
+      initialSeconds: 3 * 24 * 60 * 60,
+      incrementSeconds: 0,
+    };
+    const THREE_DAYS_MS = toClockMs(THREE_DAYS);
+
+    it("resets the mover's clock to the full days with every move, first moves included", async () => {
+      const white = await makeUser('dailyw1');
+      const black = await makeUser('dailyb1');
+      const dateSpy = vi.spyOn(Date, 'now');
+      try {
+        const game = await ctx.gamesService.createGame(
+          white,
+          black,
+          THREE_DAYS,
+          true,
+        );
+        expect(game.gameType).toBe('daily');
+        expect(game.seriesWhitePoints).toBe(0);
+
+        const start = Date.now();
+        dateSpy.mockReturnValue(start + 2 * 86_400_000);
+        await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
+        dateSpy.mockReturnValue(start + 4 * 86_400_000);
+        await ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5');
+        dateSpy.mockReturnValue(start + 5 * 86_400_000);
+        const { game: after } = await ctx.gamesService.applyMove(
+          game.id,
+          white.id,
+          'g1',
+          'f3',
+        );
+
+        expect(after.whiteTimeRemainingMs).toBe(THREE_DAYS_MS);
+        expect(after.blackTimeRemainingMs).toBe(THREE_DAYS_MS);
+      } finally {
+        dateSpy.mockRestore();
+      }
+    });
+
+    it('flags a move made after its days have run out', async () => {
+      const white = await makeUser('dailyw2');
+      const black = await makeUser('dailyb2');
+      const dateSpy = vi.spyOn(Date, 'now');
+      try {
+        const game = await ctx.gamesService.createGame(
+          white,
+          black,
+          THREE_DAYS,
+          true,
+        );
+        await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
+        await ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5');
+
+        dateSpy.mockReturnValue(Date.now() + THREE_DAYS_MS + 1_000);
+        await expect(
+          ctx.gamesService.applyMove(game.id, white.id, 'g1', 'f3'),
+        ).rejects.toThrow('Flagged on time');
+
+        const finalGame = await ctx.gamesService.getGameOrThrow(game.id);
+        expect(finalGame.resultReason).toBe('timeout');
+        expect(finalGame.result).toBe('black');
+      } finally {
+        dateSpy.mockRestore();
+      }
+    });
+
+    it('aborts a game whose first move comes after its days', async () => {
+      const white = await makeUser('dailyw3');
+      const black = await makeUser('dailyb3');
+      const dateSpy = vi.spyOn(Date, 'now');
+      try {
+        const game = await ctx.gamesService.createGame(
+          white,
+          black,
+          THREE_DAYS,
+          true,
+        );
+        // Well past a live game's 30 seconds, still inside its days.
+        dateSpy.mockReturnValue(Date.now() + 86_400_000);
+        await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
+
+        dateSpy.mockReturnValue(Date.now() + 86_400_000 + THREE_DAYS_MS + 1);
+        await expect(
+          ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5'),
+        ).rejects.toThrow('Too late for the first move');
+        expect((await ctx.gamesService.getGameOrThrow(game.id)).status).toBe(
+          'aborted',
+        );
+      } finally {
+        dateSpy.mockRestore();
+      }
+    });
+
+    it('ends daily games out of time from the database, and only those', async () => {
+      const white = await makeUser('dailyw4');
+      const black = await makeUser('dailyb4');
+      const dateSpy = vi.spyOn(Date, 'now');
+      try {
+        const played = await ctx.gamesService.createGame(
+          white,
+          black,
+          { initialSeconds: 24 * 60 * 60, incrementSeconds: 0 },
+          true,
+        );
+        await ctx.gamesService.applyMove(played.id, white.id, 'e2', 'e4');
+        await ctx.gamesService.applyMove(played.id, black.id, 'e7', 'e5');
+        const unstarted = await ctx.gamesService.createGame(
+          white,
+          black,
+          { initialSeconds: 24 * 60 * 60, incrementSeconds: 0 },
+          true,
+        );
+        const longer = await ctx.gamesService.createGame(
+          white,
+          black,
+          THREE_DAYS,
+          true,
+        );
+
+        const twoDaysOn = Date.now() + 2 * 86_400_000;
+        dateSpy.mockReturnValue(twoDaysOn);
+        expect(
+          await ctx.gamesService.expireOverdueDailyGames(new Date(twoDaysOn)),
+        ).toBe(2);
+
+        const timedOut = await ctx.gamesService.getGameWithMoves(played.id);
+        expect(timedOut.resultReason).toBe('timeout');
+        expect(timedOut.result).toBe('black');
+        expect(
+          (await ctx.gamesService.getGameWithMoves(unstarted.id)).status,
+        ).toBe('aborted');
+        expect(
+          (await ctx.gamesService.getGameWithMoves(longer.id)).status,
+        ).toBe('active');
+      } finally {
+        dateSpy.mockRestore();
+      }
+    });
+
+    it('refuses a pre-move', async () => {
+      const white = await makeUser('dailyw5');
+      const black = await makeUser('dailyb5');
+      const game = await ctx.gamesService.createGame(
+        white,
+        black,
+        THREE_DAYS,
+        true,
+      );
+
+      await expect(
+        ctx.gamesService.setPremove(game.id, black.id, 'e7', 'e5'),
+      ).rejects.toThrow('Daily games have no pre-moves');
+    });
+
+    it('is not forfeited by its player going offline', async () => {
+      const white = await makeUser('dailyw6');
+      const black = await makeUser('dailyb6');
+      const game = await ctx.gamesService.createGame(
+        white,
+        black,
+        THREE_DAYS,
+        true,
+      );
+      await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
+      await ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5');
+
+      await ctx.gamesService.forfeitByAbandonment(game.id, white.id);
+
+      expect((await ctx.gamesService.getGameOrThrow(game.id)).status).toBe(
+        'active',
+      );
+    });
+
+    it("is played alongside a live game, and isn't the game a player is watched in", async () => {
+      const white = await makeUser('dailyw7');
+      const black = await makeUser('dailyb7');
+      await ctx.gamesService.createGame(white, black, THREE_DAYS, true);
+
+      await expect(
+        ctx.gamesService.assertNotPlaying(white.id),
+      ).resolves.toBeUndefined();
+      expect((await ctx.gamesService.activeGameIdsFor([white.id])).size).toBe(
+        0,
+      );
+      expect(await ctx.gamesService.countActiveGames()).toBe(0);
+
+      const live = await ctx.gamesService.createGame(
+        white,
+        black,
+        { initialSeconds: 300, incrementSeconds: 0 },
+        true,
+      );
+      await expect(ctx.gamesService.assertNotPlaying(white.id)).rejects.toThrow(
+        'Finish your game in progress first',
+      );
+      await expect(
+        ctx.gamesService.assertCanStart(white.id, THREE_DAYS),
+      ).resolves.toBeUndefined();
+      expect(
+        (await ctx.gamesService.activeGameIdsFor([white.id])).get(white.id),
+      ).toBe(live.id);
+    });
+
+    it(`holds a player to ${MAX_ACTIVE_DAILY_GAMES} daily games at once`, async () => {
+      const white = await makeUser('dailyw8');
+      const black = await makeUser('dailyb8');
+      for (let i = 0; i < MAX_ACTIVE_DAILY_GAMES - 1; i++) {
+        await ctx.gamesService.createGame(white, black, THREE_DAYS, false);
+      }
+      await expect(
+        ctx.gamesService.assertCanStart(black.id, THREE_DAYS),
+      ).resolves.toBeUndefined();
+
+      await ctx.gamesService.createGame(white, black, THREE_DAYS, false);
+      await expect(
+        ctx.gamesService.assertCanStart(black.id, THREE_DAYS),
+      ).rejects.toThrow('at most 50 daily games');
+    });
+
+    it("lists a player's daily games in progress, their move first, then by time left", async () => {
+      const amy = await makeUser('dailyw9');
+      const ben = await makeUser('dailyb9');
+      const ONE_DAY: TimeControl = {
+        initialSeconds: 24 * 60 * 60,
+        incrementSeconds: 0,
+      };
+      const threeDaysAmysMove = await ctx.gamesService.createGame(
+        amy,
+        ben,
+        THREE_DAYS,
+        true,
+      );
+      const oneDayAmysMove = await ctx.gamesService.createGame(
+        amy,
+        ben,
+        ONE_DAY,
+        true,
+      );
+      const bensMove = await ctx.gamesService.createGame(
+        amy,
+        ben,
+        ONE_DAY,
+        true,
+      );
+      await ctx.gamesService.applyMove(bensMove.id, amy.id, 'e2', 'e4');
+      await ctx.gamesService.createGame(
+        amy,
+        ben,
+        { initialSeconds: 300, incrementSeconds: 0 },
+        true,
+      );
+
+      const listed = await ctx.gamesService.listDailyGamesForUser(amy.id);
+
+      expect(listed.map(({ game }) => game.id)).toEqual([
+        oneDayAmysMove.id,
+        threeDaysAmysMove.id,
+        bensMove.id,
+      ]);
+      expect(listed.map(({ myTurn }) => myTurn)).toEqual([true, true, false]);
+      expect(listed[2].lastMove).toEqual({ from: 'e2', to: 'e4' });
+      expect(listed[0].lastMove).toBeNull();
+      expect(listed[2].game.black.username).toBe('dailyb9');
+      expect(
+        (await ctx.gamesService.listDailyGamesForUser(ben.id)).map(
+          ({ game }) => game.id,
+        )[0],
+      ).toBe(bensMove.id);
+      expect(
+        await ctx.gamesService.listDailyGamesForUser(amy.id, 1),
+      ).toHaveLength(1);
+    });
+
+    describe('conditional moves', () => {
+      async function startedGame(suffix: string) {
+        const alice = await makeUser(`condw${suffix}`);
+        const bob = await makeUser(`condb${suffix}`);
+        const game = await ctx.gamesService.createGame(
+          alice,
+          bob,
+          THREE_DAYS,
+          true,
+        );
+        await ctx.gamesService.applyMove(game.id, alice.id, 'e2', 'e4');
+        return { alice, bob, game };
+      }
+
+      it("plays the reply to the opponent's move the moment it lands, keeping what follows", async () => {
+        const { alice, bob, game } = await startedGame('1');
+        await ctx.conditionalMoves.add(alice.id, game.id, 1, [
+          ['e7e5', 'g1f3', 'b8c6', 'f1b5'],
+          ['c7c5', 'b1c3'],
+        ]);
+
+        await ctx.gamesService.applyMove(game.id, bob.id, 'e7', 'e5');
+
+        const after = await ctx.gamesService.getGameWithMoves(game.id);
+        expect(after.moves.map((move) => move.san)).toEqual([
+          'e4',
+          'e5',
+          'Nf3',
+        ]);
+        expect(after.turn).toBe('b');
+        expect(await ctx.conditionalMoves.get(alice.id, game.id)).toEqual({
+          basePly: 3,
+          lines: [['b8c6', 'f1b5']],
+        });
+      });
+
+      it("drops them all on a move they didn't foresee", async () => {
+        const { alice, bob, game } = await startedGame('2');
+        await ctx.conditionalMoves.add(alice.id, game.id, 1, [
+          ['e7e5', 'g1f3'],
+        ]);
+
+        await ctx.gamesService.applyMove(game.id, bob.id, 'd7', 'd5');
+
+        const after = await ctx.gamesService.getGameWithMoves(game.id);
+        expect(after.moves).toHaveLength(2);
+        expect(after.turn).toBe('w');
+        expect(await ctx.conditionalMoves.get(alice.id, game.id)).toEqual({
+          basePly: null,
+          lines: [],
+        });
+      });
+
+      it('adds to the lines saved from the same position', async () => {
+        const { alice, game } = await startedGame('3');
+        await ctx.conditionalMoves.add(alice.id, game.id, 1, [
+          ['e7e5', 'g1f3'],
+        ]);
+
+        const saved = await ctx.conditionalMoves.add(alice.id, game.id, 1, [
+          ['e7e5', 'g1f3', 'b8c6', 'f1c4'],
+          ['c7c5', 'b1c3', 'b8c6'],
+        ]);
+
+        expect(saved.lines).toEqual([
+          ['e7e5', 'g1f3', 'b8c6', 'f1c4'],
+          ['c7c5', 'b1c3'],
+        ]);
+      });
+
+      it('refuses lines on your own move, from a position gone, or not legal', async () => {
+        const { alice, bob, game } = await startedGame('4');
+
+        await expect(
+          ctx.conditionalMoves.add(bob.id, game.id, 1, [['g1f3', 'e7e5']]),
+        ).rejects.toThrow("It's your move");
+        await expect(
+          ctx.conditionalMoves.add(alice.id, game.id, 0, [['e7e5', 'g1f3']]),
+        ).rejects.toThrow('The game has moved on since');
+        await expect(
+          ctx.conditionalMoves.add(alice.id, game.id, 1, [['e7e5', 'e1e3']]),
+        ).rejects.toThrow('Illegal move in a line: e1e3');
+        await expect(
+          ctx.conditionalMoves.add(alice.id, game.id, 1, [
+            ['e7e5', 'g1f3'],
+            ['e7e5', 'f1c4'],
+          ]),
+        ).rejects.toThrow('Two different replies to e7e5');
+      });
+
+      it('has none in a live game', async () => {
+        const alice = await makeUser('condw5');
+        const bob = await makeUser('condb5');
+        const game = await ctx.gamesService.createGame(
+          alice,
+          bob,
+          { initialSeconds: 300, incrementSeconds: 0 },
+          true,
+        );
+        await ctx.gamesService.applyMove(game.id, alice.id, 'e2', 'e4');
+
+        await expect(
+          ctx.conditionalMoves.add(alice.id, game.id, 1, [['e7e5', 'g1f3']]),
+        ).rejects.toThrow('Only daily games have conditional moves');
+      });
+
+      it('drops them when the game ends', async () => {
+        const { alice, bob, game } = await startedGame('6');
+        await ctx.gamesService.applyMove(game.id, bob.id, 'e7', 'e5');
+        await ctx.gamesService.applyMove(game.id, alice.id, 'g1', 'f3');
+        await ctx.conditionalMoves.add(alice.id, game.id, 3, [
+          ['b8c6', 'f1b5'],
+        ]);
+
+        await ctx.gamesService.resign(game.id, bob.id);
+
+        expect(
+          await ctx.moduleRef
+            .get(DataSource)
+            .query('SELECT * FROM conditional_moves'),
+        ).toEqual([]);
+      });
+    });
   });
 
   it('does not let guest games affect ratings', async () => {

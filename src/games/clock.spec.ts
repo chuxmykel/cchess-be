@@ -72,4 +72,21 @@ describe('remainingTimesAt', () => {
       blackTimeRemainingMs: 50_000,
     });
   });
+
+  it("runs a daily game's clock from the start, its first moves timed like any other", () => {
+    const createdAt = new Date('2026-10-30T09:00:00Z');
+    const game = makeGame({
+      gameType: 'daily',
+      fen: STARTING_FEN,
+      lastMoveAt: null,
+      createdAt,
+      whiteTimeRemainingMs: 86_400_000,
+      blackTimeRemainingMs: 86_400_000,
+    });
+
+    expect(remainingTimesAt(game, createdAt.getTime() + 3_600_000)).toEqual({
+      whiteTimeRemainingMs: 82_800_000,
+      blackTimeRemainingMs: 86_400_000,
+    });
+  });
 });

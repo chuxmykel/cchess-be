@@ -1,3 +1,4 @@
+import { isDailyGame } from './daily.js';
 import type { Game } from './entities/game.entity.js';
 
 const DEFAULT_FIRST_MOVE_TIMEOUT_MS = 30_000;
@@ -20,8 +21,20 @@ export function isAwaitingFirstMove(game: Game): boolean {
   return game.status === 'active' && fullmoveNumber(game.fen) === 1;
 }
 
+/** When the side to move must have played its first move by, or the game
+ * is aborted - in a daily game, the days it gives every move. */
 export function firstMoveDeadline(game: Game): Date | null {
   if (!isAwaitingFirstMove(game)) return null;
   const waitingSince = game.lastMoveAt ?? game.createdAt;
-  return new Date(waitingSince.getTime() + firstMoveTimeoutMs());
+  const timeoutMs = isDailyGame(game)
+    ? game.initialSeconds * 1000
+    : firstMoveTimeoutMs();
+  return new Date(waitingSince.getTime() + timeoutMs);
+}
+
+/** The first-move countdown a player is shown: a live game's. A daily
+ * game's first move has the same days as every other, so its clock shows
+ * them instead. */
+export function shownFirstMoveDeadline(game: Game): Date | null {
+  return isDailyGame(game) ? null : firstMoveDeadline(game);
 }
