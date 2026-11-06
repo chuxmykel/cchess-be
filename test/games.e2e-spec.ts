@@ -93,12 +93,36 @@ describe('Games via challenges (e2e)', () => {
     expect(history.body[0].opponentRating).toBe(STARTING_RATING);
     expect(history.body[0].ratingDiff).toBe(NEW_PLAYER_WIN);
 
+    async function judysGames(query: string) {
+      const res = await request(app.getHttpServer())
+        .get(`/games?${query}`)
+        .set('Authorization', `Bearer ${judy.accessToken}`)
+        .expect(200);
+      return res.body.map((game: { id: string }) => game.id);
+    }
+    expect(await judysGames('result=win')).toEqual([gameId]);
+    expect(await judysGames('result=loss')).toEqual([]);
+    expect(await judysGames('result=draw')).toEqual([]);
+    expect(await judysGames('gameType=blitz')).toEqual([gameId]);
+    expect(await judysGames('gameType=rapid&result=win')).toEqual([]);
+    await request(app.getHttpServer())
+      .get('/games?result=won')
+      .set('Authorization', `Bearer ${judy.accessToken}`)
+      .expect(400);
+
     const loserHistory = await request(app.getHttpServer())
       .get('/games')
       .set('Authorization', `Bearer ${ivan.accessToken}`)
       .expect(200);
     expect(loserHistory.body[0].result).toBe('loss');
     expect(loserHistory.body[0].ratingDiff).toBe(-NEW_PLAYER_WIN);
+    const ivansLosses = await request(app.getHttpServer())
+      .get('/games?result=loss')
+      .set('Authorization', `Bearer ${ivan.accessToken}`)
+      .expect(200);
+    expect(ivansLosses.body.map((game: { id: string }) => game.id)).toEqual([
+      gameId,
+    ]);
 
     const pgn = await request(app.getHttpServer())
       .get(`/games/${gameId}/pgn`)
