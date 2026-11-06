@@ -346,7 +346,8 @@ Conditional moves answer the opponent's next moves in advance:
 is to move, `basePly` the game's move count and each line their move, your
 reply, theirs... in UCI - checked legal, and added to any saved from that
 position (a last move with no reply is dropped; two different replies to
-one move are refused). The moment the opponent plays a move one answers,
+one move are refused; at most 10 lines). `PUT` with the same body saves
+the lines in place of those saved - none clears them. The moment the opponent plays a move one answers,
 its reply is played and what follows kept; a move none foresaw drops them
 all. `GET` lists yours, `DELETE` drops them, and the opponent never sees
 them.
