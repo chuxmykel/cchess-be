@@ -173,6 +173,25 @@ export class GamesController {
     );
   }
 
+  @Put(':id/conditional-moves')
+  @ApiOperation({
+    summary:
+      'Replace your conditional moves in a daily game with these, the opponent being to move - none clears them',
+  })
+  replaceConditionalMoves(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AddConditionalLinesDto,
+  ): Promise<ConditionalLinesDto> {
+    return this.conditionalMovesService.add(
+      user.userId,
+      id,
+      dto.basePly,
+      dto.lines,
+      { replace: true },
+    );
+  }
+
   @Delete(':id/conditional-moves')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Drop your conditional moves in a daily game' })

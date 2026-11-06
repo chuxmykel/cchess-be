@@ -54,12 +54,14 @@ export class ConditionalMovesService {
   }
 
   /** Adds `lines`, from the game's position after `basePly` moves, to any
-   * already saved from there. */
+   * already saved from there - or, with `replace`, saves them in their
+   * place. */
   async add(
     userId: string,
     gameId: string,
     basePly: number,
     lines: string[][],
+    { replace = false }: { replace?: boolean } = {},
   ): Promise<ConditionalLines> {
     const game = await this.gamesService.getGameWithMoves(gameId);
     const color = this.gamesService.colorOf(game, userId);
@@ -83,7 +85,9 @@ export class ConditionalMovesService {
       );
     }
 
-    const saved = await this.sets.findOneBy({ userId, gameId });
+    const saved = replace
+      ? null
+      : await this.sets.findOneBy({ userId, gameId });
     const base = saved?.basePly === basePly ? saved.tree : [];
     let tree;
     try {
@@ -100,6 +104,10 @@ export class ConditionalMovesService {
       throw new BadRequestException(
         `At most ${MAX_CONDITIONAL_LINES} conditional lines`,
       );
+    }
+    if (tree.length === 0) {
+      await this.clear(userId, gameId);
+      return { basePly: null, lines: [] };
     }
     await this.sets.upsert({ userId, gameId, basePly, tree }, [
       'userId',

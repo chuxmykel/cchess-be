@@ -12,7 +12,7 @@ export interface ConditionalBranch {
 export type ConditionalTree = ConditionalBranch[];
 
 /** The most lines a player may keep for a game, and moves a line. */
-export const MAX_CONDITIONAL_LINES = 20;
+export const MAX_CONDITIONAL_LINES = 10;
 export const MAX_CONDITIONAL_LINE_MOVES = 20;
 
 const UCI = /^[a-h][1-8][a-h][1-8][qrbn]?$/;

@@ -230,6 +230,47 @@ describe('Daily games (e2e)', () => {
       'Nf3',
     ]);
 
+    const base = { basePly: 3 };
+    const replaced = await request(server)
+      .put(`${game}/conditional-moves`)
+      .set('Authorization', `Bearer ${ivan.accessToken}`)
+      .send({
+        ...base,
+        lines: [
+          ['b8c6', 'f1b5'],
+          ['g8f6', 'f3e5'],
+        ],
+      })
+      .expect(200);
+    expect(replaced.body.lines).toEqual([
+      ['b8c6', 'f1b5'],
+      ['g8f6', 'f3e5'],
+    ]);
+    const again = await request(server)
+      .put(`${game}/conditional-moves`)
+      .set('Authorization', `Bearer ${ivan.accessToken}`)
+      .send({ ...base, lines: [['d7d6', 'd2d4']] })
+      .expect(200);
+    expect(again.body.lines).toEqual([['d7d6', 'd2d4']]);
+    const tooMany = [
+      'a7a6',
+      'a7a5',
+      'b7b6',
+      'b7b5',
+      'c7c6',
+      'c7c5',
+      'd7d6',
+      'd7d5',
+      'f7f6',
+      'f7f5',
+      'g7g6',
+    ].map((move) => [move, 'd2d4']);
+    await request(server)
+      .put(`${game}/conditional-moves`)
+      .set('Authorization', `Bearer ${ivan.accessToken}`)
+      .send({ ...base, lines: tooMany })
+      .expect(400);
+
     await request(server)
       .delete(`${game}/conditional-moves`)
       .set('Authorization', `Bearer ${ivan.accessToken}`)
