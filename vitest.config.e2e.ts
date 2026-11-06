@@ -24,6 +24,10 @@ export default defineConfig({
       // Games always start from the usual position here, whatever test
       // position the dev .env sets.
       GAME_START_FEN: '',
+      // No test ever reaches lichess, whatever the dev .env holds: the
+      // explorer's lichess client is replaced by a fake where it's tested.
+      LICHESS_TOKEN: '',
+      LICHESS_EXPLORER_URL: 'http://127.0.0.1:9',
     },
     fileParallelism: false,
   },

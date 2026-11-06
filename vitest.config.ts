@@ -21,6 +21,10 @@ export default defineConfig({
       // own comment), and a test process has no primary/worker IPC for
       // isMine()/ownerIndex() routing to actually reach.
       CLUSTER_WORKERS: '1',
+      // No test ever reaches lichess, whatever the dev .env holds: the
+      // explorer's lichess client is replaced by a fake where it's tested.
+      LICHESS_TOKEN: '',
+      LICHESS_EXPLORER_URL: 'http://127.0.0.1:9',
     },
     fileParallelism: false,
   },
