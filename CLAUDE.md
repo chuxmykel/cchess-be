@@ -89,6 +89,13 @@ applies a file the moment it lands in `src/database/migrations/`. Check drift
 with `migration:generate -- <path> --dryrun`, never by generating a throwaway
 migration there.
 
+The explorer's lichess client (`LichessExplorerClient`) is the only code
+that reaches outside the server. Tests never reach lichess:
+`LICHESS_TOKEN` is blanked and `EXPLORER_MAINTENANCE=false` in both vitest
+configs, and the e2e swaps the client for a fake (`createTestApp`'s
+`configure`). Every request to lichess goes through `LichessFetcherService`,
+never the client directly, so the one-at-a-time queue holds.
+
 There's no `lint:fix` - oxlint's type-aware mode here is check-only; fix
 flagged issues by hand.
 

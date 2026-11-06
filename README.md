@@ -109,7 +109,8 @@ matchmaking/   An in-memory seek queue (see "Known limitations" below) that pair
                agree, nearest rating first.
 daily-seeks/   Daily games' seeks, kept in the database: posted, and left until
                another agrees with it, by the same rules (see "Daily games").
-explorer/      An opening explorer from the games finished here.
+explorer/      An opening explorer: lichess's Masters and Lichess databases, cached,
+               and the games finished here, everyone's or one player's.
 challenges/    Challenges to any player (accept -> creates a Game).
 realtime/      One Socket.IO gateway for everything live: moves, clocks, draw/resign/
                abort, matchmaking pushes, challenge + friend-request notifications.
@@ -355,11 +356,64 @@ them.
 `GET` and `PUT /games/:id/notes { body }` keep your own notes on a game,
 up to 4000 characters, seen by nobody else; saving none clears them.
 
-`GET /explorer?fen=` lists every move played from a position in finished
-games here, the most played first (at most 20), with how those games
-ended, and `totalGames`. Games still being played are left out, so a daily
-game can't be looked up while it's on. Each move keeps the position it was
-played from (`moves.positionKey`, its EPD), so transpositions meet.
+Daily games feed the opening explorer too (below): a game still being
+played is left out of it, so a daily game can't be looked up while it's on.
+
+### Opening explorer
+
+`GET /explorer?fen=` lists every move played from a position, the most
+played first (at most 20), with how those games ended, and the position's
+own totals (`totalGames`, `whiteWins`, `draws`, `blackWins`). `db` picks
+the games:
+
+- **left out** - every finished game here. Each move keeps the position it
+  was played from (`moves.positionKey`, its EPD), so transpositions meet.
+- **`player`** - one player's finished games here, from one side
+  (`user`, `color`).
+- **`masters`** and **`lichess`** - lichess's two databases
+  (explorer.lichess.ovh). Lichess's can be narrowed by `speeds` and
+  `ratings` (comma lists, as lichess's own); left out, they're lichess's
+  defaults - blitz, rapid and classical, 1600 and up.
+
+The answer says where it came from (`source`). It's `cchess`, the games
+played here, whenever lichess can't be asked: it's rate-limiting us, it's
+out of reach, or there's no `LICHESS_TOKEN`.
+
+The server asks lichess as the app's own lichess account. That's a
+personal token with no scopes, never a player's. Lichess asks API clients
+to send one request at a time and to wait a minute after a 429, so:
+
+- **One queue** (`LichessFetchQueue`, on worker 0 under clustering, which
+  the other workers reach over `ClusterBus`) sends every request. The same
+  position asked twice at once is sent once.
+- **Players go first.** A player's request goes before the cache's own.
+- **After a 429**, lichess is left alone for two minutes. A player asking
+  meanwhile is answered from the games here at once.
+
+Masters, and Lichess with its default filters, are kept in the database:
+
+- **`explorer_positions`** - each position asked about, kept for good:
+  how often it's opened, when last, and whether it's pinned.
+- **`explorer_cache`** - lichess's answer, trimmed to what's shown.
+  - An answer over 30 days old is served marked `stale` while it's fetched
+    afresh.
+  - One whose position has gone 90 days unopened is soft-deleted, then
+    purged 30 days later.
+
+Other filters are asked of lichess every time and kept nowhere.
+
+**Pinned positions** are every position along lichess's named openings,
+7,983 of them, seeded pinned for both databases by the `AddExplorerCache`
+migration (`src/explorer/seed-positions.ts`, built by
+`node scripts/build-explorer-seed.mjs` from lichess's CC0 chess-openings,
+at the commit the app's opening names come from). They never expire.
+
+`ExplorerSweeper` keeps the cache up on worker 0. It fetches pinned
+positions with no answer, or one gone stale, through the queue's
+background lane, a second apart and after any player's. With a token, the
+first fill takes some four and a half hours; after that each month's
+refresh trickles in the same way. `EXPLORER_MAINTENANCE=false` turns the
+upkeep off.
 
 ### Friends, challenges and messages
 
