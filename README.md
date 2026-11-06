@@ -386,7 +386,9 @@ first, as `/friends` describes yours (presence, ratings) plus `friendsSince`.
 `GET /users/:username/activity` groups their last 30 days of finished games
 by UTC day and category, and `GET /users/:username/games` lists their games
 like `GET /games` does yours (`limit`, `before`). Both leave out aborted
-games unless asked for them with `status=aborted`.
+games unless asked for them with `status=aborted`, and both narrow to
+`result=win|draw|loss` - for the player whose games they are - and to a
+`gameType`.
 `GET /users/:username/ratings/:category?period=` sums up one category over
 `1w`, `1m` (the default), `3m`, `1y` or `all`: the rating now; its
 `history` (the rating going into the period's first rated game, then after
