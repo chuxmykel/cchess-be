@@ -659,8 +659,6 @@ export class GamesService implements OnModuleDestroy {
     options: {
       status?: GameStatus;
       kind?: GameKind;
-      result?: GameOutcome;
-      gameType?: GameType;
       limit?: number;
       before?: Date;
     } = {},
@@ -687,21 +685,6 @@ export class GamesService implements OnModuleDestroy {
       qb.andWhere('g.createdAt < :before', { before: options.before });
     if (options.kind === 'daily') qb.andWhere(`g.gameType = 'daily'`);
     else if (options.kind === 'live') qb.andWhere(`g.gameType != 'daily'`);
-    if (options.gameType) {
-      qb.andWhere('g.gameType = :gameType', { gameType: options.gameType });
-    }
-    // Won, drawn or lost by the player whose games they are.
-    if (options.result === 'draw') qb.andWhere(`g.result = 'draw'`);
-    else if (options.result) {
-      const won = options.result === 'win';
-      qb.andWhere(
-        `((g.whiteId = :userId AND g.result = :asWhite) OR (g.blackId = :userId AND g.result = :asBlack))`,
-        {
-          asWhite: won ? 'white' : 'black',
-          asBlack: won ? 'black' : 'white',
-        },
-      );
-    }
 
     return qb.getMany();
   }
