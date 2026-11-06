@@ -1,14 +1,20 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { Test, type TestingModuleBuilder } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
 
 import { AppModule } from '../../src/app.module.js';
 import { truncateAllTables } from './db.js';
 
-export async function createTestApp(): Promise<INestApplication> {
-  const moduleRef = await Test.createTestingModule({
-    imports: [AppModule],
-  }).compile();
+/** The whole app, on the test database. `configure` can swap providers -
+ * a fake lichess, say. */
+export async function createTestApp(
+  configure: (builder: TestingModuleBuilder) => TestingModuleBuilder = (
+    builder,
+  ) => builder,
+): Promise<INestApplication> {
+  const moduleRef = await configure(
+    Test.createTestingModule({ imports: [AppModule] }),
+  ).compile();
   const app = moduleRef.createNestApplication();
   app.useGlobalPipes(
     new ValidationPipe({

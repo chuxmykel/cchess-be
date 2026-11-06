@@ -25,7 +25,7 @@ export class GameNotesService {
     return { body: note?.body ?? '', updatedAt: note?.updatedAt ?? null };
   }
 
-  /** Replaces the notes - or, given none, deletes them. */
+  /** Replaces the notes - or, given none, soft-deletes them. */
   async save(
     userId: string,
     gameId: string,
@@ -33,10 +33,13 @@ export class GameNotesService {
   ): Promise<GameNoteContent> {
     await this.gamesService.getGameOrThrow(gameId);
     if (body.trim() === '') {
-      await this.notes.delete({ userId, gameId });
+      await this.notes.softDelete({ userId, gameId });
       return { body: '', updatedAt: null };
     }
-    await this.notes.upsert({ userId, gameId, body }, ['userId', 'gameId']);
+    await this.notes.upsert({ userId, gameId, body, deletedAt: null }, [
+      'userId',
+      'gameId',
+    ]);
     return this.get(userId, gameId);
   }
 }

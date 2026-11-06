@@ -13,9 +13,9 @@ export class ExplorerController {
   @Get()
   @ApiOperation({
     summary:
-      'The moves played from a position in finished games here, and how those games ended',
+      "The moves played from a position - in lichess's Masters or Lichess database, one player's games here, or everyone's - and how those games ended",
   })
   explore(@Query() query: ExplorerQuery): Promise<ExplorerPositionDto> {
-    return this.explorerService.explore(query.fen);
+    return this.explorerService.explore(query);
   }
 }

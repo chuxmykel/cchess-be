@@ -180,6 +180,24 @@ describe('DailySeeksService', () => {
     expect(await ctx.dailySeeks.listMine(alice.id)).toEqual([]);
   });
 
+  it('keeps a withdrawn seek, soft-deleted, and never pairs it', async () => {
+    const alice = await makeUser('alice');
+    const bob = await makeUser('bob');
+    const result = await ctx.dailySeeks.seek(alice, { days: 3 });
+    if (result.status !== 'queued') throw new Error('expected a queued seek');
+    await ctx.dailySeeks.cancel(alice.id, result.seek.id);
+
+    expect((await ctx.dailySeeks.seek(bob, { days: 3 })).status).toBe('queued');
+    await expect(
+      ctx.dailySeeks.cancel(alice.id, result.seek.id),
+    ).rejects.toThrow('Seek not found');
+    const kept = await ctx.moduleRef
+      .get(DataSource)
+      .getRepository(DailySeek)
+      .findOne({ where: { id: result.seek.id }, withDeleted: true });
+    expect(kept?.deletedAt).toBeInstanceOf(Date);
+  });
+
   it('refuses days not on offer', async () => {
     const alice = await makeUser('alice');
 
