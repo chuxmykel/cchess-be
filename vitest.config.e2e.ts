@@ -28,6 +28,8 @@ export default defineConfig({
       // explorer's lichess client is replaced by a fake where it's tested.
       LICHESS_TOKEN: '',
       LICHESS_EXPLORER_URL: 'http://127.0.0.1:9',
+      // Tests run the upkeep themselves, so it never races their rows.
+      EXPLORER_MAINTENANCE: 'false',
     },
     fileParallelism: false,
   },

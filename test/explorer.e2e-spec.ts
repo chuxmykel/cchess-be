@@ -7,6 +7,8 @@ import type {
   LichessExplorerRequest,
   LichessFetchResult,
 } from '../src/explorer/lichess/lichess-explorer.client.js';
+import { ExplorerCacheService } from '../src/explorer/explorer-cache.service.js';
+import { ExplorerSweeper } from '../src/explorer/explorer.sweeper.js';
 import { LichessExplorerClient } from '../src/explorer/lichess/lichess-explorer.client.js';
 import {
   createTestApp,
@@ -360,6 +362,143 @@ describe('Opening explorer (e2e)', () => {
       db: 'player',
       user: ivan.userId,
       color: 'red',
+    });
+  });
+});
+
+describe('Opening explorer upkeep (e2e)', () => {
+  let app: INestApplication;
+  let lichess: ReturnType<typeof fakeLichess>;
+  let dataSource: DataSource;
+
+  beforeEach(async () => {
+    lichess = fakeLichess();
+    app = await createTestApp((builder) =>
+      builder.overrideProvider(LichessExplorerClient).useValue(lichess),
+    );
+    dataSource = app.get(DataSource);
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  /** A position, opened `openedDaysAgo` days ago, and lichess's answer for
+   * it fetched `fetchedDaysAgo` ago - soft-deleted `deletedDaysAgo` ago. */
+  async function position(
+    epd: string,
+    options: {
+      db?: string;
+      pinned?: boolean;
+      openedDaysAgo?: number;
+      fetchedDaysAgo?: number;
+      deletedDaysAgo?: number;
+    },
+  ): Promise<string> {
+    const [{ id }] = await dataSource.query(
+      `INSERT INTO explorer_positions (db, epd, pinned, "lastOpenedAt")
+       VALUES ($1, $2, $3, now() - make_interval(days => $4)) RETURNING id`,
+      [
+        options.db ?? 'masters',
+        epd,
+        options.pinned ?? false,
+        options.openedDaysAgo ?? 0,
+      ],
+    );
+    if (options.fetchedDaysAgo !== undefined) {
+      await dataSource.query(
+        `INSERT INTO explorer_cache ("positionId", payload, "fetchedAt", "deletedAt")
+         VALUES ($1, '{}', now() - make_interval(days => $2),
+                 CASE WHEN $3::int IS NULL THEN NULL
+                      ELSE now() - make_interval(days => $3::int) END)`,
+        [id, options.fetchedDaysAgo, options.deletedDaysAgo ?? null],
+      );
+    }
+    return id;
+  }
+
+  async function cacheRows() {
+    const rows: Array<{ epd: string; deleted: boolean }> =
+      await dataSource.query(
+        `SELECT p.epd, c."deletedAt" IS NOT NULL AS deleted
+       FROM explorer_cache c JOIN explorer_positions p ON p.id = c."positionId"
+       ORDER BY p.epd`,
+      );
+    return Object.fromEntries(rows.map((row) => [row.epd, row.deleted]));
+  }
+
+  it('expires answers unopened for 90 days, pinned ones aside, and purges them 30 days on', async () => {
+    await position('a', { openedDaysAgo: 91, fetchedDaysAgo: 91 });
+    await position('b', { openedDaysAgo: 10, fetchedDaysAgo: 10 });
+    await position('c', {
+      pinned: true,
+      openedDaysAgo: 200,
+      fetchedDaysAgo: 20,
+    });
+    await position('d', {
+      openedDaysAgo: 200,
+      fetchedDaysAgo: 200,
+      deletedDaysAgo: 31,
+    });
+    await position('e', {
+      openedDaysAgo: 100,
+      fetchedDaysAgo: 100,
+      deletedDaysAgo: 10,
+    });
+
+    expect(await app.get(ExplorerCacheService).sweep()).toEqual({
+      expired: 1,
+      purged: 1,
+    });
+
+    expect(await cacheRows()).toEqual({ a: true, b: false, c: false, e: true });
+    const [{ count }] = await dataSource.query(
+      `SELECT COUNT(*)::int AS count FROM explorer_positions`,
+    );
+    expect(count).toBe(5);
+  });
+
+  it('fetches pinned positions with no answer kept, then those gone stale', async () => {
+    const start = START.split(' ').slice(0, 4).join(' ');
+    const afterE4 = AFTER_E4.split(' ').slice(0, 4).join(' ');
+    await position(start, { pinned: true, fetchedDaysAgo: 40 });
+    await position(afterE4, { db: 'lichess', pinned: true });
+    await position('fresh', { pinned: true, fetchedDaysAgo: 5 });
+    await position('unpinned', {});
+
+    expect(await app.get(ExplorerSweeper).refreshDue()).toEqual({
+      due: 2,
+      fetched: 2,
+    });
+
+    expect(lichess.fetch.mock.calls.map(([request]) => request)).toEqual([
+      {
+        db: 'lichess',
+        fen: `${afterE4} 0 1`,
+        filters: {
+          speeds: ['blitz', 'rapid', 'classical'],
+          ratings: [1600, 1800, 2000, 2200, 2500],
+        },
+      },
+      { db: 'masters', fen: `${start} 0 1`, filters: undefined },
+    ]);
+    const [{ fresh }] = await dataSource.query(
+      `SELECT bool_and(c."fetchedAt" > now() - interval '1 minute') AS fresh
+       FROM explorer_cache c JOIN explorer_positions p ON p.id = c."positionId"
+       WHERE p.epd IN ($1, $2)`,
+      [start, afterE4],
+    );
+    expect(fresh).toBe(true);
+  });
+
+  it('stops at the first position lichess doesn’t answer', async () => {
+    await position('a', { pinned: true });
+    await position('b', { pinned: true });
+    lichess.fetch.mockResolvedValueOnce({ status: 'failed' });
+
+    expect(await app.get(ExplorerSweeper).refreshDue()).toEqual({
+      due: 2,
+      fetched: 0,
     });
   });
 });

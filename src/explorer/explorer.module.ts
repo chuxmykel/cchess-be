@@ -7,6 +7,7 @@ import { ExplorerPosition } from './entities/explorer-position.entity.js';
 import { ExplorerCacheService } from './explorer-cache.service.js';
 import { ExplorerController } from './explorer.controller.js';
 import { ExplorerService } from './explorer.service.js';
+import { ExplorerSweeper } from './explorer.sweeper.js';
 import { LichessExplorerClient } from './lichess/lichess-explorer.client.js';
 import { LichessFetcherService } from './lichess/lichess-fetcher.service.js';
 
@@ -20,6 +21,7 @@ import { LichessFetcherService } from './lichess/lichess-fetcher.service.js';
     ExplorerCacheService,
     LichessExplorerClient,
     LichessFetcherService,
+    ExplorerSweeper,
   ],
 })
 export class ExplorerModule {}
