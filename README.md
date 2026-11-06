@@ -389,6 +389,10 @@ like `GET /games` does yours (`limit`, `before`). Both leave out aborted
 games unless asked for them with `status=aborted`, and both narrow to
 `result=win|draw|loss` - for the player whose games they are - and to a
 `gameType`.
+`GET /games/counts` and `GET /users/:username/games/counts` count finished
+games by how each ended for that player and its type - `{ result,
+gameType, count }`, one for each pair played - so a history's filters can
+show how many each choice matches without asking again.
 `GET /users/:username/ratings/:category?period=` sums up one category over
 `1w`, `1m` (the default), `3m`, `1y` or `all`: the rating now; its
 `history` (the rating going into the period's first rated game, then after
