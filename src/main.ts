@@ -65,6 +65,10 @@ async function bootstrap() {
       `LOG_LEVEL "${process.env.LOG_LEVEL}" isn't a level - using "${DEFAULT_LOG_LEVEL}"`,
     );
   }
+  // On SIGTERM/SIGINT - a deploy, Ctrl-C - run the shutdown hooks, so the
+  // game work under way is saved before the database closes (see
+  // GamesService.beforeApplicationShutdown).
+  app.enableShutdownHooks();
   const configService = app.get(ConfigService<AppConfig, true>);
 
   if (CLUSTERING_ENABLED) await setupClusterRedisAdapter(app);

@@ -25,4 +25,12 @@ export class KeyedMutex {
     });
     return operation;
   }
+
+  /** Resolves once nothing is queued under any key - work queued while it
+   * waits included, as a move can queue its pre-move or a flag fall. */
+  async drain(): Promise<void> {
+    while (this.queueTailByKey.size > 0) {
+      await Promise.all(this.queueTailByKey.values());
+    }
+  }
 }

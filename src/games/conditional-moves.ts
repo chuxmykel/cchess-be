@@ -72,6 +72,20 @@ export function branchFor(
   return tree.find((branch) => branch.opponent === opponentMove);
 }
 
+/** The reply a player set for the opponent's move just `played`, and the
+ * lines kept for the opponent's next - from the position after the reply,
+ * none if nothing follows it. Null when they didn't foresee it, or the
+ * lines were set against a position since moved on: all of them go. */
+export function conditionalStep(
+  set: { basePly: number; tree: ConditionalTree },
+  played: { ply: number; from: string; to: string; promotion?: string | null },
+): { reply: string; next: ConditionalTree; basePly: number } | null {
+  if (set.basePly !== played.ply - 1) return null;
+  const branch = branchFor(set.tree, toUci(played));
+  if (!branch) return null;
+  return { reply: branch.reply, next: branch.next, basePly: played.ply + 1 };
+}
+
 export function toUci(move: {
   from: string;
   to: string;

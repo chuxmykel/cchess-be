@@ -33,12 +33,13 @@ npm install
 npm run start:dev        # watch mode, :3000, docs at /docs (Swagger)
 npm run build             # tsc build via `nest build`
 
-npm test                  # unit/integration specs: src/**/*.spec.ts
-npx vitest run src/games/games.service.spec.ts   # a single file
+npm test                  # unit specs: src/**/*.spec.ts - no DB, no .env
+npx vitest run src/games/clock.spec.ts            # a single file
 npx vitest run -t "name of test or describe"      # filter by name
 
-npm run test:e2e          # full HTTP e2e specs: test/**/*.e2e-spec.ts
-                          # (real Postgres - cchess_be_test, see vitest.config.e2e.ts)
+npm run test:e2e          # everything needing Postgres: test/**/*.e2e-spec.ts
+                          # (cchess_be_test, see vitest.config.e2e.ts)
+npm run test:e2e -- test/integration/games.service.e2e-spec.ts  # one file
 npm run test:cov          # coverage
 
 npm run lint               # oxlint --type-aware src/ test/
@@ -152,7 +153,12 @@ access 'X' before initialization` at runtime for any circular entity
   `offerDraw`/`respondDraw`/`abort`/flag-fall-timeout per game id through
   `KeyedMutex` (`src/common/keyed-mutex.ts`). Any new game-mutating method
   needs to go through `this.mutex.runExclusive(gameId, ...)` too, or it can
-  race the clock's `setTimeout`.
+  race the clock's `setTimeout` - and so that shutting down waits for it:
+  `main.ts` enables Nest's shutdown hooks, and
+  `GamesService.beforeApplicationShutdown` drains the mutex before TypeORM
+  closes the database, so a move already broadcast (moves are broadcast
+  before they're saved) is still saved on a deploy's SIGTERM - or on a
+  test's `app.close()`.
 - **Services never depend on `RealtimeGateway` directly** - they emit
   events via `EventEmitter2` (`game.created`, `game.move`, `game.ended`,
   `challenge.*`, `friend.*`) and only `RealtimeGateway` listens
@@ -346,14 +352,45 @@ access 'X' before initialization` at runtime for any circular entity
 
 ## Testing
 
-Both the unit/integration specs and the e2e specs now hit a real Postgres
-database (`cchess_be_test`), not SQLite `:memory:` or mocks - that changed
-two things worth knowing before you add a test:
+Two runs, with a hard line between them:
+
+- **`npm test` - unit specs, `src/**/*.spec.ts`, colocated with the code.**
+  No database, network, Redis or `.env`: they run anywhere, in about a
+  second. `vitest.config.ts` points `DB_*`, `REDIS_*` and the lichess URL
+  at a port nothing listens on (`127.0.0.1:9`) - `cluster.util.ts` loads
+  `.env` on import, and dotenv never overwrites a var already set, so the
+  dev database can't leak in, and anything that tries to connect is
+  refused at once rather than touching a real one. Two kinds:
+  - Pure rules, in modules of their own beside the service that applies
+    them - `clock.ts` (`clockForMove`), `premoves.ts`, `game-rules.ts`,
+    `rating-changes.ts`, `conditional-moves.ts`, `glicko2.ts`,
+    `seek-matching.ts`... A service decides nothing it could ask one of
+    these; a new rule goes in one, tested there.
+  - A service over stand-ins for its repositories and the services it
+    calls - plain `vi.fn()` objects passed to its constructor, no Nest
+    container (`daily-seeks.service.spec.ts`, `explorer.service.spec.ts`,
+    `explorer.sweeper.spec.ts`). For what it does with the answers, not
+    the SQL behind them.
+- **`npm run test:e2e` - `test/**/*.e2e-spec.ts`, against Postgres.**
+  - `test/*.e2e-spec.ts` - full HTTP (and, for `realtime.e2e-spec.ts`,
+    Socket.IO) flows through the real `AppModule` via `test/utils/app.ts`'s
+    `createTestApp()`/`createListeningTestApp()`: controllers, guards and
+    DTO validation together.
+  - `test/integration/*.e2e-spec.ts` - a service on the database through a
+    local `Test.createTestingModule` registering just the entities it needs
+    (`games.service`, `daily-seeks.service`): what needs real persistence -
+    raw SQL, transactions, a claim two requests race for, timers firing.
+
+  Keep each case where it belongs: a rule's permutations in its unit spec,
+  and one e2e case for the path through the stack that uses it.
+
+The e2e run shares one Postgres database (`cchess_be_test`), which brings
+two things worth knowing before you add a test there:
 
 - **No more free per-test isolation.** SQLite `:memory:` gave every test a
   throwaway database for free; a shared Postgres database doesn't. Every
   test app boot (`test/utils/app.ts`'s `createTestApp()`, and
-  `games.service.spec.ts`'s own `buildModule()`) truncates every table first
+  the integration specs' own `buildModule()`) truncates every table first
   via `test/utils/db.ts`'s `truncateAllTables` (table names come from entity
   metadata, not a hardcoded list). If you build a new test harness that
   spins up its own `TestingModule`/`DataSource` instead of reusing one of
@@ -363,24 +400,13 @@ two things worth knowing before you add a test:
   drains the microtask queue and fires due fake timers in a loop, but a real
   Postgres query's promise resolves via libuv's I/O poll phase (an actual
   network round-trip), not just microtasks - it does not reliably resolve
-  inside that loop. This bit the flag-fall test (`games.service.spec.ts`)
+  inside that loop. This bit the flag-fall test (`games.service.e2e-spec.ts`)
   when the DB was still synchronous SQLite (where every query resolved on
   the very next microtask tick, masking the issue entirely). The fix there:
   don't fake time at all - construct the game with the shortest clock there
   is (`{ initialSeconds: 1, incrementSeconds: 0 }`) so the real `setTimeout`
   fires a second later, then poll with a short real delay instead of asserting
   immediately. If you need to test something timer-driven again, reach for
-  that pattern (or a tiny real wait) before fake timers.
-
-Otherwise:
-
-- `src/**/*.spec.ts` - colocated with the code. Pure logic
-  (`time-control.spec.ts`, `glicko2.spec.ts`, `chess-engine.spec.ts`) needs no
-  DB. `games.service.spec.ts` is an integration test against Postgres, built
-  via a local `Test.createTestingModule` (not full `AppModule`) registering
-  just the entities it needs.
-- `test/*.e2e-spec.ts` - full HTTP (and, for `realtime.e2e-spec.ts`,
-  Socket.IO) flows through the real `AppModule` via `test/utils/app.ts`'s
-  `createTestApp()`/`createListeningTestApp()`. These hit controllers +
-  guards + DTO validation together, not just services - prefer adding here
-  over a new isolated service test when a feature spans a full request.
+  that pattern (or a tiny real wait) before fake timers - or, better, pull
+  the timing rule out into a pure function and unit-test it with plain
+  numbers, as `clockForMove` is.

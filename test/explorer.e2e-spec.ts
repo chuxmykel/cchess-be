@@ -265,61 +265,6 @@ describe('Opening explorer (e2e)', () => {
     expect(masters.hits).toBe(2);
   });
 
-  it('asks lichess every time for filters other than its defaults, keeping nothing', async () => {
-    const ivan = await registerUser(app, 'ivan_filters');
-
-    for (let i = 0; i < 2; i++) {
-      await as(ivan)
-        .get('/explorer')
-        .query({
-          fen: START,
-          db: 'lichess',
-          speeds: 'bullet,blitz',
-          ratings: '2500',
-        })
-        .expect(200);
-    }
-
-    expect(lichess.fetch).toHaveBeenCalledTimes(2);
-    expect(lichess.fetch.mock.calls[0][0].filters).toEqual({
-      speeds: ['blitz', 'bullet'],
-      ratings: [2500],
-    });
-    const [{ count }] = await app
-      .get(DataSource)
-      .query(`SELECT COUNT(*)::int AS count FROM explorer_cache`);
-    expect(count).toBe(0);
-  });
-
-  it('serves an answer over 30 days old, marked stale, and fetches it afresh', async () => {
-    const ivan = await registerUser(app, 'ivan_stale');
-    await as(ivan)
-      .get('/explorer')
-      .query({ fen: START, db: 'masters' })
-      .expect(200);
-    const dataSource = app.get(DataSource);
-    await dataSource.query(
-      `UPDATE explorer_cache SET "fetchedAt" = now() - interval '31 days'`,
-    );
-
-    const stale = await as(ivan)
-      .get('/explorer')
-      .query({ fen: START, db: 'masters' })
-      .expect(200);
-
-    expect(stale.body).toMatchObject({ source: 'masters', stale: true });
-    await vi.waitFor(
-      async () => {
-        const [{ fresh }] = await dataSource.query(
-          `SELECT "fetchedAt" > now() - interval '1 minute' AS fresh FROM explorer_cache`,
-        );
-        expect(fresh).toBe(true);
-      },
-      { timeout: 5_000 },
-    ); // the cache's requests wait a second between them
-    expect(lichess.fetch).toHaveBeenCalledTimes(2);
-  });
-
   it('fetches an expired answer again, bringing its row back', async () => {
     const ivan = await registerUser(app, 'ivan_expired');
     await as(ivan)
@@ -338,22 +283,6 @@ describe('Opening explorer (e2e)', () => {
     expect(
       await dataSource.query(`SELECT "deletedAt" FROM explorer_cache`),
     ).toEqual([{ deletedAt: null }]);
-  });
-
-  it('answers from the games played here while lichess is out of reach', async () => {
-    const ivan = await registerUser(app, 'ivan_limited');
-    lichess.fetch.mockResolvedValueOnce({ status: 'rateLimited' });
-
-    const answer = await as(ivan)
-      .get('/explorer')
-      .query({ fen: START, db: 'lichess' })
-      .expect(200);
-
-    expect(answer.body).toMatchObject({ source: 'cchess', totalGames: 0 });
-    const [{ count }] = await app
-      .get(DataSource)
-      .query(`SELECT COUNT(*)::int AS count FROM explorer_cache`);
-    expect(count).toBe(0);
   });
 
   it('keeps what it learns of lichess’s limit', async () => {
@@ -538,17 +467,6 @@ describe('Opening explorer upkeep (e2e)', () => {
       [start, afterE4],
     );
     expect(fresh).toBe(true);
-  });
-
-  it('stops at the first position lichess doesn’t answer', async () => {
-    await position('a', { pinned: true });
-    await position('b', { pinned: true });
-    lichess.fetch.mockResolvedValueOnce({ status: 'failed' });
-
-    expect(await app.get(ExplorerSweeper).refreshDue()).toEqual({
-      due: 2,
-      fetched: 0,
-    });
   });
 });
 

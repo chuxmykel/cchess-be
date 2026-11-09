@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { STARTING_FEN, type Game } from './entities/game.entity.js';
-import { remainingTimesAt } from './clock.js';
+import { clockForMove, remainingTimesAt } from './clock.js';
 
 const AFTER_E4 = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
 const AFTER_E4_E5 =
@@ -88,5 +88,126 @@ describe('remainingTimesAt', () => {
       whiteTimeRemainingMs: 82_800_000,
       blackTimeRemainingMs: 86_400_000,
     });
+  });
+});
+
+describe('clockForMove', () => {
+  const blitz = { initialSeconds: 60, incrementSeconds: 2 };
+
+  it('charges the time since the last move, then adds the increment', () => {
+    const game = makeGame(blitz);
+
+    expect(clockForMove(game, 'w', TEN_SECONDS_LATER)).toEqual({
+      status: 'ok',
+      remainingAfter: 52_000,
+    });
+  });
+
+  it("charges a pre-move's fixed charge instead of the time since", () => {
+    const game = makeGame(blitz);
+
+    expect(clockForMove(game, 'w', TEN_SECONDS_LATER, 100)).toEqual({
+      status: 'ok',
+      remainingAfter: 61_900,
+    });
+  });
+
+  it("neither charges nor adds the increment to a side's first move", () => {
+    const beforeAnyMove = makeGame({
+      ...blitz,
+      fen: STARTING_FEN,
+      lastMoveAt: null,
+      createdAt: LAST_MOVE_AT,
+    });
+    const afterWhitesFirst = makeGame({ ...blitz, fen: AFTER_E4, turn: 'b' });
+
+    expect(clockForMove(beforeAnyMove, 'w', TEN_SECONDS_LATER)).toEqual({
+      status: 'ok',
+      remainingAfter: 60_000,
+    });
+    expect(clockForMove(afterWhitesFirst, 'b', TEN_SECONDS_LATER)).toEqual({
+      status: 'ok',
+      remainingAfter: 50_000,
+    });
+  });
+
+  it('refuses a first move after its deadline', () => {
+    const game = makeGame({
+      ...blitz,
+      fen: STARTING_FEN,
+      lastMoveAt: null,
+      createdAt: LAST_MOVE_AT,
+    });
+
+    expect(clockForMove(game, 'w', LAST_MOVE_AT.getTime() + 31_000)).toEqual({
+      status: 'late-first-move',
+    });
+  });
+
+  it('flags a move made once the time has run out, increment or not', () => {
+    const game = makeGame({ ...blitz, whiteTimeRemainingMs: 10_000 });
+
+    expect(clockForMove(game, 'w', TEN_SECONDS_LATER)).toEqual({
+      status: 'flagged',
+    });
+    expect(clockForMove(game, 'w', TEN_SECONDS_LATER + 1)).toEqual({
+      status: 'flagged',
+    });
+  });
+
+  it("resets a daily game's clock to the full days with every move, first moves included", () => {
+    const threeDaysMs = 3 * 86_400_000;
+    const daily = {
+      gameType: 'daily' as const,
+      initialSeconds: threeDaysMs / 1000,
+      incrementSeconds: 0,
+      whiteTimeRemainingMs: threeDaysMs,
+      blackTimeRemainingMs: threeDaysMs,
+    };
+    const firstMove = makeGame({
+      ...daily,
+      fen: STARTING_FEN,
+      lastMoveAt: null,
+      createdAt: LAST_MOVE_AT,
+    });
+    const later = makeGame(daily);
+    const aDayOn = LAST_MOVE_AT.getTime() + 86_400_000;
+
+    expect(clockForMove(firstMove, 'w', aDayOn)).toEqual({
+      status: 'ok',
+      remainingAfter: threeDaysMs,
+    });
+    expect(clockForMove(later, 'w', aDayOn)).toEqual({
+      status: 'ok',
+      remainingAfter: threeDaysMs,
+    });
+  });
+
+  it('flags a daily move made after its days have run out', () => {
+    const game = makeGame({
+      gameType: 'daily',
+      initialSeconds: 86_400,
+      incrementSeconds: 0,
+      whiteTimeRemainingMs: 86_400_000,
+    });
+
+    expect(
+      clockForMove(game, 'w', LAST_MOVE_AT.getTime() + 86_400_001),
+    ).toEqual({ status: 'flagged' });
+  });
+
+  it("refuses a daily game's first move after its days", () => {
+    const game = makeGame({
+      gameType: 'daily',
+      initialSeconds: 86_400,
+      incrementSeconds: 0,
+      fen: STARTING_FEN,
+      lastMoveAt: null,
+      createdAt: LAST_MOVE_AT,
+    });
+
+    expect(
+      clockForMove(game, 'w', LAST_MOVE_AT.getTime() + 86_400_001),
+    ).toEqual({ status: 'late-first-move' });
   });
 });

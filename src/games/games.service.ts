@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   BadRequestException,
+  type BeforeApplicationShutdown,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -32,7 +33,6 @@ import { positionKey } from '../chess/position-key.js';
 import {
   classifyTimeControl,
   formatTimeControl,
-  incrementMs,
   isDailyTimeControl,
   toClockMs,
   type GameType,
@@ -47,12 +47,7 @@ import {
   MAX_GAMES_LIST_LIMIT,
 } from './dto/list-games.query.js';
 import type { User } from '../users/entities/user.entity.js';
-import {
-  type GameScore,
-  type Glicko2Rating,
-  rateGame,
-  ratingPeriodsBetween,
-} from './glicko2.js';
+import type { Glicko2Rating } from './glicko2.js';
 import {
   Game,
   STARTING_FEN,
@@ -61,8 +56,23 @@ import {
   type GameStatus,
 } from './entities/game.entity.js';
 import { isDailyGame, MAX_ACTIVE_DAILY_GAMES, moveDeadline } from './daily.js';
-import { firstMoveDeadline, isAwaitingFirstMove } from './first-move.js';
-import { branchFor, fromUci, toUci } from './conditional-moves.js';
+import { firstMoveDeadline } from './first-move.js';
+import { clockForMove } from './clock.js';
+import { conditionalStep, fromUci } from './conditional-moves.js';
+import {
+  canRespondToDraw,
+  drawOfferOutcome,
+  isRatedPairing,
+  winnerAgainst,
+  withinAbortWindow,
+} from './game-rules.js';
+import {
+  type Premove,
+  PREMOVE_CHARGE_MS,
+  premoveRequest,
+  queuedPremoveAction,
+} from './premoves.js';
+import { ratingChangesFor } from './rating-changes.js';
 import { ConditionalMoveSet } from './entities/conditional-move-set.entity.js';
 import { Move } from './entities/move.entity.js';
 import { buildPgnText } from './pgn.util.js';
@@ -96,35 +106,10 @@ export interface DailyGameListing {
 
 const GAME_RELATIONS = { white: true, black: true } as const;
 
-/** What a pre-move takes off its player's clock: a fixed charge, not the
- * time it took to reach us, so it costs the same on any connection -
- * chess.com's 0.1s. Not nothing, or a run of them would cost nothing in a
- * time scramble. */
-export const PREMOVE_CHARGE_MS = 100;
-
-interface Premove {
-  color: 'w' | 'b';
-  from: string;
-  to: string;
-  promotion?: string;
-}
-
 interface RatingUpdates {
   white: Glicko2Rating;
   black: Glicko2Rating;
   ratedAt: Date;
-}
-
-function scoreFor(
-  color: 'white' | 'black',
-  result: Exclude<GameResult, null>,
-): GameScore {
-  if (result === 'draw') return 0.5;
-  return result === color ? 1 : 0;
-}
-
-function roundedChange(before: Glicko2Rating, after: Glicko2Rating): number {
-  return Math.round(after.rating) - Math.round(before.rating);
 }
 
 function gameWithMovesFromWire(wire: {
@@ -144,7 +129,9 @@ function applyMoveFromWire(wire: {
 }
 
 @Injectable()
-export class GamesService implements OnModuleDestroy {
+export class GamesService
+  implements OnModuleDestroy, BeforeApplicationShutdown
+{
   private readonly logger = new Logger(GamesService.name);
   private readonly engines = new Map<string, ServerChessEngine>();
   private readonly flagTimers = new Map<string, NodeJS.Timeout>();
@@ -185,7 +172,22 @@ export class GamesService implements OnModuleDestroy {
   }
 
   onModuleDestroy() {
+    this.clearFlagFallTimers();
+  }
+
+  /** Lets the game work under way finish - a move's save, a finished
+   * game's ratings - before the database closes, which TypeORM does on
+   * application shutdown, after this hook. A move is broadcast before it's
+   * saved (see playMove), so cutting the save off would leave players
+   * shown a move that's lost. Then stops the flag timers any of it set. */
+  async beforeApplicationShutdown(): Promise<void> {
+    await this.mutex.drain();
+    this.clearFlagFallTimers();
+  }
+
+  private clearFlagFallTimers(): void {
     for (const timer of this.flagTimers.values()) clearTimeout(timer);
+    this.flagTimers.clear();
   }
 
   /**
@@ -400,7 +402,7 @@ export class GamesService implements OnModuleDestroy {
   ): Promise<Game> {
     const gameType = classifyTimeControl(tc);
     const clockMs = toClockMs(tc);
-    const isRated = rated && !white.isGuest && !black.isGuest;
+    const isRated = isRatedPairing(rated, white, black);
     // A daily game is one of many at once, played over weeks - never part
     // of a rematch series, which is a run of games played back to back.
     const continuesSeries = !series && gameType !== 'daily';
@@ -850,12 +852,11 @@ export class GamesService implements OnModuleDestroy {
       const game = await this.getGameOrThrow(gameId);
       this.assertGameActive(game);
       const color = this.colorOf(game, userId);
-      // Days apart, a daily game's moves need no pre-moves - and one held
-      // only in memory, as these are, wouldn't last that long anyway.
-      if (isDailyGame(game)) {
+      const request = premoveRequest(game, color);
+      if (request === 'refused-daily') {
         throw new BadRequestException('Daily games have no pre-moves');
       }
-      if (game.turn === color) return false;
+      if (request === 'move') return false;
       this.premoves.set(gameId, { color, from, to, promotion });
       return true;
     });
@@ -888,15 +889,11 @@ export class GamesService implements OnModuleDestroy {
    * flags as usual. Either way the queue is emptied. */
   private async playQueuedPremove(game: Game, now: number): Promise<void> {
     const premove = this.premoves.get(game.id);
-    if (!premove || game.status !== 'active' || premove.color !== game.turn)
-      return;
+    if (!premove) return;
+    const action = queuedPremoveAction(premove, game);
+    if (action === 'wait') return;
     this.premoves.delete(game.id);
-
-    const remaining =
-      premove.color === 'w'
-        ? game.whiteTimeRemainingMs
-        : game.blackTimeRemainingMs;
-    if (!isAwaitingFirstMove(game) && remaining <= PREMOVE_CHARGE_MS) return;
+    if (action === 'drop') return;
 
     try {
       await this.playMove(
@@ -928,25 +925,22 @@ export class GamesService implements OnModuleDestroy {
       userId,
     });
     if (!set) return;
-    const branch =
-      set.basePly === played.ply - 1
-        ? branchFor(set.tree, toUci(played))
-        : undefined;
-    if (!branch) {
+    const step = conditionalStep(set, played);
+    if (!step) {
       await this.conditionalMoves.softDelete({ gameId: game.id, userId });
       return;
     }
 
-    const { from, to, promotion } = fromUci(branch.reply);
+    const { from, to, promotion } = fromUci(step.reply);
     try {
       await this.playMove(game, game.turn, from, to, promotion, Date.now());
     } catch (error) {
       if (!(error instanceof BadRequestException)) throw error;
     }
-    if (game.status === 'active' && branch.next.length > 0) {
+    if (game.status === 'active' && step.next.length > 0) {
       await this.conditionalMoves.update(
         { gameId: game.id, userId },
-        { basePly: played.ply + 1, tree: branch.next },
+        { basePly: step.basePly, tree: step.next },
       );
     } else {
       await this.conditionalMoves.softDelete({ gameId: game.id, userId });
@@ -964,27 +958,13 @@ export class GamesService implements OnModuleDestroy {
     now: number,
     chargeMs?: number,
   ): Promise<{ game: Game; move: Move }> {
-    const isFirstMove = isAwaitingFirstMove(game);
     const fenBefore = game.fen;
-    const remainingAfterElapsed = isFirstMove
-      ? await this.enforceFirstMoveDeadline(game, color, now)
-      : await this.enforceClock(game, color, now, chargeMs);
+    const newRemaining = await this.enforceClock(game, color, now, chargeMs);
 
     const engine = await this.getOrBuildEngine(game);
     const outcome = this.attemptMoveOrThrow(engine, from, to, promotion);
 
     const ply = engine.history().length;
-    const tc: TimeControl = {
-      initialSeconds: game.initialSeconds,
-      incrementSeconds: game.incrementSeconds,
-    };
-    // A daily game's time doesn't build up: each move resets the mover's
-    // clock to the full days a move.
-    const newRemaining = isDailyGame(game)
-      ? toClockMs(tc)
-      : isFirstMove
-        ? remainingAfterElapsed
-        : remainingAfterElapsed + incrementMs(tc);
 
     this.applyMoveToGameState(game, outcome, color, newRemaining, now);
     const move = this.buildMoveEntity(
@@ -1025,49 +1005,28 @@ export class GamesService implements OnModuleDestroy {
     if (game.turn !== color) throw new ConflictException("It's not your turn");
   }
 
-  /** A side's first move doesn't run its clock, but it must come before
-   * firstMoveDeadline - a later one aborts the game and throws instead.
-   * Returns the mover's untouched remaining time. */
-  private async enforceFirstMoveDeadline(
-    game: Game,
-    color: 'w' | 'b',
-    now: number,
-  ): Promise<number> {
-    const deadline = firstMoveDeadline(game);
-    if (deadline && now > deadline.getTime()) {
-      await this.finalize(game, null, 'abort', 'aborted');
-      throw new ConflictException('Too late for the first move');
-    }
-    return color === 'w'
-      ? game.whiteTimeRemainingMs
-      : game.blackTimeRemainingMs;
-  }
-
-  /** Deducts elapsed time - or `chargeMs`, a pre-move's - from the
-   * mover's clock; if that leaves none,
-   * finalizes the game as a timeout loss and throws - never applies a move
-   * submitted after the flag already fell. Returns the mover's remaining
-   * time immediately before this move; the caller adds the incrementMs
-   * once the move itself is known to be legal. */
+  /** The mover's clock once this move is played (see clockForMove) - or,
+   * a first move coming too late, aborts the game, and a move after the
+   * flag fell ends it as a timeout loss, throwing either way: neither move
+   * is ever applied. */
   private async enforceClock(
     game: Game,
     color: 'w' | 'b',
     now: number,
     chargeMs?: number,
   ): Promise<number> {
-    const sinceLastMove =
-      chargeMs ?? (game.lastMoveAt ? now - game.lastMoveAt.getTime() : 0);
-    const remainingBefore =
-      color === 'w' ? game.whiteTimeRemainingMs : game.blackTimeRemainingMs;
-    const remainingAfterElapsed = remainingBefore - Math.max(sinceLastMove, 0);
-
-    if (remainingAfterElapsed <= 0) {
+    const clock = clockForMove(game, color, now, chargeMs);
+    if (clock.status === 'late-first-move') {
+      await this.finalize(game, null, 'abort', 'aborted');
+      throw new ConflictException('Too late for the first move');
+    }
+    if (clock.status === 'flagged') {
       if (color === 'w') game.whiteTimeRemainingMs = 0;
       else game.blackTimeRemainingMs = 0;
-      await this.finalize(game, color === 'w' ? 'black' : 'white', 'timeout');
+      await this.finalize(game, winnerAgainst(color), 'timeout');
       throw new ConflictException('Flagged on time');
     }
-    return remainingAfterElapsed;
+    return clock.remainingAfter;
   }
 
   private attemptMoveOrThrow(
@@ -1238,11 +1197,7 @@ export class GamesService implements OnModuleDestroy {
         throw new ConflictException('Game is not active');
       const color = this.colorOf(game, userId);
       await this.assertPastAbortWindow(game, 'resign');
-      await this.finalize(
-        game,
-        color === 'w' ? 'black' : 'white',
-        'resignation',
-      );
+      await this.finalize(game, winnerAgainst(color), 'resignation');
       return game;
     });
   }
@@ -1263,10 +1218,9 @@ export class GamesService implements OnModuleDestroy {
       if (game.status !== 'active')
         throw new ConflictException('Game is not active');
       const color = this.colorOf(game, userId);
-      const otherColor = color === 'w' ? 'b' : 'w';
       await this.assertPastAbortWindow(game, 'offer a draw');
 
-      if (game.drawOfferedBy === (otherColor === 'w' ? 'white' : 'black')) {
+      if (drawOfferOutcome(game, color) === 'accept') {
         // Offering back is accepting.
         this.events.emit(DOMAIN_EVENTS.GAME_DRAW_ACCEPTED, {
           game,
@@ -1310,9 +1264,8 @@ export class GamesService implements OnModuleDestroy {
       if (game.status !== 'active')
         throw new ConflictException('Game is not active');
       const color = this.colorOf(game, userId);
-      const myOfferLabel = color === 'w' ? 'white' : 'black';
 
-      if (!game.drawOfferedBy || game.drawOfferedBy === myOfferLabel) {
+      if (!canRespondToDraw(game, color)) {
         throw new BadRequestException('No draw offer to respond to');
       }
 
@@ -1351,7 +1304,7 @@ export class GamesService implements OnModuleDestroy {
     const abortLimit = this.configService.get('game.abortPlyLimit', {
       infer: true,
     });
-    if (plyCount < abortLimit) {
+    if (withinAbortWindow(plyCount, abortLimit)) {
       throw new ConflictException(
         `Too early to ${action} - abort the game instead`,
       );
@@ -1375,7 +1328,7 @@ export class GamesService implements OnModuleDestroy {
       const abortLimit = this.configService.get('game.abortPlyLimit', {
         infer: true,
       });
-      if (plyCount >= abortLimit) {
+      if (!withinAbortWindow(plyCount, abortLimit)) {
         throw new ConflictException(
           'Too late to abort - resign or offer a draw instead',
         );
@@ -1404,11 +1357,7 @@ export class GamesService implements OnModuleDestroy {
       const game = await this.getGameOrThrow(gameId);
       if (game.status !== 'active' || isDailyGame(game)) return;
       const color = this.colorOf(game, userId);
-      await this.finalize(
-        game,
-        color === 'w' ? 'black' : 'white',
-        'abandonment',
-      );
+      await this.finalize(game, winnerAgainst(color), 'abandonment');
     });
   }
 
@@ -1540,11 +1489,7 @@ export class GamesService implements OnModuleDestroy {
       const loserColor = game.turn;
       if (loserColor === 'w') game.whiteTimeRemainingMs = 0;
       else game.blackTimeRemainingMs = 0;
-      await this.finalize(
-        game,
-        loserColor === 'w' ? 'black' : 'white',
-        'timeout',
-      );
+      await this.finalize(game, winnerAgainst(loserColor), 'timeout');
       return true;
     });
   }
@@ -1640,21 +1585,14 @@ export class GamesService implements OnModuleDestroy {
       this.usersService.getOrCreateRating(game.blackId, game.gameType),
     ]);
     const ratedAt = new Date();
-    const white = rateGame(
+    const { white, black, whiteDiff, blackDiff } = ratingChangesFor(
       whiteRow,
       blackRow,
-      scoreFor('white', result),
-      ratingPeriodsBetween(whiteRow.lastRatedAt, ratedAt),
+      result,
+      ratedAt,
     );
-    const black = rateGame(
-      blackRow,
-      whiteRow,
-      scoreFor('black', result),
-      ratingPeriodsBetween(blackRow.lastRatedAt, ratedAt),
-    );
-
-    game.whiteRatingDiff = roundedChange(whiteRow, white);
-    game.blackRatingDiff = roundedChange(blackRow, black);
+    game.whiteRatingDiff = whiteDiff;
+    game.blackRatingDiff = blackDiff;
     return { white, black, ratedAt };
   }
 
