@@ -11,6 +11,7 @@ import {
 import type { AppConfig } from '../config/configuration.js';
 import { ExplorerCacheEntry } from '../explorer/entities/explorer-cache-entry.entity.js';
 import { ExplorerPosition } from '../explorer/entities/explorer-position.entity.js';
+import { LichessFetchState } from '../explorer/entities/lichess-fetch-state.entity.js';
 import { Friendship } from '../friends/entities/friendship.entity.js';
 import { Game } from '../games/entities/game.entity.js';
 import { Move } from '../games/entities/move.entity.js';
@@ -69,6 +70,7 @@ export const typeOrmModule = TypeOrmModule.forRootAsync({
       GameNote,
       ExplorerPosition,
       ExplorerCacheEntry,
+      LichessFetchState,
       ConditionalMoveSet,
     ],
     // Schema is managed by real migrations (src/database/migrations),
