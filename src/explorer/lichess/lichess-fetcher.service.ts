@@ -12,7 +12,12 @@ import {
   type LichessExplorerRequest,
   type LichessFetchResult,
 } from './lichess-explorer.client.js';
-import { type FetchLane, LichessFetchQueue } from './lichess-fetch-queue.js';
+import {
+  type FetchLane,
+  LICHESS_RATE_LIMIT_PAUSE_MS,
+  LichessFetchQueue,
+  realClock,
+} from './lichess-fetch-queue.js';
 
 /** A cached position to fetch afresh. */
 export interface RefreshJob {
@@ -40,7 +45,18 @@ export class LichessFetcherService {
     private readonly cache: ExplorerCacheService,
     private readonly clusterBus: ClusterBus,
   ) {
-    this.queue = new LichessFetchQueue((request) => this.client.fetch(request));
+    this.queue = new LichessFetchQueue(
+      (request) => this.client.fetch(request),
+      realClock,
+      (gapMs, reason) =>
+        reason === 'rateLimited'
+          ? this.logger.warn(
+              `lichess rate-limited us: pausing ${LICHESS_RATE_LIMIT_PAUSE_MS / 1000}s, then ${gapMs / 1000}s between background requests`,
+            )
+          : this.logger.log(
+              `lichess keeps answering: ${gapMs / 1000}s between background requests`,
+            ),
+    );
     this.clusterBus.onRequest(
       EXPLORER_RPC.FETCH,
       (payload: { request: LichessExplorerRequest; lane: FetchLane }) =>

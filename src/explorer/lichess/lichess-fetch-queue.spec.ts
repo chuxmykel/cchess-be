@@ -5,7 +5,10 @@ import type {
   LichessFetchResult,
 } from './lichess-explorer.client.js';
 import {
+  type GapChange,
   LICHESS_BACKGROUND_GAP_MS,
+  LICHESS_GAP_RECOVERY_REQUESTS,
+  LICHESS_MAX_BACKGROUND_GAP_MS,
   LICHESS_RATE_LIMIT_PAUSE_MS,
   LichessFetchQueue,
   type QueueClock,
@@ -54,6 +57,24 @@ function fakeLichess() {
 }
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+/** A different position for each n - the queue only keys them. */
+const position = (n: number) => masters(`p${n} w - - 0 1`);
+
+/** Lichess answering each request at once, as the script says, then OK. */
+function scriptedLichess(script: Array<LichessFetchResult['status']>) {
+  return async (): Promise<LichessFetchResult> => {
+    const status = script.shift() ?? 'ok';
+    return status === 'ok' ? OK : { status };
+  };
+}
+
+/** Sends `count` background requests, one after another. */
+async function sendInTurn(queue: LichessFetchQueue, count: number) {
+  for (let n = 0; n < count; n++) {
+    await queue.fetch(position(n), 'background');
+  }
+}
 
 describe('LichessFetchQueue', () => {
   it('sends the same position asked twice once, however its FEN counts moves', async () => {
@@ -202,5 +223,67 @@ describe('LichessFetchQueue', () => {
     expect(await queue.fetch(masters(AFTER_E4), 'interactive')).toEqual({
       status: 'failed',
     });
+  });
+
+  it('doubles the gap between the cache’s requests after a 429', async () => {
+    const time = fakeClock();
+    const queue = new LichessFetchQueue(
+      scriptedLichess(['rateLimited']),
+      time.clock,
+    );
+
+    void queue.fetch(position(0), 'background');
+    void queue.fetch(position(1), 'background');
+    await queue.fetch(position(2), 'background');
+
+    expect(time.sleeps).toEqual([
+      LICHESS_RATE_LIMIT_PAUSE_MS,
+      LICHESS_BACKGROUND_GAP_MS * 2,
+    ]);
+  });
+
+  it('stops doubling at the most', async () => {
+    const queue = new LichessFetchQueue(
+      scriptedLichess(Array(8).fill('rateLimited')),
+      fakeClock().clock,
+    );
+    await sendInTurn(queue, 8);
+    expect(queue.backgroundGapMs).toBe(LICHESS_MAX_BACKGROUND_GAP_MS);
+  });
+
+  it('shortens the gap slowly while lichess answers, never back to one it rate-limited', async () => {
+    const changes: Array<[number, GapChange]> = [];
+    const queue = new LichessFetchQueue(
+      scriptedLichess(['rateLimited']),
+      fakeClock().clock,
+      (gapMs, reason) => changes.push([gapMs, reason]),
+    );
+
+    await sendInTurn(queue, 1 + LICHESS_GAP_RECOVERY_REQUESTS * 7);
+
+    expect(changes).toEqual([
+      [2000, 'rateLimited'],
+      [1800, 'recovered'],
+      [1620, 'recovered'],
+      [1458, 'recovered'],
+      [1312, 'recovered'],
+      [1181, 'recovered'],
+      // Not 1063: 1000 was rate-limited, so 1100 is as short as it goes.
+      [1100, 'recovered'],
+    ]);
+    expect(queue.backgroundGapMs).toBe(1100);
+  });
+
+  it('counts the requests answered in a row afresh after a 429', async () => {
+    const queue = new LichessFetchQueue(
+      scriptedLichess([
+        'rateLimited',
+        ...Array(LICHESS_GAP_RECOVERY_REQUESTS - 1).fill('ok'),
+        'rateLimited',
+      ]),
+      fakeClock().clock,
+    );
+    await sendInTurn(queue, LICHESS_GAP_RECOVERY_REQUESTS + 2);
+    expect(queue.backgroundGapMs).toBe(4000);
   });
 });

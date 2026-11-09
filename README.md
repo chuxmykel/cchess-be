@@ -389,6 +389,12 @@ to send one request at a time and to wait a minute after a 429, so:
 - **Players go first.** A player's request goes before the cache's own.
 - **After a 429**, lichess is left alone for two minutes. A player asking
   meanwhile is answered from the games here at once.
+- **The cache's requests find lichess's limit.** Lichess doesn't publish
+  it (in practice, about 50 requests a minute). They start a second
+  apart; each 429 doubles the gap, up to 10 seconds, and every 100
+  requests answered in a row shorten it by a tenth - never back to within
+  a tenth of a gap that was rate-limited. So the cache settles just under
+  the limit, leaving the rest for players.
 
 Masters, and Lichess with its default filters, are kept in the database:
 
@@ -410,9 +416,9 @@ at the commit the app's opening names come from). They never expire.
 
 `ExplorerSweeper` keeps the cache up on worker 0. It fetches pinned
 positions with no answer, or one gone stale, through the queue's
-background lane, a second apart and after any player's. With a token, the
-first fill takes some four and a half hours; after that each month's
-refresh trickles in the same way. `EXPLORER_MAINTENANCE=false` turns the
+background lane, after any player's and as far apart as lichess's limit
+needs. With a token, the first fill takes most of a day; after that each
+month's refresh trickles in the same way. `EXPLORER_MAINTENANCE=false` turns the
 upkeep off.
 
 ### Friends, challenges and messages

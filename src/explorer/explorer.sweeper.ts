@@ -25,9 +25,9 @@ const BATCH = 50;
  * the answers of positions long unopened expire (ExplorerCacheService's
  * `sweep`); and all the while, pinned positions - the opening book's -
  * are fetched from lichess when they've no answer, or theirs is over 30
- * days old. Those go by the queue's background lane, a second apart and
- * after any player's, so the first fill (some 16,000) takes hours and
- * each month's refresh trickles.
+ * days old. Those go by the queue's background lane, after any player's
+ * and spaced to stay under lichess's limit, so the first fill (some
+ * 16,000) takes most of a day and each month's refresh trickles.
  */
 @Injectable()
 export class ExplorerSweeper
