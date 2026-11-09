@@ -28,6 +28,9 @@ export class DailyDeadlineSweeper
   constructor(private readonly gamesService: GamesService) {}
 
   onApplicationBootstrap(): void {
+    this.logger.log(
+      `daily deadline sweep started: every ${DAILY_SWEEP_INTERVAL_MS / 1000}s`,
+    );
     void this.sweep();
     this.timer = setInterval(() => {
       void this.sweep();
@@ -37,12 +40,18 @@ export class DailyDeadlineSweeper
 
   onModuleDestroy(): void {
     if (this.timer) clearInterval(this.timer);
+    this.logger.log('daily deadline sweep stopped');
   }
 
   async sweep(): Promise<void> {
+    this.logger.debug('daily sweep: looking for moves out of time');
     try {
       const ended = await this.gamesService.expireOverdueDailyGames();
-      if (ended > 0) this.logger.debug(`ended ${ended} daily game(s) on time`);
+      if (ended > 0) {
+        this.logger.log(`daily sweep: ended ${ended} daily game(s) on time`);
+      } else {
+        this.logger.debug('daily sweep: no daily game out of time');
+      }
     } catch (error) {
       this.logger.warn(`daily sweep failed: ${(error as Error).message}`);
     }
