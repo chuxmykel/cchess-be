@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   BadRequestException,
+  type BeforeApplicationShutdown,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -128,7 +129,9 @@ function applyMoveFromWire(wire: {
 }
 
 @Injectable()
-export class GamesService implements OnModuleDestroy {
+export class GamesService
+  implements OnModuleDestroy, BeforeApplicationShutdown
+{
   private readonly logger = new Logger(GamesService.name);
   private readonly engines = new Map<string, ServerChessEngine>();
   private readonly flagTimers = new Map<string, NodeJS.Timeout>();
@@ -169,7 +172,22 @@ export class GamesService implements OnModuleDestroy {
   }
 
   onModuleDestroy() {
+    this.clearFlagFallTimers();
+  }
+
+  /** Lets the game work under way finish - a move's save, a finished
+   * game's ratings - before the database closes, which TypeORM does on
+   * application shutdown, after this hook. A move is broadcast before it's
+   * saved (see playMove), so cutting the save off would leave players
+   * shown a move that's lost. Then stops the flag timers any of it set. */
+  async beforeApplicationShutdown(): Promise<void> {
+    await this.mutex.drain();
+    this.clearFlagFallTimers();
+  }
+
+  private clearFlagFallTimers(): void {
     for (const timer of this.flagTimers.values()) clearTimeout(timer);
+    this.flagTimers.clear();
   }
 
   /**
