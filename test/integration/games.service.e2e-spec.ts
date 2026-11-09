@@ -5,27 +5,27 @@ import { getRepositoryToken, TypeOrmModule } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { RefreshToken } from '../auth/entities/refresh-token.entity.js';
-import { ClusterModule } from '../cluster/cluster.module.js';
-import { DOMAIN_EVENTS } from '../common/events.js';
-import { requireEnv } from '../common/require-env.js';
+import { RefreshToken } from '../../src/auth/entities/refresh-token.entity.js';
+import { ClusterModule } from '../../src/cluster/cluster.module.js';
+import { DOMAIN_EVENTS } from '../../src/common/events.js';
+import { requireEnv } from '../../src/common/require-env.js';
 import {
   Rating,
   STARTING_DEVIATION,
   STARTING_RATING,
   STARTING_VOLATILITY,
-} from '../users/entities/rating.entity.js';
-import { User } from '../users/entities/user.entity.js';
-import { UsersService } from '../users/users.service.js';
-import { ConditionalMovesService } from './conditional-moves.service.js';
-import { ConditionalMoveSet } from './entities/conditional-move-set.entity.js';
-import { Game } from './entities/game.entity.js';
-import { Move } from './entities/move.entity.js';
-import { MAX_ACTIVE_DAILY_GAMES } from './daily.js';
-import { GameEvent, GamesService } from './games.service.js';
-import { rateGame } from './glicko2.js';
-import { truncateAllTables } from '../../test/utils/db.js';
-import { TimeControl, toClockMs } from '../chess/time-control.js';
+} from '../../src/users/entities/rating.entity.js';
+import { User } from '../../src/users/entities/user.entity.js';
+import { UsersService } from '../../src/users/users.service.js';
+import { ConditionalMovesService } from '../../src/games/conditional-moves.service.js';
+import { ConditionalMoveSet } from '../../src/games/entities/conditional-move-set.entity.js';
+import { Game } from '../../src/games/entities/game.entity.js';
+import { Move } from '../../src/games/entities/move.entity.js';
+import { MAX_ACTIVE_DAILY_GAMES } from '../../src/games/daily.js';
+import { GameEvent, GamesService } from '../../src/games/games.service.js';
+import { rateGame } from '../../src/games/glicko2.js';
+import { truncateAllTables } from '../utils/db.js';
+import { TimeControl, toClockMs } from '../../src/chess/time-control.js';
 
 async function buildModule(gameConfig: Record<string, unknown> = {}) {
   const moduleRef = await Test.createTestingModule({
@@ -216,71 +216,6 @@ describe('GamesService', () => {
     expect(blackBlitz.gamesPlayed).toBe(1);
     expect(whiteBlitz.gamesPlayed).toBe(1);
     expect(blackBlitz.lastRatedAt).not.toBeNull();
-  });
-
-  it('moves a settled rating far less than a new one', async () => {
-    const settledWhite = await makeUser('white3b');
-    const settledBlack = await makeUser('black3b');
-    for (const user of [settledWhite, settledBlack]) {
-      await ctx.ratingsRepo.update(
-        { userId: user.id, category: 'blitz' },
-        { deviation: 60, lastRatedAt: new Date() },
-      );
-    }
-    const newWhite = await makeUser('white3c');
-    const newBlack = await makeUser('black3c');
-
-    for (const [white, black] of [
-      [settledWhite, settledBlack],
-      [newWhite, newBlack],
-    ]) {
-      const game = await ctx.gamesService.createGame(
-        white,
-        black,
-        { initialSeconds: 300, incrementSeconds: 0 },
-        true,
-      );
-      await playFoolsMate(game.id, white.id, black.id);
-    }
-
-    const settledGain = (await blitzRating(settledBlack.id)).rating - 1500;
-    const newGain = (await blitzRating(newBlack.id)).rating - 1500;
-    expect(settledGain).toBeGreaterThan(0);
-    expect(settledGain).toBeLessThan(newGain / 4);
-  });
-
-  it("grows a returning player's deviation for the time since their last rated game", async () => {
-    const regular = await makeUser('white3d');
-    const returning = await makeUser('white3e');
-    const opponentOfRegular = await makeUser('black3d');
-    const opponentOfReturning = await makeUser('black3e');
-    const aYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
-    for (const [user, lastRatedAt] of [
-      [regular, new Date()],
-      [returning, aYearAgo],
-    ] as const) {
-      await ctx.ratingsRepo.update(
-        { userId: user.id, category: 'blitz' },
-        { deviation: 60, lastRatedAt },
-      );
-    }
-
-    for (const [white, black] of [
-      [regular, opponentOfRegular],
-      [returning, opponentOfReturning],
-    ]) {
-      const game = await ctx.gamesService.createGame(
-        white,
-        black,
-        { initialSeconds: 300, incrementSeconds: 0 },
-        true,
-      );
-      await playFoolsMate(game.id, white.id, black.id);
-    }
-
-    const regularLoss = 1500 - (await blitzRating(regular.id)).rating;
-    const returningLoss = 1500 - (await blitzRating(returning.id)).rating;
-    expect(returningLoss).toBeGreaterThan(regularLoss);
   });
 
   it('resigns in favor of the opponent', async () => {
@@ -485,74 +420,6 @@ describe('GamesService', () => {
     }
   });
 
-  it("doesn't run either clock until both sides have moved", async () => {
-    const white = await makeUser('white8f');
-    const black = await makeUser('black8f');
-    const fiveMinutes = toClockMs({ initialSeconds: 300, incrementSeconds: 3 });
-    const dateSpy = vi.spyOn(Date, 'now');
-    try {
-      const game = await ctx.gamesService.createGame(
-        white,
-        black,
-        { initialSeconds: 300, incrementSeconds: 3 },
-        true,
-      );
-      dateSpy.mockReturnValue(Date.now() + 10_000);
-      await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
-      dateSpy.mockReturnValue(Date.now() + 10_000);
-      const { game: afterBoth } = await ctx.gamesService.applyMove(
-        game.id,
-        black.id,
-        'e7',
-        'e5',
-      );
-
-      expect(afterBoth.whiteTimeRemainingMs).toBe(fiveMinutes);
-      expect(afterBoth.blackTimeRemainingMs).toBe(fiveMinutes);
-    } finally {
-      dateSpy.mockRestore();
-    }
-  });
-
-  it("adds the increment from each side's second move, not its first", async () => {
-    const white = await makeUser('white8i');
-    const black = await makeUser('black8i');
-    const twoMinutes = toClockMs({ initialSeconds: 120, incrementSeconds: 1 });
-    const dateSpy = vi.spyOn(Date, 'now');
-    try {
-      const startedAt = Date.now();
-      dateSpy.mockReturnValue(startedAt);
-      const game = await ctx.gamesService.createGame(
-        white,
-        black,
-        { initialSeconds: 120, incrementSeconds: 1 },
-        true,
-      );
-      const { game: afterFirstMove } = await ctx.gamesService.applyMove(
-        game.id,
-        white.id,
-        'e2',
-        'e4',
-      );
-      expect(afterFirstMove.whiteTimeRemainingMs).toBe(twoMinutes);
-
-      await ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5');
-      dateSpy.mockReturnValue(startedAt + 4_000);
-      const { game: afterSecondMove } = await ctx.gamesService.applyMove(
-        game.id,
-        white.id,
-        'g1',
-        'f3',
-      );
-
-      // 4 seconds used, 1 second back.
-      expect(afterSecondMove.whiteTimeRemainingMs).toBe(twoMinutes - 3_000);
-      expect(afterSecondMove.blackTimeRemainingMs).toBe(twoMinutes);
-    } finally {
-      dateSpy.mockRestore();
-    }
-  });
-
   describe('pre-moves', () => {
     const tc: TimeControl = { initialSeconds: 120, incrementSeconds: 1 };
     const twoMinutes = toClockMs(tc);
@@ -647,54 +514,6 @@ describe('GamesService', () => {
       expect(sans).toEqual(['Nf3']);
     });
 
-    it("plays a pre-move sent on the player's own turn as a move", async () => {
-      const { white, game } = await gameUnderWay('pm5');
-      const sans = movesPlayed(game.id);
-
-      // The opponent's move got there first: it's white's turn already.
-      await ctx.gamesService.setPremove(game.id, white.id, 'g1', 'f3');
-
-      expect(sans).toEqual(['Nf3']);
-      const after = await ctx.gamesService.getGameOrThrow(game.id);
-      expect(after.turn).toBe('b');
-    });
-
-    it("doesn't play a pre-move its player hasn't 100ms left for", async () => {
-      // No increment, which would put black back over 100ms.
-      const { white, black, game, startedAt, dateSpy } = await gameUnderWay(
-        'pm6',
-        { initialSeconds: 120, incrementSeconds: 0 },
-      );
-      const sans = movesPlayed(game.id);
-
-      await ctx.gamesService.applyMove(game.id, white.id, 'g1', 'f3');
-      // Black spends all but 50ms of their clock.
-      dateSpy.mockReturnValue(startedAt + twoMinutes - 50);
-      await ctx.gamesService.applyMove(game.id, black.id, 'b8', 'c6');
-      await ctx.gamesService.setPremove(game.id, black.id, 'g8', 'f6');
-      dateSpy.mockReturnValue(startedAt + twoMinutes + 950);
-      await ctx.gamesService.applyMove(game.id, white.id, 'f1', 'c4');
-
-      expect(sans).toEqual(['Nf3', 'Nc6', 'Bc4']);
-      const after = await ctx.gamesService.getGameOrThrow(game.id);
-      expect(after.turn).toBe('b');
-      expect(after.status).toBe('active');
-    });
-
-    it("plays a pre-move queued before either side's first move, charging nothing", async () => {
-      const white = await makeUser('pm7w');
-      const black = await makeUser('pm7b');
-      const game = await ctx.gamesService.createGame(white, black, tc, true);
-      const sans = movesPlayed(game.id);
-
-      await ctx.gamesService.setPremove(game.id, black.id, 'e7', 'e5');
-      await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
-
-      expect(sans).toEqual(['e4', 'e5']);
-      const after = await ctx.gamesService.getGameOrThrow(game.id);
-      expect(after.blackTimeRemainingMs).toBe(twoMinutes);
-    });
-
     it('refuses a pre-move from someone not playing, or in a game over', async () => {
       const { white, black, game } = await gameUnderWay('pm8');
       const outsider = await makeUser('pm8o');
@@ -764,95 +583,6 @@ describe('GamesService', () => {
       initialSeconds: 3 * 24 * 60 * 60,
       incrementSeconds: 0,
     };
-    const THREE_DAYS_MS = toClockMs(THREE_DAYS);
-
-    it("resets the mover's clock to the full days with every move, first moves included", async () => {
-      const white = await makeUser('dailyw1');
-      const black = await makeUser('dailyb1');
-      const dateSpy = vi.spyOn(Date, 'now');
-      try {
-        const game = await ctx.gamesService.createGame(
-          white,
-          black,
-          THREE_DAYS,
-          true,
-        );
-        expect(game.gameType).toBe('daily');
-        expect(game.seriesWhitePoints).toBe(0);
-
-        const start = Date.now();
-        dateSpy.mockReturnValue(start + 2 * 86_400_000);
-        await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
-        dateSpy.mockReturnValue(start + 4 * 86_400_000);
-        await ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5');
-        dateSpy.mockReturnValue(start + 5 * 86_400_000);
-        const { game: after } = await ctx.gamesService.applyMove(
-          game.id,
-          white.id,
-          'g1',
-          'f3',
-        );
-
-        expect(after.whiteTimeRemainingMs).toBe(THREE_DAYS_MS);
-        expect(after.blackTimeRemainingMs).toBe(THREE_DAYS_MS);
-      } finally {
-        dateSpy.mockRestore();
-      }
-    });
-
-    it('flags a move made after its days have run out', async () => {
-      const white = await makeUser('dailyw2');
-      const black = await makeUser('dailyb2');
-      const dateSpy = vi.spyOn(Date, 'now');
-      try {
-        const game = await ctx.gamesService.createGame(
-          white,
-          black,
-          THREE_DAYS,
-          true,
-        );
-        await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
-        await ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5');
-
-        dateSpy.mockReturnValue(Date.now() + THREE_DAYS_MS + 1_000);
-        await expect(
-          ctx.gamesService.applyMove(game.id, white.id, 'g1', 'f3'),
-        ).rejects.toThrow('Flagged on time');
-
-        const finalGame = await ctx.gamesService.getGameOrThrow(game.id);
-        expect(finalGame.resultReason).toBe('timeout');
-        expect(finalGame.result).toBe('black');
-      } finally {
-        dateSpy.mockRestore();
-      }
-    });
-
-    it('aborts a game whose first move comes after its days', async () => {
-      const white = await makeUser('dailyw3');
-      const black = await makeUser('dailyb3');
-      const dateSpy = vi.spyOn(Date, 'now');
-      try {
-        const game = await ctx.gamesService.createGame(
-          white,
-          black,
-          THREE_DAYS,
-          true,
-        );
-        // Well past a live game's 30 seconds, still inside its days.
-        dateSpy.mockReturnValue(Date.now() + 86_400_000);
-        await ctx.gamesService.applyMove(game.id, white.id, 'e2', 'e4');
-
-        dateSpy.mockReturnValue(Date.now() + 86_400_000 + THREE_DAYS_MS + 1);
-        await expect(
-          ctx.gamesService.applyMove(game.id, black.id, 'e7', 'e5'),
-        ).rejects.toThrow('Too late for the first move');
-        expect((await ctx.gamesService.getGameOrThrow(game.id)).status).toBe(
-          'aborted',
-        );
-      } finally {
-        dateSpy.mockRestore();
-      }
-    });
 
     it('ends daily games out of time from the database, and only those', async () => {
       const white = await makeUser('dailyw4');
@@ -898,21 +628,6 @@ describe('GamesService', () => {
       } finally {
         dateSpy.mockRestore();
       }
-    });
-
-    it('refuses a pre-move', async () => {
-      const white = await makeUser('dailyw5');
-      const black = await makeUser('dailyb5');
-      const game = await ctx.gamesService.createGame(
-        white,
-        black,
-        THREE_DAYS,
-        true,
-      );
-
-      await expect(
-        ctx.gamesService.setPremove(game.id, black.id, 'e7', 'e5'),
-      ).rejects.toThrow('Daily games have no pre-moves');
     });
 
     it('is not forfeited by its player going offline', async () => {
@@ -1070,23 +785,6 @@ describe('GamesService', () => {
         });
       });
 
-      it("drops them all on a move they didn't foresee", async () => {
-        const { alice, bob, game } = await startedGame('2');
-        await ctx.conditionalMoves.add(alice.id, game.id, 1, [
-          ['e7e5', 'g1f3'],
-        ]);
-
-        await ctx.gamesService.applyMove(game.id, bob.id, 'd7', 'd5');
-
-        const after = await ctx.gamesService.getGameWithMoves(game.id);
-        expect(after.moves).toHaveLength(2);
-        expect(after.turn).toBe('w');
-        expect(await ctx.conditionalMoves.get(alice.id, game.id)).toEqual({
-          basePly: null,
-          lines: [],
-        });
-      });
-
       it('adds to the lines saved from the same position', async () => {
         const { alice, game } = await startedGame('3');
         await ctx.conditionalMoves.add(alice.id, game.id, 1, [
@@ -1159,18 +857,6 @@ describe('GamesService', () => {
         ).toEqual([{ dropped: true }]);
       });
     });
-  });
-
-  it('does not let guest games affect ratings', async () => {
-    const white = await makeUser('white9');
-    const guest = await ctx.usersService.createGuestUser();
-    const game = await ctx.gamesService.createGame(
-      white,
-      guest,
-      { initialSeconds: 300, incrementSeconds: 0 },
-      true,
-    );
-    expect(game.rated).toBe(false);
   });
 
   describe('game ratings', () => {

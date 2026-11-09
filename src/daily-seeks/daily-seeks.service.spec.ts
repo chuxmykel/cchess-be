@@ -1,208 +1,292 @@
-import { ConfigModule } from '@nestjs/config';
-import { EventEmitterModule } from '@nestjs/event-emitter';
-import { Test } from '@nestjs/testing';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
+import type { Repository } from 'typeorm';
+import { describe, expect, it, vi } from 'vitest';
 
-import { truncateAllTables } from '../../test/utils/db.js';
-import { RefreshToken } from '../auth/entities/refresh-token.entity.js';
-import { ClusterModule } from '../cluster/cluster.module.js';
-import { requireEnv } from '../common/require-env.js';
-import { ConditionalMoveSet } from '../games/entities/conditional-move-set.entity.js';
-import { Game } from '../games/entities/game.entity.js';
-import { Move } from '../games/entities/move.entity.js';
-import { GamesService } from '../games/games.service.js';
-import { Rating } from '../users/entities/rating.entity.js';
-import { User } from '../users/entities/user.entity.js';
-import { UsersService } from '../users/users.service.js';
-import { DailySeeksService } from './daily-seeks.service.js';
-import { DailySeek } from './entities/daily-seek.entity.js';
+import type { Game } from '../games/entities/game.entity.js';
+import type { GamesService } from '../games/games.service.js';
+import type { User } from '../users/entities/user.entity.js';
+import type { UsersService } from '../users/users.service.js';
+import { DailySeeksService, MAX_DAILY_SEEKS } from './daily-seeks.service.js';
+import type { DailySeek } from './entities/daily-seek.entity.js';
 
 const THREE_DAYS_SECONDS = 3 * 24 * 60 * 60;
 
-async function buildModule() {
-  const moduleRef = await Test.createTestingModule({
-    imports: [
-      ConfigModule.forRoot({
-        isGlobal: true,
-        load: [
-          () => ({
-            game: { disconnectGraceMs: 60_000, abortPlyLimit: 2 },
-            jwt: { refreshSecret: 'test' },
-          }),
-        ],
-      }),
-      EventEmitterModule.forRoot(),
-      ClusterModule,
-      TypeOrmModule.forRoot({
-        type: 'postgres',
-        host: requireEnv('DB_HOST'),
-        port: Number(requireEnv('DB_PORT')),
-        username: requireEnv('DB_USERNAME'),
-        password: requireEnv('DB_PASSWORD'),
-        database: requireEnv('DB_NAME'),
-        entities: [
-          User,
-          Rating,
-          RefreshToken,
-          Game,
-          Move,
-          DailySeek,
-          ConditionalMoveSet,
-        ],
-        synchronize: false,
-      }),
-      TypeOrmModule.forFeature([
-        User,
-        Rating,
-        Game,
-        Move,
-        DailySeek,
-        ConditionalMoveSet,
-      ]),
-    ],
-    providers: [DailySeeksService, GamesService, UsersService],
-  }).compile();
+function makeUser(id: string, isGuest = false): User {
+  return { id, username: id, isGuest } as User;
+}
 
-  await truncateAllTables(moduleRef.get(DataSource));
-
+function waitingSeek(overrides: Partial<DailySeek> = {}): DailySeek {
   return {
-    dailySeeks: moduleRef.get(DailySeeksService),
-    usersService: moduleRef.get(UsersService),
-    moduleRef,
+    id: `seek-${overrides.userId ?? 'bob'}`,
+    userId: 'bob',
+    initialSeconds: THREE_DAYS_SECONDS,
+    rated: true,
+    rating: 1500,
+    ratingBelow: null,
+    ratingAbove: null,
+    color: 'random',
+    createdAt: new Date('2026-11-01T10:00:00Z'),
+    ...overrides,
+  } as DailySeek;
+}
+
+/** DailySeeksService over stand-ins for its repository and the services
+ * it calls - every seek in `waiting` there to be found, each player
+ * with room for another daily game unless in `noRoomFor`. */
+function setup({
+  waiting = [] as DailySeek[],
+  waitingCount = 0,
+  noRoomFor = [] as string[],
+} = {}) {
+  const users = new Map(
+    ['alice', 'bob', 'carol'].map((id) => [id, makeUser(id)]),
+  );
+  const seeks = {
+    count: vi.fn(async () => waitingCount),
+    create: vi.fn((fields: Partial<DailySeek>) => fields as DailySeek),
+    save: vi.fn(async (seek: DailySeek) => seek),
+    find: vi.fn(async () => waiting),
+    softDelete: vi.fn(async () => ({
+      affected: 1,
+      raw: [],
+      generatedMaps: [],
+    })),
   };
+  const gamesService = {
+    assertDailyRoom: vi.fn(async (userId: string) => {
+      if (noRoomFor.includes(userId)) throw new ConflictException('No room');
+    }),
+    createGame: vi.fn(
+      async (white: User, black: User, tc, rated: boolean) =>
+        ({
+          gameType: 'daily',
+          whiteId: white.id,
+          blackId: black.id,
+          initialSeconds: tc.initialSeconds,
+          rated,
+        }) as Game,
+    ),
+  };
+  const usersService = {
+    getOrCreateRating: vi.fn(async () => ({ rating: 1500.4 })),
+    findByIdOrThrow: vi.fn(async (id: string) => users.get(id)!),
+  };
+  const service = new DailySeeksService(
+    seeks as unknown as Repository<DailySeek>,
+    gamesService as unknown as GamesService,
+    usersService as unknown as UsersService,
+  );
+  return { service, seeks, gamesService, usersService };
 }
 
 describe('DailySeeksService', () => {
-  let ctx: Awaited<ReturnType<typeof buildModule>>;
+  const alice = makeUser('alice');
 
-  beforeEach(async () => {
-    ctx = await buildModule();
-  });
+  describe('seek', () => {
+    it('leaves a seek waiting when none agrees with it', async () => {
+      const { service, seeks } = setup();
 
-  afterEach(async () => {
-    await ctx.moduleRef.close();
-  });
+      const result = await service.seek(alice, { days: 3 });
 
-  function makeUser(username: string) {
-    return ctx.usersService.createRegisteredUser({
-      username,
-      email: `${username}@example.com`,
-      passwordHash: 'hash',
+      expect(result.status).toBe('queued');
+      expect(seeks.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'alice',
+          initialSeconds: THREE_DAYS_SECONDS,
+          rated: true,
+          rating: 1500,
+          color: 'random',
+        }),
+      );
     });
-  }
 
-  it('leaves a seek waiting when none agrees with it', async () => {
-    const alice = await makeUser('alice');
+    it('looks only among seeks of the same days and rated choice', async () => {
+      const { service, seeks } = setup();
 
-    const result = await ctx.dailySeeks.seek(alice, { days: 3 });
+      await service.seek(alice, { days: 7, rated: false });
 
-    expect(result.status).toBe('queued');
-    const mine = await ctx.dailySeeks.listMine(alice.id);
-    expect(mine).toHaveLength(1);
-    expect(mine[0]).toMatchObject({
-      initialSeconds: THREE_DAYS_SECONDS,
-      rated: true,
-      color: 'random',
+      expect(seeks.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            initialSeconds: 7 * 24 * 60 * 60,
+            rated: false,
+          }),
+        }),
+      );
+    });
+
+    it('starts a daily game with a seek already waiting, which it takes', async () => {
+      const { service, seeks, gamesService } = setup({
+        waiting: [waitingSeek({ color: 'black' })],
+      });
+
+      const result = await service.seek(alice, { days: 3 });
+
+      expect(result).toEqual({
+        status: 'matched',
+        game: expect.objectContaining({
+          whiteId: 'alice',
+          blackId: 'bob',
+          initialSeconds: THREE_DAYS_SECONDS,
+        }),
+      });
+      expect(gamesService.createGame).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'alice' }),
+        expect.objectContaining({ id: 'bob' }),
+        { initialSeconds: THREE_DAYS_SECONDS, incrementSeconds: 0 },
+        true,
+      );
+      expect(seeks.softDelete).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'seek-bob' }),
+      );
+      expect(seeks.save).not.toHaveBeenCalled();
+    });
+
+    it('gives each seeker the color it asked for', async () => {
+      const { service } = setup({
+        waiting: [waitingSeek({ color: 'white' })],
+      });
+
+      const result = await service.seek(alice, { days: 3, color: 'black' });
+
+      expect(result.status === 'matched' && result.game).toMatchObject({
+        whiteId: 'bob',
+        blackId: 'alice',
+      });
+    });
+
+    it('passes over a seek wanting the same color', async () => {
+      const { service } = setup({
+        waiting: [waitingSeek({ color: 'white' })],
+      });
+
+      const result = await service.seek(alice, { days: 3, color: 'white' });
+
+      expect(result.status).toBe('queued');
+    });
+
+    it('passes over a seek whose player has no room for another daily game', async () => {
+      const { service, seeks } = setup({
+        waiting: [
+          waitingSeek({ userId: 'bob' }),
+          waitingSeek({ userId: 'carol' }),
+        ],
+        noRoomFor: ['bob'],
+      });
+
+      const result = await service.seek(alice, { days: 3, color: 'white' });
+
+      expect(result.status === 'matched' && result.game.blackId).toBe('carol');
+      expect(seeks.softDelete).toHaveBeenCalledTimes(1);
+    });
+
+    it('moves on to the next best seek when another seeker claims one first', async () => {
+      const { service, seeks } = setup({
+        waiting: [
+          waitingSeek({ userId: 'bob' }),
+          waitingSeek({ userId: 'carol' }),
+        ],
+      });
+      seeks.softDelete.mockResolvedValueOnce({
+        affected: 0,
+        raw: [],
+        generatedMaps: [],
+      });
+
+      const result = await service.seek(alice, { days: 3, color: 'white' });
+
+      expect(result.status === 'matched' && result.game.blackId).toBe('carol');
+      expect(seeks.softDelete).toHaveBeenCalledTimes(2);
+    });
+
+    it("waits when every seek's been claimed by someone else", async () => {
+      const { service, seeks } = setup({ waiting: [waitingSeek()] });
+      seeks.softDelete.mockResolvedValue({
+        affected: 0,
+        raw: [],
+        generatedMaps: [],
+      });
+
+      expect((await service.seek(alice, { days: 3 })).status).toBe('queued');
+    });
+
+    it('makes a guest seek casual, with no rating', async () => {
+      const { service, seeks, usersService } = setup();
+
+      await service.seek(makeUser('guest', true), { days: 3, rated: true });
+
+      expect(seeks.save).toHaveBeenCalledWith(
+        expect.objectContaining({ rated: false, rating: null }),
+      );
+      expect(usersService.getOrCreateRating).not.toHaveBeenCalled();
+    });
+
+    it('refuses days not on offer', async () => {
+      const { service } = setup();
+
+      await expect(service.seek(alice, { days: 4 })).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('refuses a rating range outside the allowed deltas, or an unknown color', async () => {
+      const { service } = setup();
+
+      await expect(
+        service.seek(alice, {
+          days: 3,
+          ratingRange: { below: -1, above: 100 },
+        }),
+      ).rejects.toThrow('Invalid rating range');
+      await expect(
+        service.seek(alice, { days: 3, color: 'green' as never }),
+      ).rejects.toThrow('Invalid color');
+    });
+
+    it(`holds a player to ${MAX_DAILY_SEEKS} seeks waiting`, async () => {
+      const { service } = setup({ waitingCount: MAX_DAILY_SEEKS });
+
+      await expect(service.seek(alice, { days: 3 })).rejects.toThrow(
+        ConflictException,
+      );
+    });
+
+    it('refuses a player with no room for another daily game', async () => {
+      const { service, seeks } = setup({ noRoomFor: ['alice'] });
+
+      await expect(service.seek(alice, { days: 3 })).rejects.toThrow(
+        ConflictException,
+      );
+      expect(seeks.save).not.toHaveBeenCalled();
     });
   });
 
-  it('starts a daily game with a seek already waiting, which it takes', async () => {
-    const alice = await makeUser('alice');
-    const bob = await makeUser('bob');
-    await ctx.dailySeeks.seek(alice, { days: 3, color: 'black' });
+  describe('cancel', () => {
+    it('withdraws your own seek, still waiting', async () => {
+      const { service, seeks } = setup();
 
-    const result = await ctx.dailySeeks.seek(bob, { days: 3 });
+      await service.cancel('alice', 'seek-1');
 
-    expect(result.status).toBe('matched');
-    if (result.status !== 'matched') return;
-    expect(result.game.gameType).toBe('daily');
-    expect(result.game.initialSeconds).toBe(THREE_DAYS_SECONDS);
-    expect(result.game.whiteId).toBe(bob.id);
-    expect(result.game.blackId).toBe(alice.id);
-    expect(await ctx.dailySeeks.listMine(alice.id)).toEqual([]);
-    expect(await ctx.dailySeeks.listMine(bob.id)).toEqual([]);
-  });
+      expect(seeks.softDelete).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'seek-1', userId: 'alice' }),
+      );
+    });
 
-  it('pairs only seeks of the same days, rated choice and colors', async () => {
-    const alice = await makeUser('alice');
-    const bob = await makeUser('bob');
-    await ctx.dailySeeks.seek(alice, { days: 3, color: 'white' });
+    it('refuses a seek that is not yours, or no longer waiting', async () => {
+      const { service, seeks } = setup();
+      seeks.softDelete.mockResolvedValue({
+        affected: 0,
+        raw: [],
+        generatedMaps: [],
+      });
 
-    expect((await ctx.dailySeeks.seek(bob, { days: 7 })).status).toBe('queued');
-    expect(
-      (await ctx.dailySeeks.seek(bob, { days: 3, rated: false })).status,
-    ).toBe('queued');
-    expect(
-      (await ctx.dailySeeks.seek(bob, { days: 3, color: 'white' })).status,
-    ).toBe('queued');
-    expect((await ctx.dailySeeks.seek(bob, { days: 3 })).status).toBe(
-      'matched',
-    );
-  });
-
-  it("never pairs a player's seeks with each other", async () => {
-    const alice = await makeUser('alice');
-    await ctx.dailySeeks.seek(alice, { days: 3 });
-
-    expect((await ctx.dailySeeks.seek(alice, { days: 3 })).status).toBe(
-      'queued',
-    );
-    expect(await ctx.dailySeeks.listMine(alice.id)).toHaveLength(2);
-  });
-
-  it('gives a waiting seek to only one of two seekers at once', async () => {
-    const alice = await makeUser('alice');
-    const bob = await makeUser('bob');
-    const carol = await makeUser('carol');
-    await ctx.dailySeeks.seek(alice, { days: 3 });
-
-    const results = await Promise.all([
-      ctx.dailySeeks.seek(bob, { days: 3 }),
-      ctx.dailySeeks.seek(carol, { days: 3 }),
-    ]);
-
-    const statuses = results.map((result) => result.status).sort();
-    expect(statuses).toEqual(['matched', 'queued']);
-  });
-
-  it('withdraws your own seek, not anyone else’s', async () => {
-    const alice = await makeUser('alice');
-    const bob = await makeUser('bob');
-    const result = await ctx.dailySeeks.seek(alice, { days: 3 });
-    if (result.status !== 'queued') throw new Error('expected a queued seek');
-
-    await expect(ctx.dailySeeks.cancel(bob.id, result.seek.id)).rejects.toThrow(
-      'Seek not found',
-    );
-    await ctx.dailySeeks.cancel(alice.id, result.seek.id);
-    expect(await ctx.dailySeeks.listMine(alice.id)).toEqual([]);
-  });
-
-  it('keeps a withdrawn seek, soft-deleted, and never pairs it', async () => {
-    const alice = await makeUser('alice');
-    const bob = await makeUser('bob');
-    const result = await ctx.dailySeeks.seek(alice, { days: 3 });
-    if (result.status !== 'queued') throw new Error('expected a queued seek');
-    await ctx.dailySeeks.cancel(alice.id, result.seek.id);
-
-    expect((await ctx.dailySeeks.seek(bob, { days: 3 })).status).toBe('queued');
-    await expect(
-      ctx.dailySeeks.cancel(alice.id, result.seek.id),
-    ).rejects.toThrow('Seek not found');
-    const kept = await ctx.moduleRef
-      .get(DataSource)
-      .getRepository(DailySeek)
-      .findOne({ where: { id: result.seek.id }, withDeleted: true });
-    expect(kept?.deletedAt).toBeInstanceOf(Date);
-  });
-
-  it('refuses days not on offer', async () => {
-    const alice = await makeUser('alice');
-
-    await expect(ctx.dailySeeks.seek(alice, { days: 4 })).rejects.toThrow(
-      'Invalid days per move',
-    );
+      await expect(service.cancel('alice', 'seek-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
   });
 });
