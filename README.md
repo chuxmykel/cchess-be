@@ -34,14 +34,14 @@ just keep them in sync with what you put in `.env` below):
 ```bash
 createuser cchess --login --pwprompt    # or: CREATE ROLE cchess WITH LOGIN PASSWORD '...';
 createdb cchess_be --owner=cchess
-createdb cchess_be_test --owner=cchess  # used by the test suite, kept separate from dev data
+createdb cchess_be_test --owner=cchess  # used by the e2e tests, kept separate from dev data
 ```
 
 Copy `.env.example` to `.env` and fill in the Postgres connection (matching
 the `createuser`/`createdb` commands above) and a JWT secret pair (any long
 random string works for local dev) - these have no built-in default and the
 app fails fast at boot if they're missing (see `src/config/configuration.ts`).
-Fill in the `TEST_DB_*` vars too - the test suite reads its own, separate
+Fill in the `TEST_DB_*` vars too - the e2e tests read their own, separate
 connection (same role, pointed at `cchess_be_test`, unless you want it
 somewhere else entirely, e.g. a different host in CI) rather than sharing
 `DB_*` with the dev database, so tests never run against dev data by
@@ -64,8 +64,8 @@ The server listens on `:3000` by default. Interactive API docs are served at
 npm run start:dev          # watch mode
 npm run build               # tsc build via `nest build`
 npm run lint                 # oxlint (type-aware)
-npm test                     # unit + integration specs (src/**/*.spec.ts), against Postgres
-npm run test:e2e             # full HTTP e2e specs (test/**/*.e2e-spec.ts), against Postgres
+npm test                     # unit specs (src/**/*.spec.ts) - no database or .env needed
+npm run test:e2e             # everything needing Postgres (test/**/*.e2e-spec.ts)
 npm run test:cov             # coverage
 
 npm run migration:generate -- src/database/migrations/SomeName   # after changing an entity
@@ -75,12 +75,18 @@ npm run seed:run             # build + run pending seeders, recorded in `seeds` 
 npm run seed:generate -- src/database/seeds/SomeName  # new seeder - dev data only; prod data is a migration
 ```
 
-Run a single test file: `npx vitest run src/games/games.service.spec.ts`.
+Run a single test file: `npx vitest run src/games/clock.spec.ts`, or
+`npm run test:e2e -- test/games.e2e-spec.ts`.
 
-Tests run against the real `cchess_be_test` database (not SQLite `:memory:`
-or mocks) - each test app boot truncates every table first
+`npm test` never reaches a database or any other service - the rules are
+pure functions, and services are tested over stand-ins for their
+repositories - so it runs anywhere with nothing set up. The e2e run is
+everything that does need Postgres: full HTTP and Socket.IO flows through
+the app (`test/*.e2e-spec.ts`), and services on a real database
+(`test/integration/`). It runs against `cchess_be_test` (not SQLite
+`:memory:` or mocks) - each test app boot truncates every table first
 (`test/utils/db.ts`), so tests are isolated from each other but share that
-one database; don't point `DB_NAME` at your dev database when testing.
+one database; don't point `TEST_DB_NAME` at your dev database.
 
 ## Architecture
 
