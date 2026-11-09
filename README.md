@@ -146,7 +146,9 @@ or the realtime gateway (`game:move`) - goes through the same
 A per-game `KeyedMutex` (`src/common/keyed-mutex.ts`) serializes all of
 `applyMove`/`resign`/`offerDraw`/`respondDraw`/`abort`/the flag-fall timer for
 a given game id, so a move landing at the exact instant a clock would have
-flagged can't race the timeout handler.
+flagged can't race the timeout handler. Shutting down (SIGTERM, SIGINT) waits
+for the work it holds to finish before the database closes, so a move already
+sent to the players is never lost to a deploy.
 
 `GamesService` keeps one in-memory `ServerChessEngine` per active game (so
 move validation doesn't replay the whole game from scratch); if it's missing

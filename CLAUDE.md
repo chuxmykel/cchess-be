@@ -153,7 +153,12 @@ access 'X' before initialization` at runtime for any circular entity
   `offerDraw`/`respondDraw`/`abort`/flag-fall-timeout per game id through
   `KeyedMutex` (`src/common/keyed-mutex.ts`). Any new game-mutating method
   needs to go through `this.mutex.runExclusive(gameId, ...)` too, or it can
-  race the clock's `setTimeout`.
+  race the clock's `setTimeout` - and so that shutting down waits for it:
+  `main.ts` enables Nest's shutdown hooks, and
+  `GamesService.beforeApplicationShutdown` drains the mutex before TypeORM
+  closes the database, so a move already broadcast (moves are broadcast
+  before they're saved) is still saved on a deploy's SIGTERM - or on a
+  test's `app.close()`.
 - **Services never depend on `RealtimeGateway` directly** - they emit
   events via `EventEmitter2` (`game.created`, `game.move`, `game.ended`,
   `challenge.*`, `friend.*`) and only `RealtimeGateway` listens
