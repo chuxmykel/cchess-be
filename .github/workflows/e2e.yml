@@ -1,0 +1,66 @@
+name: E2E
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Vitest (Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18
+        # A throwaway database, alive only for this job - not a secret.
+        # The env context isn't available here, so the job's TEST_DB_*
+        # below repeats these.
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci-only-throwaway
+          POSTGRES_DB: cchess_be_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d cchess_be_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Read by vitest.config.e2e.ts (via vitest.env.ts) in place of .env.
+      TEST_DB_HOST: 127.0.0.1
+      TEST_DB_PORT: 5432
+      TEST_DB_USERNAME: ci
+      TEST_DB_PASSWORD: ci-only-throwaway
+      TEST_DB_NAME: cchess_be_test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+
+      - run: npm ci
+
+      # The app runs its migrations from dist/ on boot.
+      - run: npm run build
+
+      # Before any spec: the integration specs don't boot the app, so
+      # nothing else would build the schema if one of them ran first.
+      - name: Apply migrations
+        env:
+          DB_HOST: ${{ env.TEST_DB_HOST }}
+          DB_PORT: ${{ env.TEST_DB_PORT }}
+          DB_USERNAME: ${{ env.TEST_DB_USERNAME }}
+          DB_PASSWORD: ${{ env.TEST_DB_PASSWORD }}
+          DB_NAME: ${{ env.TEST_DB_NAME }}
+        run: node node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js
+
+      - run: npm run test:e2e
