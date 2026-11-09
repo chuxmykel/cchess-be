@@ -109,7 +109,7 @@ export class ConditionalMovesService {
       await this.clear(userId, gameId);
       return { basePly: null, lines: [] };
     }
-    await this.sets.upsert({ userId, gameId, basePly, tree }, [
+    await this.sets.upsert({ userId, gameId, basePly, tree, deletedAt: null }, [
       'userId',
       'gameId',
     ]);
@@ -117,7 +117,7 @@ export class ConditionalMovesService {
   }
 
   async clear(userId: string, gameId: string): Promise<void> {
-    await this.sets.delete({ userId, gameId });
+    await this.sets.softDelete({ userId, gameId });
   }
 
   private assertLegal(fen: string, line: string[]): void {

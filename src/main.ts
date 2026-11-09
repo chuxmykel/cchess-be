@@ -9,6 +9,11 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module.js';
 import { setupClusterRedisAdapter } from './cluster/cluster-io-adapter.js';
 import { CLUSTERING_ENABLED, CLUSTER_WORKERS } from './cluster/cluster.util.js';
+import {
+  DEFAULT_LOG_LEVEL,
+  isLogLevel,
+  logLevelsFrom,
+} from './common/log-levels.js';
 import type { AppConfig } from './config/configuration.js';
 
 function configureCors(
@@ -48,7 +53,18 @@ function setupSwagger(app: INestApplication): void {
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule);
+  // Read straight from the environment, not ConfigService: the logger has
+  // to be given before the app exists. dotenv has already loaded .env by
+  // now (cluster.util.ts, reached through AppModule's imports).
+  const logLevel = process.env.LOG_LEVEL?.trim().toLowerCase();
+  const app = await NestFactory.create(AppModule, {
+    logger: logLevelsFrom(logLevel),
+  });
+  if (logLevel && !isLogLevel(logLevel)) {
+    logger.warn(
+      `LOG_LEVEL "${process.env.LOG_LEVEL}" isn't a level - using "${DEFAULT_LOG_LEVEL}"`,
+    );
+  }
   const configService = app.get(ConfigService<AppConfig, true>);
 
   if (CLUSTERING_ENABLED) await setupClusterRedisAdapter(app);

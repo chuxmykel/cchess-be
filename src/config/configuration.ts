@@ -25,6 +25,15 @@ export interface AppConfig {
      * production. */
     startFen?: string;
   };
+  lichess: {
+    /** A personal token of the app's own lichess account; without one, the
+     * explorer's lichess databases fall back to the games played here. */
+    token?: string;
+    explorerUrl: string;
+    /** Whether worker 0 keeps the explorer's cache: fetching the opening
+     * book's positions, refreshing them, expiring the rest. */
+    maintenance: boolean;
+  };
 }
 
 // Connection credentials and auth secrets have no fallback - a missing
@@ -57,5 +66,11 @@ export default (): AppConfig => ({
       process.env.NODE_ENV === 'production'
         ? undefined
         : process.env.GAME_START_FEN || undefined,
+  },
+  lichess: {
+    token: process.env.LICHESS_TOKEN || undefined,
+    explorerUrl:
+      process.env.LICHESS_EXPLORER_URL || 'https://explorer.lichess.ovh',
+    maintenance: process.env.EXPLORER_MAINTENANCE !== 'false',
   },
 });

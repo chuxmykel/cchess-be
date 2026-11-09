@@ -176,6 +176,13 @@ describe('Daily games (e2e)', () => {
       .expect(200);
     expect(cleared.body).toEqual({ body: '', updatedAt: null });
 
+    const rewritten = await request(server)
+      .put(notes)
+      .set('Authorization', `Bearer ${ivan.accessToken}`)
+      .send({ body: 'Back to the plan' })
+      .expect(200);
+    expect(rewritten.body.body).toBe('Back to the plan');
+
     await request(server)
       .put(notes)
       .set('Authorization', `Bearer ${ivan.accessToken}`)
@@ -280,6 +287,13 @@ describe('Daily games (e2e)', () => {
       .set('Authorization', `Bearer ${ivan.accessToken}`)
       .expect(200);
     expect(none.body).toEqual({ basePly: null, lines: [] });
+
+    const resaved = await request(server)
+      .put(`${game}/conditional-moves`)
+      .set('Authorization', `Bearer ${ivan.accessToken}`)
+      .send({ ...base, lines: [['b8c6', 'f1b5']] })
+      .expect(200);
+    expect(resaved.body).toEqual({ ...base, lines: [['b8c6', 'f1b5']] });
   });
 
   it('refuses days not on offer', async () => {

@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Not, Repository } from 'typeorm';
+import { IsNull, Not, Repository } from 'typeorm';
 
 import {
   DAILY_DAYS,
@@ -160,7 +160,12 @@ export class DailySeeksService {
         .then(() => true)
         .catch(() => false);
       if (!roomForIt) continue;
-      const { affected } = await this.seeks.delete({ id: best.id });
+      // deletedAt in the criteria: softDelete doesn't add it, and without it
+      // a seek another request had just claimed would count as ours.
+      const { affected } = await this.seeks.softDelete({
+        id: best.id,
+        deletedAt: IsNull(),
+      });
       if (affected) return best;
     }
   }
@@ -170,7 +175,11 @@ export class DailySeeksService {
   }
 
   async cancel(userId: string, seekId: string): Promise<void> {
-    const { affected } = await this.seeks.delete({ id: seekId, userId });
+    const { affected } = await this.seeks.softDelete({
+      id: seekId,
+      userId,
+      deletedAt: IsNull(),
+    });
     if (!affected) throw new NotFoundException('Seek not found');
   }
 }

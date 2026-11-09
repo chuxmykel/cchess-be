@@ -22,3 +22,8 @@ export const MM_RPC = {
   CANCEL: 'mm:cancel',
   STATUS: 'mm:status',
 } as const;
+
+export const EXPLORER_RPC = {
+  FETCH: 'explorer:fetch',
+  REFRESH: 'explorer:refresh',
+} as const;

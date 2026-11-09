@@ -1,12 +1,14 @@
 import {
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   Index,
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
   type Relation,
+  UpdateDateColumn,
 } from 'typeorm';
 
 import type { SeekColor } from '../../matchmaking/seek-matching.js';
@@ -14,7 +16,7 @@ import { User } from '../../users/entities/user.entity.js';
 
 /** A player looking for a daily game, waiting - days, maybe - for another
  * whose seek agrees with it (see seek-matching.ts). Kept in the database,
- * not memory like a live seek: nobody waits online for one. Deleted when
+ * not memory like a live seek: nobody waits online for one. Soft-deleted when
  * matched or withdrawn. */
 @Entity('daily_seeks')
 @Index('IDX_daily_seeks_time_control', ['initialSeconds', 'rated'])
@@ -53,4 +55,10 @@ export class DailySeek {
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
+
+  @UpdateDateColumn({ type: 'timestamptz' })
+  updatedAt!: Date;
+
+  @DeleteDateColumn({ type: 'timestamptz' })
+  deletedAt!: Date | null;
 }
