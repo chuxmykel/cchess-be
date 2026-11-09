@@ -370,7 +370,6 @@ describe('GamesService', () => {
     const white = await makeUser('white8c');
     const black = await makeUser('black8c');
 
-    // FIXME: we shouldn't be hitting pg at all.
     // Mock only Date.now(), not setTimeout/fake timers - vi.useFakeTimers()
     // would also fake the real pg driver's own internal timers and corrupt
     // the connection (a real Postgres round-trip resolves via libuv's I/O
