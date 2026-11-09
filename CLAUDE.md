@@ -101,6 +101,14 @@ configs, and the e2e swaps the client for a fake (`createTestApp`'s
 `configure`). Every request to lichess goes through `LichessFetcherService`,
 never the client directly, so the one-at-a-time queue holds.
 
+`LOG_LEVEL` (default `log`) is the least severe level the Nest logger
+shows, and every one above it (`src/common/log-levels.ts` - Nest itself
+takes a list). It's read from the environment in `main.ts`, since the
+logger is given before `ConfigService` exists. Routine passes (the
+sweepers' every-minute checks) log at `debug`, and a line per item of a
+long job (each explorer position fetched) at `verbose`. The cluster
+primary writes with `console`, unaffected.
+
 There's no `lint:fix` - oxlint's type-aware mode here is check-only; fix
 flagged issues by hand.
 
