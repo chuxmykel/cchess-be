@@ -96,12 +96,13 @@ export class LichessFetcherService {
 
   /** The fetcher worker's own: fetches in the background and keeps the
    * answer, resolving once done - so a loop of these goes at the queue's
-   * pace. Whether it was fetched. */
-  async refreshLocal(job: RefreshJob): Promise<boolean> {
+   * pace. How lichess answered. */
+  async refreshLocal(job: RefreshJob): Promise<LichessFetchResult['status']> {
     const result = await this.fetchLocal(job.request, 'background');
-    if (result.status !== 'ok') return false;
-    await this.cache.store(job.positionId, result.payload);
-    return true;
+    if (result.status === 'ok') {
+      await this.cache.store(job.positionId, result.payload);
+    }
+    return result.status;
   }
 
   private refreshUnawaited(job: RefreshJob): void {

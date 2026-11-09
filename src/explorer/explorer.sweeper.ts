@@ -36,6 +36,9 @@ export class ExplorerSweeper
   private readonly logger = new Logger(ExplorerSweeper.name);
   private timer: NodeJS.Timeout | null = null;
   private stopped = false;
+  /** Whether the last pass found nothing due - so going idle, and waking
+   * to work again, are each logged once rather than every pass. */
+  private idle = false;
 
   constructor(
     private readonly cache: ExplorerCacheService,
@@ -44,26 +47,49 @@ export class ExplorerSweeper
   ) {}
 
   onApplicationBootstrap(): void {
-    if (!this.config.get('lichess.maintenance', { infer: true })) return;
-    if (!this.fetcher.isFetcher) return;
+    if (!this.config.get('lichess.maintenance', { infer: true })) {
+      this.logger.log('explorer upkeep off (EXPLORER_MAINTENANCE=false)');
+      return;
+    }
+    if (!this.fetcher.isFetcher) {
+      this.logger.debug(
+        `explorer upkeep left to worker ${LichessFetcherService.FETCHER_WORKER}`,
+      );
+      return;
+    }
+    this.logger.log(
+      `explorer upkeep started: expired answers swept every ${EXPLORER_SWEEP_INTERVAL_MS / 60_000} min`,
+    );
     void this.sweep();
     this.timer = setInterval(() => {
       void this.sweep();
     }, EXPLORER_SWEEP_INTERVAL_MS);
     this.timer.unref?.();
-    if (this.fetcher.configured) void this.refreshForever();
+    if (this.fetcher.configured) {
+      void this.refreshForever();
+    } else {
+      this.logger.log(
+        'no LICHESS_TOKEN: pinned positions are not fetched from lichess',
+      );
+    }
   }
 
   onModuleDestroy(): void {
     this.stopped = true;
     if (this.timer) clearInterval(this.timer);
+    this.logger.log('explorer upkeep stopped');
   }
 
   async sweep(): Promise<void> {
+    this.logger.debug('explorer sweep: looking for expired answers');
     try {
       const { expired, purged } = await this.cache.sweep();
       if (expired + purged > 0) {
-        this.logger.debug(`explorer: ${expired} expired, ${purged} purged`);
+        this.logger.log(
+          `explorer sweep: ${expired} answer(s) expired, ${purged} purged`,
+        );
+      } else {
+        this.logger.debug('explorer sweep: nothing to expire or purge');
       }
     } catch (error) {
       this.logger.warn(`explorer sweep failed: ${(error as Error).message}`);
@@ -74,10 +100,15 @@ export class ExplorerSweeper
    * many were fetched, stopping at the first lichess didn't answer. */
   async refreshDue(limit = BATCH): Promise<{ due: number; fetched: number }> {
     const due = await this.cache.duePinned(limit);
+    this.logger.debug(`explorer refresh: ${due.length} pinned position(s) due`);
+    const startedAt = Date.now();
     let fetched = 0;
     for (const position of due) {
-      if (this.stopped) break;
-      const ok = await this.fetcher.refreshLocal({
+      if (this.stopped) {
+        this.logger.debug('explorer refresh: stopping mid-batch');
+        break;
+      }
+      const status = await this.fetcher.refreshLocal({
         positionId: position.positionId,
         request: {
           db: position.db,
@@ -86,26 +117,59 @@ export class ExplorerSweeper
             position.db === 'lichess' ? DEFAULT_LICHESS_FILTERS : undefined,
         },
       });
-      if (!ok) break;
+      if (status !== 'ok') {
+        this.logger.warn(
+          `explorer refresh: lichess ${status === 'rateLimited' ? 'rate-limited us' : 'failed'} on ${position.db} ${position.epd}`,
+        );
+        break;
+      }
+      this.logger.verbose(
+        `explorer refresh: fetched ${position.db} ${position.epd}`,
+      );
       fetched++;
+    }
+    if (due.length > 0) {
+      this.logger.log(
+        `explorer refresh: fetched ${fetched} of ${due.length} due in ${Math.round((Date.now() - startedAt) / 1000)}s`,
+      );
     }
     return { due: due.length, fetched };
   }
 
   private async refreshForever(): Promise<void> {
+    this.logger.log('explorer refresh: fetching due pinned positions');
     while (!this.stopped) {
       let wait = 0;
       try {
         const { due, fetched } = await this.refreshDue();
-        if (due === 0) wait = IDLE_MS;
-        else if (fetched < due) wait = FAILED_MS;
+        if (due === 0) {
+          if (!this.idle) {
+            this.logger.log(
+              `explorer refresh: every pinned position is fresh, checking every ${IDLE_MS / 60_000} min`,
+            );
+          }
+          this.idle = true;
+          wait = IDLE_MS;
+        } else {
+          if (this.idle) {
+            this.logger.log('explorer refresh: positions due again');
+          }
+          this.idle = false;
+          if (fetched < due) {
+            this.logger.warn(
+              `explorer refresh: pausing ${FAILED_MS / 1000}s after lichess didn't answer`,
+            );
+            wait = FAILED_MS;
+          }
+        }
       } catch (error) {
         this.logger.warn(
-          `explorer refresh failed: ${(error as Error).message}`,
+          `explorer refresh failed: ${(error as Error).message}; retrying in ${FAILED_MS / 1000}s`,
         );
         wait = FAILED_MS;
       }
       if (wait > 0) await realClock.sleep(wait);
     }
+    this.logger.log('explorer refresh: stopped');
   }
 }
