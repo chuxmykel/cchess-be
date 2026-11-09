@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   branchFor,
+  conditionalStep,
   linesOf,
   mergeLines,
   trimLine,
@@ -73,5 +74,44 @@ describe('conditional moves', () => {
 
     expect(branchFor(tree, 'c7c5')?.reply).toBe('b1c3');
     expect(branchFor(tree, 'd7d5')).toBeUndefined();
+  });
+
+  describe('conditionalStep', () => {
+    // Set after white's 1. e4 (ply 1): if 1... e5 2. Nf3, then if 2... Nc6
+    // 3. Bb5.
+    const set = {
+      basePly: 1,
+      tree: mergeLines(
+        [],
+        [
+          ['e7e5', 'g1f3', 'b8c6', 'f1b5'],
+          ['c7c5', 'b1c3'],
+        ],
+      ),
+    };
+
+    it("plays the reply to the opponent's move, keeping what follows", () => {
+      expect(conditionalStep(set, { ply: 2, from: 'e7', to: 'e5' })).toEqual({
+        reply: 'g1f3',
+        next: [{ opponent: 'b8c6', reply: 'f1b5', next: [] }],
+        basePly: 3,
+      });
+    });
+
+    it('keeps nothing once a line has run out', () => {
+      expect(conditionalStep(set, { ply: 2, from: 'c7', to: 'c5' })).toEqual({
+        reply: 'b1c3',
+        next: [],
+        basePly: 3,
+      });
+    });
+
+    it("drops them all on a move they didn't foresee", () => {
+      expect(conditionalStep(set, { ply: 2, from: 'd7', to: 'd5' })).toBeNull();
+    });
+
+    it('drops lines set against a position since moved on', () => {
+      expect(conditionalStep(set, { ply: 4, from: 'e7', to: 'e5' })).toBeNull();
+    });
   });
 });
