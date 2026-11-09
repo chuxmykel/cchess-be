@@ -387,14 +387,20 @@ to send one request at a time and to wait a minute after a 429, so:
   the other workers reach over `ClusterBus`) sends every request. The same
   position asked twice at once is sent once.
 - **Players go first.** A player's request goes before the cache's own.
-- **After a 429**, lichess is left alone for two minutes. A player asking
-  meanwhile is answered from the games here at once.
+- **After a 429**, lichess is left alone for two minutes - five minutes
+  from the fifth 429 with no answer between them, until lichess answers
+  again. A player asking meanwhile is answered from the games here at
+  once.
 - **The cache's requests find lichess's limit.** Lichess doesn't publish
   it (in practice, about 50 requests a minute). They start a second
   apart; each 429 doubles the gap, up to 10 seconds, and every 100
   requests answered in a row shorten it by a tenth - never back to within
-  a tenth of a gap that was rate-limited. So the cache settles just under
-  the limit, leaving the rest for players.
+  a tenth of a gap that was rate-limited, though that floor is lowered by
+  a tenth after each day with no 429. So the cache settles just under the
+  limit, leaving the rest for players.
+- **What it learns is kept** in `lichess_fetch_state` (one row: the gap,
+  its floor, the 429s in a row and any pause under way), so a restart
+  takes up where it left off rather than starting at a second again.
 
 Masters, and Lichess with its default filters, are kept in the database:
 

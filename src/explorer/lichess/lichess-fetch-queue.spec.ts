@@ -5,12 +5,16 @@ import type {
   LichessFetchResult,
 } from './lichess-explorer.client.js';
 import {
-  type GapChange,
+  INITIAL_FETCH_QUEUE_STATE,
   LICHESS_BACKGROUND_GAP_MS,
+  LICHESS_FLOOR_RELAX_MS,
   LICHESS_GAP_RECOVERY_REQUESTS,
+  LICHESS_LONG_PAUSE_AFTER,
+  LICHESS_LONG_PAUSE_MS,
   LICHESS_MAX_BACKGROUND_GAP_MS,
   LICHESS_RATE_LIMIT_PAUSE_MS,
   LichessFetchQueue,
+  type QueueChange,
   type QueueClock,
   requestKey,
 } from './lichess-fetch-queue.js';
@@ -79,7 +83,9 @@ async function sendInTurn(queue: LichessFetchQueue, count: number) {
 describe('LichessFetchQueue', () => {
   it('sends the same position asked twice once, however its FEN counts moves', async () => {
     const lichess = fakeLichess();
-    const queue = new LichessFetchQueue(lichess.send, fakeClock().clock);
+    const queue = new LichessFetchQueue(lichess.send, {
+      clock: fakeClock().clock,
+    });
 
     const first = queue.fetch(masters(START), 'interactive');
     const second = queue.fetch(
@@ -109,7 +115,9 @@ describe('LichessFetchQueue', () => {
 
   it('sends one request at a time', async () => {
     const lichess = fakeLichess();
-    const queue = new LichessFetchQueue(lichess.send, fakeClock().clock);
+    const queue = new LichessFetchQueue(lichess.send, {
+      clock: fakeClock().clock,
+    });
 
     const first = queue.fetch(masters(START), 'interactive');
     const second = queue.fetch(masters(AFTER_E4), 'interactive');
@@ -126,7 +134,9 @@ describe('LichessFetchQueue', () => {
 
   it('sends a player’s request before the cache’s', async () => {
     const lichess = fakeLichess();
-    const queue = new LichessFetchQueue(lichess.send, fakeClock().clock);
+    const queue = new LichessFetchQueue(lichess.send, {
+      clock: fakeClock().clock,
+    });
 
     void queue.fetch(masters(START), 'interactive');
     void queue.fetch(masters(AFTER_E4), 'background');
@@ -140,7 +150,9 @@ describe('LichessFetchQueue', () => {
 
   it('moves a cache request a player then asks for to the front', async () => {
     const lichess = fakeLichess();
-    const queue = new LichessFetchQueue(lichess.send, fakeClock().clock);
+    const queue = new LichessFetchQueue(lichess.send, {
+      clock: fakeClock().clock,
+    });
 
     void queue.fetch(masters(START), 'interactive');
     void queue.fetch(masters(AFTER_E4), 'background');
@@ -158,7 +170,7 @@ describe('LichessFetchQueue', () => {
   it('leaves a second between the cache’s requests', async () => {
     const lichess = fakeLichess();
     const time = fakeClock();
-    const queue = new LichessFetchQueue(lichess.send, time.clock);
+    const queue = new LichessFetchQueue(lichess.send, { clock: time.clock });
 
     void queue.fetch(masters(START), 'background');
     void queue.fetch(masters(AFTER_E4), 'background');
@@ -173,7 +185,7 @@ describe('LichessFetchQueue', () => {
   it('leaves lichess alone for two minutes after a 429, telling players at once', async () => {
     const lichess = fakeLichess();
     const time = fakeClock();
-    const queue = new LichessFetchQueue(lichess.send, time.clock);
+    const queue = new LichessFetchQueue(lichess.send, { clock: time.clock });
 
     const limited = queue.fetch(masters(START), 'interactive');
     const waiting = queue.fetch(masters(AFTER_E4), 'interactive');
@@ -198,7 +210,7 @@ describe('LichessFetchQueue', () => {
   it('holds the cache’s requests through the pause', async () => {
     const lichess = fakeLichess();
     const time = fakeClock();
-    const queue = new LichessFetchQueue(lichess.send, time.clock);
+    const queue = new LichessFetchQueue(lichess.send, { clock: time.clock });
 
     void queue.fetch(masters(START), 'interactive');
     const held = queue.fetch(masters(AFTER_E4), 'background');
@@ -215,7 +227,7 @@ describe('LichessFetchQueue', () => {
   it('reads a request that throws as failed, and goes on', async () => {
     const queue = new LichessFetchQueue(
       () => Promise.reject(new Error('down')),
-      fakeClock().clock,
+      { clock: fakeClock().clock },
     );
     expect(await queue.fetch(masters(START), 'interactive')).toEqual({
       status: 'failed',
@@ -227,10 +239,9 @@ describe('LichessFetchQueue', () => {
 
   it('doubles the gap between the cache’s requests after a 429', async () => {
     const time = fakeClock();
-    const queue = new LichessFetchQueue(
-      scriptedLichess(['rateLimited']),
-      time.clock,
-    );
+    const queue = new LichessFetchQueue(scriptedLichess(['rateLimited']), {
+      clock: time.clock,
+    });
 
     void queue.fetch(position(0), 'background');
     void queue.fetch(position(1), 'background');
@@ -245,24 +256,24 @@ describe('LichessFetchQueue', () => {
   it('stops doubling at the most', async () => {
     const queue = new LichessFetchQueue(
       scriptedLichess(Array(8).fill('rateLimited')),
-      fakeClock().clock,
+      { clock: fakeClock().clock },
     );
     await sendInTurn(queue, 8);
     expect(queue.backgroundGapMs).toBe(LICHESS_MAX_BACKGROUND_GAP_MS);
   });
 
   it('shortens the gap slowly while lichess answers, never back to one it rate-limited', async () => {
-    const changes: Array<[number, GapChange]> = [];
-    const queue = new LichessFetchQueue(
-      scriptedLichess(['rateLimited']),
-      fakeClock().clock,
-      (gapMs, reason) => changes.push([gapMs, reason]),
-    );
+    const changes: Array<[number, QueueChange]> = [];
+    const queue = new LichessFetchQueue(scriptedLichess(['rateLimited']), {
+      clock: fakeClock().clock,
+      onChange: (state, change) => changes.push([state.gapMs, change]),
+    });
 
     await sendInTurn(queue, 1 + LICHESS_GAP_RECOVERY_REQUESTS * 7);
 
     expect(changes).toEqual([
       [2000, 'rateLimited'],
+      [2000, 'resumed'],
       [1800, 'recovered'],
       [1620, 'recovered'],
       [1458, 'recovered'],
@@ -281,9 +292,83 @@ describe('LichessFetchQueue', () => {
         ...Array(LICHESS_GAP_RECOVERY_REQUESTS - 1).fill('ok'),
         'rateLimited',
       ]),
-      fakeClock().clock,
+      { clock: fakeClock().clock },
     );
     await sendInTurn(queue, LICHESS_GAP_RECOVERY_REQUESTS + 2);
     expect(queue.backgroundGapMs).toBe(4000);
+  });
+
+  it('pauses five minutes from the fifth 429 in a row, until lichess answers', async () => {
+    const time = fakeClock();
+    const queue = new LichessFetchQueue(
+      scriptedLichess([
+        ...Array(LICHESS_LONG_PAUSE_AFTER + 1).fill('rateLimited'),
+        'ok',
+        'rateLimited',
+      ]),
+      { clock: time.clock },
+    );
+
+    await sendInTurn(queue, LICHESS_LONG_PAUSE_AFTER + 3);
+
+    const pauses = time.sleeps.filter(
+      (ms) => ms >= LICHESS_RATE_LIMIT_PAUSE_MS,
+    );
+    expect(pauses).toEqual([
+      ...Array(LICHESS_LONG_PAUSE_AFTER - 1).fill(LICHESS_RATE_LIMIT_PAUSE_MS),
+      LICHESS_LONG_PAUSE_MS,
+      LICHESS_LONG_PAUSE_MS,
+    ]);
+    // Answered, then limited again: back to the short pause.
+    expect(queue.paused).toBe(true);
+    time.advance(LICHESS_RATE_LIMIT_PAUSE_MS);
+    expect(queue.paused).toBe(false);
+  });
+
+  it('takes up a restored pause and gap', async () => {
+    const lichess = fakeLichess();
+    const time = fakeClock();
+    const queue = new LichessFetchQueue(lichess.send, { clock: time.clock });
+    queue.restore({
+      ...INITIAL_FETCH_QUEUE_STATE,
+      gapMs: 3000,
+      floorMs: 2200,
+      pausedUntil: time.clock.now() + 60_000,
+    });
+
+    expect(await queue.fetch(masters(START), 'interactive')).toEqual({
+      status: 'rateLimited',
+    });
+    void queue.fetch(masters(AFTER_E4), 'background');
+    void queue.fetch(masters(AFTER_D4), 'background');
+    await flush();
+    expect(time.sleeps).toEqual([60_000]);
+    lichess.sent[0].answer(OK);
+    await flush();
+
+    expect(time.sleeps).toEqual([60_000, 3000]);
+    expect(queue.backgroundGapMs).toBe(3000);
+  });
+
+  it('lowers the floor after a day with no 429', async () => {
+    const time = fakeClock();
+    const changes: Array<[number, QueueChange]> = [];
+    const queue = new LichessFetchQueue(scriptedLichess([]), {
+      clock: time.clock,
+      onChange: (state, change) => changes.push([state.floorMs, change]),
+    });
+    queue.restore({
+      ...INITIAL_FETCH_QUEUE_STATE,
+      gapMs: 2000,
+      floorMs: 2000,
+      floorSetAt: time.clock.now(),
+    });
+
+    await sendInTurn(queue, 1);
+    expect(changes).toEqual([]);
+    time.advance(LICHESS_FLOOR_RELAX_MS);
+    await queue.fetch(position(1), 'background');
+
+    expect(changes).toEqual([[1800, 'relaxed']]);
   });
 });

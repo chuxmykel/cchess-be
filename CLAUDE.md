@@ -98,7 +98,10 @@ The explorer's lichess client (`LichessExplorerClient`) is the only code
 that reaches outside the server. Tests never reach lichess:
 `LICHESS_TOKEN` is blanked and `EXPLORER_MAINTENANCE=false` in both vitest
 configs, and the e2e swaps the client for a fake (`createTestApp`'s
-`configure`). Every request to lichess goes through `LichessFetcherService`,
+`configure`). The lichess queue restores its learned state
+(`lichess_fetch_state`) on boot - before `createTestApp` empties the
+tables - so the explorer e2e reads it again afterwards
+(`startQueueAfresh`). Every request to lichess goes through `LichessFetcherService`,
 never the client directly, so the one-at-a-time queue holds.
 
 `LOG_LEVEL` (default `log`) is the least severe level the Nest logger

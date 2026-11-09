@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
 import { ClusterBus } from '../../cluster/cluster-bus.js';
 import {
@@ -14,10 +14,12 @@ import {
 } from './lichess-explorer.client.js';
 import {
   type FetchLane,
-  LICHESS_RATE_LIMIT_PAUSE_MS,
+  type FetchQueueState,
+  INITIAL_FETCH_QUEUE_STATE,
   LichessFetchQueue,
-  realClock,
+  type QueueChange,
 } from './lichess-fetch-queue.js';
+import { LichessFetchStateStore } from './lichess-fetch-state.store.js';
 
 /** A cached position to fetch afresh. */
 export interface RefreshJob {
@@ -32,30 +34,27 @@ const FETCH_RPC_TIMEOUT_MS = 30_000;
 /**
  * Lichess, asked from any worker - always by way of the one queue on the
  * fetcher worker (`LichessFetchQueue`), so the server as a whole sends one
- * request at a time, as matchmaking keeps one seek queue.
+ * request at a time, as matchmaking keeps one seek queue. What the queue
+ * learns of lichess's rate limit is kept in the database
+ * (LichessFetchStateStore), loaded on boot.
  */
 @Injectable()
-export class LichessFetcherService {
+export class LichessFetcherService implements OnModuleInit {
   static readonly FETCHER_WORKER = 0;
   private readonly logger = new Logger(LichessFetcherService.name);
   private readonly queue: LichessFetchQueue;
+  /** Saves one after another, so an older state never lands last. */
+  private saving: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly client: LichessExplorerClient,
     private readonly cache: ExplorerCacheService,
     private readonly clusterBus: ClusterBus,
+    private readonly states: LichessFetchStateStore,
   ) {
     this.queue = new LichessFetchQueue(
       (request) => this.client.fetch(request),
-      realClock,
-      (gapMs, reason) =>
-        reason === 'rateLimited'
-          ? this.logger.warn(
-              `lichess rate-limited us: pausing ${LICHESS_RATE_LIMIT_PAUSE_MS / 1000}s, then ${gapMs / 1000}s between background requests`,
-            )
-          : this.logger.log(
-              `lichess keeps answering: ${gapMs / 1000}s between background requests`,
-            ),
+      { onChange: (state, change) => this.onQueueChange(state, change) },
     );
     this.clusterBus.onRequest(
       EXPLORER_RPC.FETCH,
@@ -66,6 +65,27 @@ export class LichessFetcherService {
       this.refreshUnawaited(job);
       return null;
     });
+  }
+
+  async onModuleInit(): Promise<void> {
+    if (!this.isFetcher) return;
+    try {
+      const state = await this.states.load();
+      if (!state) {
+        this.queue.restore(INITIAL_FETCH_QUEUE_STATE);
+        return;
+      }
+      this.queue.restore(state);
+      const paused = state.pausedUntil - Date.now();
+      this.logger.log(
+        `lichess queue restored: ${state.gapMs / 1000}s between background requests` +
+          (paused > 0 ? `, paused ${Math.ceil(paused / 1000)}s more` : ''),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Couldn't restore the lichess queue: ${String(error)}; starting afresh`,
+      );
+    }
   }
 
   get isFetcher(): boolean {
@@ -119,6 +139,35 @@ export class LichessFetcherService {
       await this.cache.store(job.positionId, result.payload);
     }
     return result.status;
+  }
+
+  private onQueueChange(state: FetchQueueState, change: QueueChange): void {
+    const gap = `${state.gapMs / 1000}s between background requests`;
+    switch (change) {
+      case 'rateLimited':
+        this.logger.warn(
+          `lichess rate-limited us (${state.rateLimitedInARow} in a row): pausing ${Math.round((state.pausedUntil - Date.now()) / 1000)}s, then ${gap}`,
+        );
+        break;
+      case 'resumed':
+        this.logger.log('lichess is answering again');
+        break;
+      case 'recovered':
+        this.logger.log(`lichess keeps answering: ${gap}`);
+        break;
+      case 'relaxed':
+        this.logger.log(
+          `no rate limit for a day: background requests may come down to ${state.floorMs / 1000}s apart`,
+        );
+        break;
+    }
+    this.saving = this.saving
+      .then(() => this.states.save(state))
+      .catch((error: unknown) =>
+        this.logger.warn(
+          `Couldn't save the lichess queue's state: ${String(error)}`,
+        ),
+      );
   }
 
   private refreshUnawaited(job: RefreshJob): void {

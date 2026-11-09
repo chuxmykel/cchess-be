@@ -10,6 +10,7 @@ import type {
 import { ExplorerCacheService } from '../src/explorer/explorer-cache.service.js';
 import { ExplorerSweeper } from '../src/explorer/explorer.sweeper.js';
 import { LichessExplorerClient } from '../src/explorer/lichess/lichess-explorer.client.js';
+import { LichessFetcherService } from '../src/explorer/lichess/lichess-fetcher.service.js';
 import {
   createTestApp,
   registerUser,
@@ -32,6 +33,13 @@ const LICHESS_ANSWER: LichessFetchResult = {
   },
 };
 
+/** The lichess queue restores its state on boot - before createTestApp
+ * empties the tables, so from whatever an earlier test left. Read again
+ * now they're empty, as a fresh boot would. */
+async function startQueueAfresh(app: INestApplication) {
+  await app.get(LichessFetcherService).onModuleInit();
+}
+
 /** Lichess, as the tests have it answer. */
 function fakeLichess() {
   const fetch = vi.fn(
@@ -50,6 +58,7 @@ describe('Opening explorer (e2e)', () => {
     app = await createTestApp((builder) =>
       builder.overrideProvider(LichessExplorerClient).useValue(lichess),
     );
+    await startQueueAfresh(app);
   });
 
   afterEach(async () => {
@@ -347,6 +356,45 @@ describe('Opening explorer (e2e)', () => {
     expect(count).toBe(0);
   });
 
+  it('keeps what it learns of lichess’s limit', async () => {
+    const jo = await registerUser(app, 'jo_limited');
+    lichess.fetch.mockResolvedValueOnce({ status: 'rateLimited' });
+
+    await as(jo)
+      .get('/explorer')
+      .query({ fen: START, db: 'masters' })
+      .expect(200);
+
+    await vi.waitFor(async () => {
+      const rows = await app.get(DataSource).query(
+        `SELECT "gapMs", "floorMs", "rateLimitedInARow",
+                "pausedUntil" > now() AS paused
+         FROM lichess_fetch_state`,
+      );
+      expect(rows).toEqual([
+        { gapMs: 2000, floorMs: 1100, rateLimitedInARow: 1, paused: true },
+      ]);
+    });
+  });
+
+  it('takes up a pause kept from before a restart', async () => {
+    const kim = await registerUser(app, 'kim_restarted');
+    await app.get(DataSource).query(
+      `INSERT INTO lichess_fetch_state
+         (id, "gapMs", "floorMs", "rateLimitedInARow", "pausedUntil")
+       VALUES (1, 4000, 2200, 2, now() + interval '1 minute')`,
+    );
+    await app.get(LichessFetcherService).onModuleInit();
+
+    const answer = await as(kim)
+      .get('/explorer')
+      .query({ fen: START, db: 'masters' })
+      .expect(200);
+
+    expect(answer.body.source).toBe('cchess');
+    expect(lichess.fetch).not.toHaveBeenCalled();
+  });
+
   it('refuses something that is no position, or a query it can’t answer', async () => {
     const ivan = await registerUser(app, 'ivan_explorer2');
     const explore = (query: Record<string, string>) =>
@@ -376,6 +424,7 @@ describe('Opening explorer upkeep (e2e)', () => {
     app = await createTestApp((builder) =>
       builder.overrideProvider(LichessExplorerClient).useValue(lichess),
     );
+    await startQueueAfresh(app);
     dataSource = app.get(DataSource);
   });
 
