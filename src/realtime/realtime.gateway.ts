@@ -2,6 +2,7 @@ import {
   HttpException,
   Logger,
   NotFoundException,
+  type BeforeApplicationShutdown,
   type OnModuleDestroy,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -50,6 +51,7 @@ import {
 import { MatchmakingService } from '../matchmaking/matchmaking.service.js';
 import { toDirectMessageDto } from '../messages/dto/direct-message.dto.js';
 import type { DirectMessageEvent } from '../messages/messages.service.js';
+import { InFlight } from '../common/in-flight.js';
 import { PresenceService, userRoom } from '../presence/presence.service.js';
 import type { SeekRequest } from '../matchmaking/seek-matching.js';
 import { UsersService } from '../users/users.service.js';
@@ -133,10 +135,14 @@ export class RealtimeGateway
     OnGatewayInit,
     OnGatewayConnection,
     OnGatewayDisconnect,
-    OnModuleDestroy
+    OnModuleDestroy,
+    BeforeApplicationShutdown
 {
   private readonly logger = new Logger(RealtimeGateway.name);
   private readonly abandonmentTimers = new Map<string, NodeJS.Timeout>();
+  // Pushes that read the database with nothing awaiting them - see
+  // beforeApplicationShutdown.
+  private readonly inFlight = new InFlight();
   private lobbyStatsTimer: NodeJS.Timeout | null = null;
   // Nest closes the database before the sockets on shutdown, so the
   // disconnects that follow have nothing left to record.
@@ -171,6 +177,13 @@ export class RealtimeGateway
   onModuleDestroy(): void {
     this.shuttingDown = true;
     if (this.lobbyStatsTimer) clearInterval(this.lobbyStatsTimer);
+  }
+
+  /** Lets the pushes under way finish their reads before TypeORM closes
+   * the database, after this hook - rather than fail with "Connection
+   * terminated". */
+  async beforeApplicationShutdown(): Promise<void> {
+    await this.inFlight.drain();
   }
 
   private async lobbyStats(): Promise<LobbyStats> {
@@ -238,7 +251,11 @@ export class RealtimeGateway
   }
 
   /** Tells the user's friends whether they're online and playing. */
-  private async sendFriendStatus(userId: string): Promise<void> {
+  private sendFriendStatus(userId: string): Promise<void> {
+    return this.inFlight.run(() => this.sendFriendStatusNow(userId));
+  }
+
+  private async sendFriendStatusNow(userId: string): Promise<void> {
     try {
       const friendIds = await this.friendsService.friendIds(userId);
       if (friendIds.length === 0) return;
@@ -762,12 +779,14 @@ export class RealtimeGateway
   }
 
   @OnEvent(DOMAIN_EVENTS.FRIEND_REQUEST_CREATED)
-  async onFriendRequestCreated({ friendship }: FriendRequestEvent) {
-    const request =
-      await this.friendsService.describeIncomingRequest(friendship);
-    this.server
-      .to(userRoom(friendship.addresseeId))
-      .emit(WS_EVENTS.FRIEND_REQUEST_RECEIVED, request);
+  onFriendRequestCreated({ friendship }: FriendRequestEvent) {
+    return this.inFlight.run(async () => {
+      const request =
+        await this.friendsService.describeIncomingRequest(friendship);
+      this.server
+        .to(userRoom(friendship.addresseeId))
+        .emit(WS_EVENTS.FRIEND_REQUEST_RECEIVED, request);
+    });
   }
 
   @OnEvent(DOMAIN_EVENTS.FRIEND_REQUEST_ACCEPTED)
