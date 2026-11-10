@@ -683,6 +683,224 @@ describe('Friends, profiles, challenges and messages (e2e)', () => {
         .send({ text: 'x'.repeat(501) })
         .expect(400);
     });
+
+    it('lists conversations newest first: who with, the last message, unread and when they read yours', async () => {
+      const ada = await registerUser(app, 'ada_inbox');
+      const ben = await registerUser(app, 'ben_inbox');
+      const cy = await registerUser(app, 'cy_inbox');
+      await makeFriends(app, ada, ben);
+      await makeFriends(app, ada, cy);
+
+      await as(ada)
+        .post(`/messages/${ben.username}`)
+        .send({ text: 'hi ben' })
+        .expect(201);
+      await as(ben)
+        .post(`/messages/${ada.username}`)
+        .send({ text: 'hey' })
+        .expect(201);
+      await as(ben)
+        .post(`/messages/${ada.username}`)
+        .send({ text: 'game?' })
+        .expect(201);
+      await as(cy)
+        .post(`/messages/${ada.username}`)
+        .send({ text: 'yo' })
+        .expect(201);
+
+      const inbox = (await as(ada).get('/messages').expect(200)).body;
+      expect(inbox).toEqual([
+        {
+          user: {
+            id: cy.userId,
+            username: cy.username,
+            displayName: expect.any(String),
+            avatarColor: expect.any(String),
+          },
+          lastMessage: expect.objectContaining({
+            text: 'yo',
+            senderId: cy.userId,
+          }),
+          unreadCount: 1,
+          theirLastReadAt: null,
+        },
+        expect.objectContaining({
+          user: expect.objectContaining({ id: ben.userId }),
+          lastMessage: expect.objectContaining({ text: 'game?' }),
+          unreadCount: 2,
+          theirLastReadAt: null,
+        }),
+      ]);
+
+      // Ben reads Ada's message; Ada reads Ben's.
+      await as(ben).post(`/messages/${ada.username}/read`).expect(201);
+      await as(ada).post(`/messages/${ben.username}/read`).expect(201);
+      const [, withBen] = (await as(ada).get('/messages').expect(200)).body;
+      expect(withBen.unreadCount).toBe(0);
+      expect(withBen.theirLastReadAt).toEqual(expect.any(String));
+      expect(
+        (await as(ada).get(`/messages/${ben.username}/seen`).expect(200)).body,
+      ).toEqual({ theirLastReadAt: withBen.theirLastReadAt });
+      expect(
+        (await as(ada).get(`/messages/${cy.username}/seen`).expect(200)).body,
+      ).toEqual({ theirLastReadAt: null });
+    });
+
+    it('pages through conversations by their last message', async () => {
+      const dot = await registerUser(app, 'dot_inbox');
+      const friends = [];
+      for (const name of ['eli_inbox', 'fay_inbox', 'gus_inbox']) {
+        const friend = await registerUser(app, name);
+        await makeFriends(app, dot, friend);
+        await as(friend)
+          .post(`/messages/${dot.username}`)
+          .send({ text: name })
+          .expect(201);
+        friends.push(friend);
+      }
+
+      const first = (await as(dot).get('/messages?limit=2').expect(200)).body;
+      expect(
+        first.map((c: { lastMessage: { text: string } }) => c.lastMessage.text),
+      ).toEqual(['gus_inbox', 'fay_inbox']);
+      const next = (
+        await as(dot)
+          .get(`/messages?limit=2&before=${first[1].lastMessage.createdAt}`)
+          .expect(200)
+      ).body;
+      expect(
+        next.map((c: { lastMessage: { text: string } }) => c.lastMessage.text),
+      ).toEqual(['eli_inbox']);
+    });
+
+    it('leaves a cleared conversation out until a new message comes', async () => {
+      const hal = await registerUser(app, 'hal_inbox');
+      const ivy = await registerUser(app, 'ivy_inbox');
+      await makeFriends(app, hal, ivy);
+      await as(ivy)
+        .post(`/messages/${hal.username}`)
+        .send({ text: 'old' })
+        .expect(201);
+
+      await as(hal).delete(`/messages/${ivy.username}`).expect(200);
+      expect((await as(hal).get('/messages').expect(200)).body).toEqual([]);
+      expect((await as(ivy).get('/messages').expect(200)).body).toHaveLength(1);
+
+      await as(ivy)
+        .post(`/messages/${hal.username}`)
+        .send({ text: 'new' })
+        .expect(201);
+      expect((await as(hal).get('/messages').expect(200)).body).toEqual([
+        expect.objectContaining({
+          lastMessage: expect.objectContaining({ text: 'new' }),
+          unreadCount: 1,
+        }),
+      ]);
+    });
+
+    it('tells the sender when their messages are read', async () => {
+      const jo = await registerUser(app, 'jo_inbox');
+      const kai = await registerUser(app, 'kai_inbox');
+      await makeFriends(app, jo, kai);
+      const joSocket = await connectAs(jo);
+      await as(jo)
+        .post(`/messages/${kai.username}`)
+        .send({ text: 'seen?' })
+        .expect(201);
+
+      const read = waitForEvent<{ userId: string; readAt: string }>(
+        joSocket,
+        'dm:read',
+      );
+      await as(kai).post(`/messages/${jo.username}/read`).expect(201);
+
+      expect(await read).toEqual({
+        userId: kai.userId,
+        readAt: expect.any(String),
+      });
+    });
+
+    it('tells a friend you are typing, and nobody else', async () => {
+      const lu = await registerUser(app, 'lu_inbox');
+      const mo = await registerUser(app, 'mo_inbox');
+      const ned = await registerUser(app, 'ned_inbox');
+      await makeFriends(app, lu, mo);
+      const [luSocket, moSocket, nedSocket] = await Promise.all([
+        connectAs(lu),
+        connectAs(mo),
+        connectAs(ned),
+      ]);
+
+      const typing = waitForEvent<{ userId: string }>(moSocket, 'dm:typing');
+      luSocket.emit('dm:typing', { userId: mo.userId });
+      expect(await typing).toEqual({ userId: lu.userId });
+
+      const nedHeard: string[] = [];
+      nedSocket.onAny((event: string) => nedHeard.push(event));
+      luSocket.emit('dm:typing', { userId: ned.userId });
+      // A round trip after it, so anything it sent Ned would be here first.
+      await luSocket.emitWithAck('ping', Date.now());
+      await nedSocket.emitWithAck('ping', Date.now());
+      expect(nedHeard).not.toContain('dm:typing');
+    });
+
+    it('sends a game or a position, with or without text', async () => {
+      const oz = await registerUser(app, 'oz_inbox');
+      const pip = await registerUser(app, 'pip_inbox');
+      await makeFriends(app, oz, pip);
+      const gameId = await playAndResign(oz, pip);
+      const fen = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
+
+      const game = await as(oz)
+        .post(`/messages/${pip.username}`)
+        .send({ attachment: { kind: 'game', gameId } })
+        .expect(201);
+      expect(game.body).toMatchObject({
+        text: '',
+        attachment: { kind: 'game', gameId },
+      });
+      await as(oz)
+        .post(`/messages/${pip.username}`)
+        .send({ text: 'what now?', attachment: { kind: 'position', fen } })
+        .expect(201);
+
+      const history = (
+        await as(pip).get(`/messages/${oz.username}`).expect(200)
+      ).body;
+      expect(history.map((m: { attachment: unknown }) => m.attachment)).toEqual(
+        [
+          { kind: 'position', fen },
+          { kind: 'game', gameId },
+        ],
+      );
+      const [inbox] = (await as(pip).get('/messages').expect(200)).body;
+      expect(inbox.lastMessage.attachment).toEqual({ kind: 'position', fen });
+    });
+
+    it('refuses a game that does not exist, or something that is no attachment', async () => {
+      const quo = await registerUser(app, 'quo_inbox');
+      const ray = await registerUser(app, 'ray_inbox');
+      await makeFriends(app, quo, ray);
+
+      await as(quo)
+        .post(`/messages/${ray.username}`)
+        .send({
+          attachment: {
+            kind: 'game',
+            gameId: '0b7a9d2e-5f3c-4c1a-9e8b-1d2c3b4a5f6e',
+          },
+        })
+        .expect(404);
+      await as(quo)
+        .post(`/messages/${ray.username}`)
+        .send({ attachment: { kind: 'position', fen: 'not a fen' } })
+        .expect(400);
+      await as(quo)
+        .post(`/messages/${ray.username}`)
+        .send({ attachment: { kind: 'move' } })
+        .expect(400);
+      await as(quo).post(`/messages/${ray.username}`).send({}).expect(400);
+    });
   });
 
   describe('watching a game', () => {

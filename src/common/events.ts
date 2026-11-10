@@ -35,6 +35,7 @@ export const DOMAIN_EVENTS = {
   FRIEND_REQUEST_CANCELLED: 'friend.requestCancelled',
   FRIEND_REMOVED: 'friend.removed',
   DIRECT_MESSAGE_SENT: 'directMessage.sent',
+  DIRECT_MESSAGES_READ: 'directMessage.read',
 } as const;
 
 export const WS_EVENTS = {
@@ -55,6 +56,7 @@ export const WS_EVENTS = {
   GAME_WATCH: 'game:watch',
   GAME_UNWATCH: 'game:unwatch',
   USER_FOLLOW: 'user:follow',
+  DIRECT_MESSAGE_TYPING: 'dm:typing',
   USER_UNFOLLOW: 'user:unfollow',
   GAME_REMATCH_OFFER: 'game:rematchOffer',
   GAME_REMATCH_DECLINE: 'game:rematchDecline',
@@ -83,4 +85,6 @@ export const WS_EVENTS = {
   FRIEND_STATUS: 'friend:status',
   USER_GAME_STARTED: 'user:gameStarted',
   DIRECT_MESSAGE: 'dm:message',
+  DIRECT_MESSAGES_READ: 'dm:read',
+  // dm:typing goes both ways, under its inbound name.
 } as const;

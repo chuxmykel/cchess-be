@@ -12,6 +12,7 @@ import {
 } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity.js';
+import type { MessageAttachment } from '../attachment.js';
 
 export const MAX_DIRECT_MESSAGE_LENGTH = 500;
 
@@ -35,8 +36,12 @@ export class DirectMessage {
   @Column()
   recipientId!: string;
 
+  /** Empty when the message is only its attachment. */
   @Column({ type: 'varchar', length: MAX_DIRECT_MESSAGE_LENGTH })
   text!: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  attachment!: MessageAttachment | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;

@@ -50,8 +50,12 @@ import {
 } from '../friends/friends.service.js';
 import { MatchmakingService } from '../matchmaking/matchmaking.service.js';
 import { toDirectMessageDto } from '../messages/dto/direct-message.dto.js';
-import type { DirectMessageEvent } from '../messages/messages.service.js';
+import type {
+  DirectMessageEvent,
+  DirectMessagesReadEvent,
+} from '../messages/messages.service.js';
 import { InFlight } from '../common/in-flight.js';
+import { SlidingWindowLimiter } from '../common/sliding-window-limiter.js';
 import { PresenceService, userRoom } from '../presence/presence.service.js';
 import type { SeekRequest } from '../matchmaking/seek-matching.js';
 import { UsersService } from '../users/users.service.js';
@@ -72,6 +76,10 @@ function followRoom(userId: string): string {
 /** Sockets with a seek waiting for an opponent, who get `lobby:stats`. */
 const LOBBY_ROOM = 'lobby';
 const LOBBY_STATS_INTERVAL_MS = 5_000;
+/** How often a player may say they're typing a direct message: the client
+ * sends once every 3s while typing, so this leaves room for a slow network
+ * bunching two together. */
+export const DIRECT_MESSAGE_TYPING_LIMIT = { messages: 3, perMs: 5_000 };
 // One worker is enough to send the stats to the whole cluster's lobby room,
 // the same one matchmaking runs on.
 const LOBBY_STATS_WORKER = 0;
@@ -143,6 +151,11 @@ export class RealtimeGateway
   // Pushes that read the database with nothing awaiting them - see
   // beforeApplicationShutdown.
   private readonly inFlight = new InFlight();
+  // A client says it's typing every few seconds at most (see cchess's
+  // useTyping); anything faster is dropped rather than relayed.
+  private readonly typingLimiter = new SlidingWindowLimiter(
+    DIRECT_MESSAGE_TYPING_LIMIT,
+  );
   private lobbyStatsTimer: NodeJS.Timeout | null = null;
   // Nest closes the database before the sockets on shutdown, so the
   // disconnects that follow have nothing left to record.
@@ -380,6 +393,31 @@ export class RealtimeGateway
   ) {
     if (typeof payload?.userId !== 'string') return;
     await socket.join(followRoom(payload.userId));
+  }
+
+  /** Tells a friend you're typing a message to them - relayed as it is,
+   * never stored. Anyone else, or too often, is quietly dropped. */
+  @SubscribeMessage(WS_EVENTS.DIRECT_MESSAGE_TYPING)
+  async onDirectMessageTyping(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() payload: { userId: string },
+  ) {
+    const recipientId = payload?.userId;
+    if (typeof recipientId !== 'string') return;
+    const senderId = this.userId(socket);
+    try {
+      this.typingLimiter.recordOrThrow(senderId);
+    } catch {
+      return;
+    }
+    await this.inFlight.run(async () => {
+      if (!(await this.friendsService.areFriends(senderId, recipientId))) {
+        return;
+      }
+      this.server
+        .to(userRoom(recipientId))
+        .emit(WS_EVENTS.DIRECT_MESSAGE_TYPING, { userId: senderId });
+    });
   }
 
   @SubscribeMessage(WS_EVENTS.USER_UNFOLLOW)
@@ -814,6 +852,17 @@ export class RealtimeGateway
       .emit(WS_EVENTS.FRIEND_REMOVED, {
         userIds: [friendship.requesterId, friendship.addresseeId],
       });
+  }
+
+  @OnEvent(DOMAIN_EVENTS.DIRECT_MESSAGES_READ)
+  onDirectMessagesRead({
+    readerId,
+    otherUserId,
+    readAt,
+  }: DirectMessagesReadEvent) {
+    this.server
+      .to(userRoom(otherUserId))
+      .emit(WS_EVENTS.DIRECT_MESSAGES_READ, { userId: readerId, readAt });
   }
 
   @OnEvent(DOMAIN_EVENTS.DIRECT_MESSAGE_SENT)
