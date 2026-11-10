@@ -12,8 +12,11 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../auth/types.js';
 import {
+  ConversationDto,
   DirectMessageDto,
+  ListConversationsQuery,
   ListMessagesQuery,
+  SeenDto,
   SendDirectMessageDto,
   toDirectMessageDto,
   UnreadCountDto,
@@ -25,6 +28,18 @@ import { MessagesService } from './messages.service.js';
 @Controller('messages')
 export class MessagesController {
   constructor(private readonly messagesService: MessagesService) {}
+
+  @Get()
+  @ApiOperation({
+    summary:
+      'Your conversations, newest message first: who with, the last message, unread, and when they last read yours',
+  })
+  conversations(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ListConversationsQuery,
+  ): Promise<ConversationDto[]> {
+    return this.messagesService.conversationsOf(user.userId, query);
+  }
 
   @Get('unread')
   @ApiOperation({ summary: 'Unread message counts, by sender' })
@@ -49,6 +64,20 @@ export class MessagesController {
     return messages.map(toDirectMessageDto);
   }
 
+  @Get(':username/seen')
+  @ApiOperation({ summary: 'When the user last read your messages' })
+  async seen(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('username') username: string,
+  ): Promise<SeenDto> {
+    return {
+      theirLastReadAt: await this.messagesService.theirLastReadAt(
+        user.userId,
+        username,
+      ),
+    };
+  }
+
   @Post(':username')
   @ApiOperation({ summary: 'Message a friend' })
   async send(
@@ -60,6 +89,7 @@ export class MessagesController {
       user.userId,
       username,
       dto.text,
+      dto.attachment,
     );
     return toDirectMessageDto(message);
   }
