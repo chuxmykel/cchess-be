@@ -159,6 +159,11 @@ access 'X' before initialization` at runtime for any circular entity
   closes the database, so a move already broadcast (moves are broadcast
   before they're saved) is still saved on a deploy's SIGTERM - or on a
   test's `app.close()`.
+  `RealtimeGateway` does the same for its pushes that read the database
+  with nothing awaiting them (friend status, a friend request, `dm:typing`):
+  each runs through its `InFlight` (`src/common/in-flight.ts`), drained in
+  its own `beforeApplicationShutdown`. A new listener like that goes
+  through `this.inFlight.run(...)` too.
 - **Services never depend on `RealtimeGateway` directly** - they emit
   events via `EventEmitter2` (`game.created`, `game.move`, `game.ended`,
   `challenge.*`, `friend.*`) and only `RealtimeGateway` listens

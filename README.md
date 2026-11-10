@@ -102,8 +102,9 @@ friends/       Friend requests as a single self-referencing table with a status
 profiles/      Another player's profile as you see it (presence, totals, your
                friendship and score with them), their friends, activity, game
                list and rating stats per category.
-messages/      Direct messages between friends; each person's own read and
-               cleared marks.
+messages/      Direct messages between friends, with a game or position
+               attached if wanted; each person's own read and cleared marks,
+               and the inbox built from them.
 presence/      Who's connected, from the gateway's user:{id} rooms.
 games/         The chess authority: Game/Move entities, GamesService (moves, clocks,
                resign/draw/abort, PGN export), Glicko-2 rating updates on completion.
@@ -227,7 +228,9 @@ revisit `origin`/`credentials` together if that ever happens.
 | `user:follow`         | `{ userId }`                                                         | `user:gameStarted`                                                 | `{ userId, gameId }` - to sockets following that player, when a game of theirs starts                            |
 | `user:unfollow`       | `{ userId }`                                                         | -                                                                  | -                                                                                                                |
 | -                     | -                                                                    | `friend:status`                                                    | `{ userId, online, playingGameId }` - to the user's friends                                                      |
-| -                     | -                                                                    | `dm:message`                                                       | `{ id, senderId, recipientId, text, createdAt }` - to both people                                                |
+| -                     | -                                                                    | `dm:message`                                                       | `{ id, senderId, recipientId, text, attachment, createdAt }` - to both people                                    |
+| -                     | -                                                                    | `dm:read`                                                          | `{ userId, readAt }` - to the other person, when `userId` reads (or clears) their messages                       |
+| `dm:typing`           | `{ userId }` - the friend being written to                           | `dm:typing`                                                        | `{ userId }` - to that friend, `userId` being who's typing; friends only, at most 3 every 5s                     |
 | `game:chat`           | `{ gameId, text }`                                                   | `game:chat`                                                        | `{ id, gameId, userId, kind, text, createdAt }` - to both players                                                |
 | `game:chatHistory`    | `{ gameId }`                                                         | `game:chatHistory`                                                 | `{ gameId, messages, readAt }` - to the player who asked                                                         |
 | `game:chatRead`       | `{ gameId }`                                                         | -                                                                  | -                                                                                                                |
@@ -480,12 +483,22 @@ any case: an exact username first, then names starting with it, then the
 rest, by username (`limit` 1-20, default 10; `offset` skips that many, for
 the next page).
 
-Direct messages are between friends: `POST /messages/:username { text }`
-(1-500 characters after trimming, at most 10 per 10 seconds), and
-`GET /messages/:username` (newest first, `limit`/`before`) for the history.
-`POST /messages/:username/read` marks them read, `GET /messages/unread`
-counts unread messages by sender, and `DELETE /messages/:username` clears
-the history for the caller only.
+Direct messages are between friends: `POST /messages/:username { text,
+attachment }` (up to 500 characters after trimming, at most 10 per 10
+seconds). `attachment` is optional - a game, `{ kind: 'game', gameId }`, or a
+position, `{ kind: 'position', fen }` - and with one the text may be left
+out. `GET /messages/:username` (newest first, `limit`/`before`) is the
+history. `POST /messages/:username/read` marks them read (pushing `dm:read`
+to the other person), `GET /messages/:username/seen` says when the other
+person last read yours, `GET /messages/unread` counts unread messages by
+sender, and `DELETE /messages/:username` clears the history for the caller
+only.
+
+`GET /messages` is the inbox: a conversation for each person you have
+messages with since you last cleared them, the newest message first - the
+person, that message, how many of theirs you haven't read, and when they
+last read yours. A page of `limit` (1-100, default 30); `before` (the last
+one's `lastMessage.createdAt`) gives the next.
 
 `ping` isn't part of the broadcast protocol above - it's a plain Socket.IO
 acknowledgement (payload: the client's own timestamp as a number), echoed
