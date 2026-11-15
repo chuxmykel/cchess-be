@@ -107,7 +107,8 @@ messages/      Direct messages between friends, with a game or position
                and the inbox built from them.
 presence/      Who's connected, from the gateway's user:{id} rooms.
 games/         The chess authority: Game/Move entities, GamesService (moves, clocks,
-               resign/draw/abort, PGN export), Glicko-2 rating updates on completion.
+               resign/draw/abort, PGN export), Glicko-2 rating updates on completion,
+               and finished games' reviews (GameReviewsService - see "Game review").
                The PGN is in the standard's export format: the Seven Tag Roster,
                TimeControl in seconds ("300+3"), and each move followed by the
                mover's clock as a { [%clk 0:04:58] } comment.
@@ -369,6 +370,35 @@ up to 4000 characters, seen by nobody else; saving none clears them.
 
 Daily games feed the opening explorer too (below): a game still being
 played is left out of it, so a daily game can't be looked up while it's on.
+
+### Game review
+
+A finished game's review - each move classed best to blunder, each side's
+accuracy, what to say about each move - is worked out **on the player's
+device**, by the app's own Stockfish, not here. The server only keeps what
+it found, so nobody analyses the same game twice:
+
+- `GET /games/:id/review` - the review kept for a game: the engine and the
+  depth it searched to, each side's accuracy, and `evals`, every position's
+  score, best line (UCI) and next best score, the start first. 404 until
+  someone has reviewed it.
+- `PUT /games/:id/review` - keeps one: only for a completed game (not one
+  aborted or still on), with exactly one eval per position (its moves plus
+  one). A review searched as deep as the one kept already is ignored, and
+  the kept one returned; a deeper one replaces it.
+
+The app works out every class and comment from the evals, so wording can
+change without the stored reviews changing. Game lists (`GET /games`, a
+player's `GET /users/:username/games`) carry `accuracy` and
+`opponentAccuracy` once a game's been reviewed, null until then.
+
+Why the device: Stockfish takes a CPU core flat out for 40-80s a game, and
+the server has one core to share with every live game's clocks and moves -
+on the $4 droplet, about 200 MB of memory to spare too (see cchess-infra's
+hosting report). A review is client-computed, so the server can't vouch
+for it; it's informational only and never touches ratings. If server-side
+review is ever wanted, it belongs on a separate worker, with the same
+endpoints.
 
 ### Opening explorer
 
