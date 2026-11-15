@@ -20,6 +20,7 @@ import { GameChatRead } from '../games/entities/game-chat-read.entity.js';
 import { Bookmark } from '../games/entities/bookmark.entity.js';
 import { ConditionalMoveSet } from '../games/entities/conditional-move-set.entity.js';
 import { GameNote } from '../games/entities/game-note.entity.js';
+import { GameReview } from '../games/entities/game-review.entity.js';
 import { Conversation } from '../messages/entities/conversation.entity.js';
 import { DirectMessage } from '../messages/entities/direct-message.entity.js';
 import { Rating } from '../users/entities/rating.entity.js';
@@ -72,6 +73,7 @@ export const typeOrmModule = TypeOrmModule.forRootAsync({
       ExplorerCacheEntry,
       LichessFetchState,
       ConditionalMoveSet,
+      GameReview,
     ],
     // Schema is managed by real migrations (src/database/migrations),
     // not synchronize - see CLAUDE.md for the migration workflow.
