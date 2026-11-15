@@ -34,6 +34,11 @@ import {
 import { DrawRespondDto } from './dto/draw-respond.dto.js';
 import { GameCountDto } from './dto/game-counts.dto.js';
 import { GameNoteDto, SaveGameNoteDto } from './dto/game-note.dto.js';
+import {
+  GameReviewDto,
+  SaveGameReviewDto,
+  toGameReviewDto,
+} from './dto/game-review.dto.js';
 import { GameStateDto, toGameStateDto } from './dto/game-state.dto.js';
 import { GameSummaryDto, toGameSummaryDto } from './dto/game-summary.dto.js';
 import { ListGamesQuery } from './dto/list-games.query.js';
@@ -41,6 +46,7 @@ import { MakeMoveDto } from './dto/make-move.dto.js';
 import { BookmarksService } from './bookmarks.service.js';
 import { ConditionalMovesService } from './conditional-moves.service.js';
 import { GameNotesService } from './game-notes.service.js';
+import { GameReviewsService } from './game-reviews.service.js';
 import { GamesService } from './games.service.js';
 
 class BookmarkStateDto {
@@ -57,6 +63,7 @@ export class GamesController {
     private readonly bookmarksService: BookmarksService,
     private readonly gameNotesService: GameNotesService,
     private readonly conditionalMovesService: ConditionalMovesService,
+    private readonly gameReviewsService: GameReviewsService,
   ) {}
 
   @Get()
@@ -68,7 +75,12 @@ export class GamesController {
     @Query() query: ListGamesQuery,
   ): Promise<GameSummaryDto[]> {
     const games = await this.gamesService.listGamesForUser(user.userId, query);
-    return games.map((game) => toGameSummaryDto(game, user.userId));
+    const accuracies = await this.gameReviewsService.accuracies(
+      games.map((game) => game.id),
+    );
+    return games.map((game) =>
+      toGameSummaryDto(game, user.userId, accuracies.get(game.id)),
+    );
   }
 
   @Get('counts')
@@ -151,6 +163,31 @@ export class GamesController {
     @Body() dto: SaveGameNoteDto,
   ): Promise<GameNoteDto> {
     return this.gameNotesService.save(user.userId, id, dto.body);
+  }
+
+  @Get(':id/review')
+  @ApiOperation({
+    summary: "A finished game's review: the engine's evals of its positions",
+  })
+  async getReview(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<GameReviewDto> {
+    return toGameReviewDto(await this.gameReviewsService.get(id));
+  }
+
+  @Put(':id/review')
+  @ApiOperation({
+    summary:
+      'Keep a review worked out on the device, unless one searched as deep is kept already',
+  })
+  async saveReview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SaveGameReviewDto,
+  ): Promise<GameReviewDto> {
+    return toGameReviewDto(
+      await this.gameReviewsService.save(user.userId, id, dto),
+    );
   }
 
   @Get(':id/conditional-moves')

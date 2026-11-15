@@ -10,6 +10,7 @@ import {
 import { UserFriendDto } from '../friends/dto/friend.dto.js';
 import { GameCountDto } from '../games/dto/game-counts.dto.js';
 import { ListGamesQuery } from '../games/dto/list-games.query.js';
+import { GameReviewsService } from '../games/game-reviews.service.js';
 import { GamesService } from '../games/games.service.js';
 import { UsersService } from '../users/users.service.js';
 import type { GameType } from '../chess/time-control.js';
@@ -38,6 +39,7 @@ export class ProfilesController {
     private readonly profilesService: ProfilesService,
     private readonly gamesService: GamesService,
     private readonly usersService: UsersService,
+    private readonly gameReviewsService: GameReviewsService,
   ) {}
 
   @Get()
@@ -111,7 +113,12 @@ export class ProfilesController {
   ): Promise<GameSummaryDto[]> {
     const user = await this.profilesService.findUserOrThrow(username);
     const games = await this.gamesService.listGamesForUser(user.id, query);
-    return games.map((game) => toGameSummaryDto(game, user.id));
+    const accuracies = await this.gameReviewsService.accuracies(
+      games.map((game) => game.id),
+    );
+    return games.map((game) =>
+      toGameSummaryDto(game, user.id, accuracies.get(game.id)),
+    );
   }
 
   @Get(':username/games/counts')

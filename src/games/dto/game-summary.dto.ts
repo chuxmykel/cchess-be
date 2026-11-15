@@ -66,6 +66,20 @@ export class GameSummaryDto {
   @ApiProperty()
   playedAsWhite!: boolean;
 
+  @ApiProperty({
+    type: Number,
+    nullable: true,
+    description: "The viewer's accuracy, once the game has been reviewed",
+  })
+  accuracy!: number | null;
+
+  @ApiProperty({
+    type: Number,
+    nullable: true,
+    description: "The opponent's accuracy, once the game has been reviewed",
+  })
+  opponentAccuracy!: number | null;
+
   @ApiProperty()
   createdAt!: Date;
 
@@ -73,7 +87,11 @@ export class GameSummaryDto {
   endedAt!: Date | null;
 }
 
-export function toGameSummaryDto(game: Game, viewerId: string): GameSummaryDto {
+export function toGameSummaryDto(
+  game: Game,
+  viewerId: string,
+  accuracy?: { white: number; black: number },
+): GameSummaryDto {
   const playedAsWhite = game.whiteId === viewerId;
   const opponent = playedAsWhite ? game.black : game.white;
 
@@ -102,6 +120,16 @@ export function toGameSummaryDto(game: Game, viewerId: string): GameSummaryDto {
     ),
     ratingDiff: playedAsWhite ? game.whiteRatingDiff : game.blackRatingDiff,
     playedAsWhite,
+    accuracy: accuracy
+      ? playedAsWhite
+        ? accuracy.white
+        : accuracy.black
+      : null,
+    opponentAccuracy: accuracy
+      ? playedAsWhite
+        ? accuracy.black
+        : accuracy.white
+      : null,
     createdAt: game.createdAt,
     endedAt: game.endedAt,
   };

@@ -130,4 +130,16 @@ describe('toGameSummaryDto', () => {
 
     expect(dto.ratingDiff).toBeNull();
   });
+
+  it("shows each side's accuracy from the viewer's side, once reviewed", () => {
+    const accuracy = { white: 91.5, black: 64.2 };
+
+    expect(
+      toGameSummaryDto(makeFinishedGame(), BLACK.id, accuracy),
+    ).toMatchObject({ accuracy: 64.2, opponentAccuracy: 91.5 });
+    expect(toGameSummaryDto(makeFinishedGame(), WHITE.id)).toMatchObject({
+      accuracy: null,
+      opponentAccuracy: null,
+    });
+  });
 });
