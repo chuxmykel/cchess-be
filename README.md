@@ -75,6 +75,18 @@ npm run seed:run             # build + run pending seeders, recorded in `seeds` 
 npm run seed:generate -- src/database/seeds/SomeName  # new seeder - dev data only; prod data is a migration
 ```
 
+The e2e fixtures seeder (`src/database/seeds/*-e2e-fixtures.ts`) seeds
+what ../cchess's Maestro suite plays against, on the backend made for it
+(../cchess-infra's `compose.e2e.yaml`, or ../cchess's
+`scripts/e2e/backend-native.sh`): `e2e_main` and `e2e_friend`, friends,
+password "password"; e2e_main's finished games (a blitz game with a queen
+blundered out of the book, for the review flows; wins, losses and a draw
+over the last month; an aborted game); and two daily games in progress,
+against e2e_friend and bot_2. It runs only with `SEED_E2E=1` (doing nothing
+otherwise, untracked - `track = false` - so a dev `seed:run` doesn't mark
+it run), never with `NODE_ENV=production`, and after the bots' seeder, whose
+bot_2 it plays; once e2e_main exists, running it again does nothing.
+
 Run a single test file: `npx vitest run src/games/clock.spec.ts`, or
 `npm run test:e2e -- test/games.e2e-spec.ts`.
 
