@@ -118,10 +118,13 @@ flagged issues by hand.
 
 ## Architecture
 
-Each domain is its own Nest module under `src/`. Read `README.md` first -
-it covers the move/clock authority model (`GamesService.applyMove`), the
-event-emitter decoupling between services and `RealtimeGateway`, the
-time-control classification scheme, and the full Socket.IO protocol table.
+Each domain is its own Nest module under `src/`. Read `docs/` first -
+`architecture.md` covers the move/clock authority model
+(`GamesService.applyMove`), the event-emitter decoupling between services
+and `RealtimeGateway` and the time-control classification scheme;
+`protocol.md` the full Socket.IO protocol table; `features.md` daily games,
+reviews, the explorer and the social features; `performance.md` the move
+path and clustering.
 The notes below are things a future change is likely to trip over that
 aren't obvious from reading one file in isolation.
 
@@ -229,8 +232,8 @@ access 'X' before initialization` at runtime for any circular entity
   assume they survive a restart. Under `CLUSTER_WORKERS > 1` they're made
   _routable_ across worker processes (see below) rather than moved out of
   memory entirely; a bare restart still loses them the same as today.
-- **Daily games keep nothing that matters in memory** (README's "Daily
-  games"). Their moves are days apart, so a restart in between is the
+- **Daily games keep nothing that matters in memory** (`docs/features.md`'s
+  "Daily games"). Their moves are days apart, so a restart in between is the
   usual case, not a corner one: no flag timer (`DailyDeadlineSweeper`
   finds games out of time in the database every minute, each worker ending
   those it owns), no disconnect forfeit, no pre-moves, and their seeks
