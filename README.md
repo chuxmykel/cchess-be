@@ -1,649 +1,167 @@
 # cchess-be
 
-A real-time chess game server built with NestJS: accounts (including guest
-play), profiles, friends, matchmaking, direct challenges, and full rules-
-enforced games over REST + Socket.IO. Built as the backend for the
-[cchess](../cchess) React Native app - see that repo for the client.
+[![Lint](https://github.com/chuxmykel/cchess-be/actions/workflows/lint.yml/badge.svg?branch=develop)](https://github.com/chuxmykel/cchess-be/actions/workflows/lint.yml)
+[![Unit tests](https://github.com/chuxmykel/cchess-be/actions/workflows/test.yml/badge.svg?branch=develop)](https://github.com/chuxmykel/cchess-be/actions/workflows/test.yml)
+[![E2E](https://github.com/chuxmykel/cchess-be/actions/workflows/e2e.yml/badge.svg?branch=develop)](https://github.com/chuxmykel/cchess-be/actions/workflows/e2e.yml)
+![NestJS 12](https://img.shields.io/badge/NestJS-12-e0234e)
+![Postgres](https://img.shields.io/badge/Postgres-18-336791)
+
+The real-time chess server behind [cchess](https://github.com/chuxmykel/cchess),
+the React Native app. It's built with NestJS, Postgres and Socket.IO. Every
+move is re-validated and every clock runs on the server, so a client can
+never be trusted into an illegal move or an extra second.
+
+## Features
+
+- **Live games:** bullet to classical, with server-authoritative clocks,
+  premoves, draw offers, resign and abort, a first-move timeout,
+  reconnection grace, rematches and rematch series, plus chat and spectators.
+- **Daily games:** 1-14 days a move, conditional moves and private notes.
+  The deadlines live in the database, so a restart doesn't lose them.
+- **Matchmaking:** live and daily seeks, paired by time control, rated
+  choice, color and both players' rating ranges.
+- **Ratings:** Glicko-2 per category (bullet, blitz, rapid, classical,
+  daily), with history and stats for any period.
+- **Accounts:** guests as first-class players, plus registered accounts with
+  short-lived JWTs and rotating, hashed refresh tokens.
+- **Social:** friends, presence, challenges to anyone, direct messages with
+  a game or position attached, and an inbox with read receipts.
+- **Game review storage:** reviews are computed on the device, and the
+  server keeps them so no game is analysed twice.
+- **Opening explorer:** lichess's Masters and Lichess databases behind a
+  polite, self-tuning rate-limited queue and a cache, plus the games played
+  here.
+- **PGN export** and bookmarks.
+- **Opt-in multi-process sharding** for when one event loop isn't enough.
 
 ## Tech stack
 
-- NestJS 12 (TypeScript, ESM)
-- TypeORM + Postgres, schema managed by real migrations (`src/database/migrations`)
-  - (`better-sqlite3` is still a dependency for a planned dev-mode toggle -
-    Postgres in prod, SQLite for quick local dev/testing - not yet wired up)
-- `chess.js` 1.4.0 for rules enforcement - the same version the client uses,
-  so FEN/SAN never disagree between server and app
-- Passport JWT (access + opaque, hashed, rotating refresh tokens)
-- Socket.IO (`@nestjs/websockets`) for real-time gameplay
-- `@nestjs/swagger` for OpenAPI docs
-- Vitest for unit + e2e tests
-- Redis - only used for cross-worker Socket.IO broadcast under optional
-  multi-process sharding (`CLUSTER_WORKERS`, see `src/cluster/`); a normal
-  single-process boot never touches it
+- [NestJS](https://nestjs.com) 12 (TypeScript, ESM)
+- Postgres via TypeORM, with real migrations (`src/database/migrations`) and
+  seeders via typeorm-extension
+- [chess.js](https://github.com/jhlywa/chess.js) 1.4: the same version as the
+  app, so FEN and SAN never disagree
+- Socket.IO (`@nestjs/websockets`) for everything live
+- Passport JWT, with OpenAPI docs via `@nestjs/swagger`
+- Vitest, and oxlint (type-aware)
+- Redis, only for cross-worker broadcast when `CLUSTER_WORKERS > 1`
 
 ## Getting started
 
 ```bash
-nvm use 24        # or any Node >= 22.22 / 24.15+ - see package.json engines
+nvm use           # Node 24.15 (.nvmrc) - or any version package.json's engines allows
 npm install
 ```
 
-Needs a local Postgres (one-time setup - adjust names/password to taste,
-just keep them in sync with what you put in `.env` below):
+Create a local Postgres role and two databases, one for dev and one for the
+e2e tests:
 
 ```bash
-createuser cchess --login --pwprompt    # or: CREATE ROLE cchess WITH LOGIN PASSWORD '...';
+createuser cchess --login --pwprompt
 createdb cchess_be --owner=cchess
-createdb cchess_be_test --owner=cchess  # used by the e2e tests, kept separate from dev data
+createdb cchess_be_test --owner=cchess
 ```
 
-Copy `.env.example` to `.env` and fill in the Postgres connection (matching
-the `createuser`/`createdb` commands above) and a JWT secret pair (any long
-random string works for local dev) - these have no built-in default and the
-app fails fast at boot if they're missing (see `src/config/configuration.ts`).
-Fill in the `TEST_DB_*` vars too - the e2e tests read their own, separate
-connection (same role, pointed at `cchess_be_test`, unless you want it
-somewhere else entirely, e.g. a different host in CI) rather than sharing
-`DB_*` with the dev database, so tests never run against dev data by
-accident. Everything else in `.env.example` is optional and has a sane
-default.
-
-Then apply the schema and start the server:
+Copy `.env.example` to `.env` and fill in the `DB_*` and `TEST_DB_*`
+connections and the JWT secrets (any long random strings for local dev).
+These have no defaults, and the server refuses to boot without them. Every
+other setting is optional.
 
 ```bash
-npm run migration:run   # builds, then applies any pending migrations
-npm run start:dev       # watch mode
+npm run migration:run   # build, then apply pending migrations
+npm run seed:run        # optional: bot_1-bot_5 (password "password") for ../cchess's opponent script
+npm run start:dev       # http://localhost:3000, API docs at /docs
 ```
-
-The server listens on `:3000` by default. Interactive API docs are served at
-`/docs`.
 
 ## Commands
 
 ```bash
-npm run start:dev          # watch mode
-npm run build               # tsc build via `nest build`
-npm run lint                 # oxlint (type-aware)
-npm test                     # unit specs (src/**/*.spec.ts) - no database or .env needed
-npm run test:e2e             # everything needing Postgres (test/**/*.e2e-spec.ts)
-npm run test:cov             # coverage
+npm run start:dev        # watch mode
+npm run build            # nest build
+npm run lint             # oxlint (type-aware)
+npm test                 # unit specs - no database or .env needed
+npm run test:e2e         # everything needing Postgres (HTTP + Socket.IO flows, services on a real DB)
+npm run test:cov         # coverage
 
 npm run migration:generate -- src/database/migrations/SomeName   # after changing an entity
-npm run migration:run        # apply pending migrations
-npm run migration:revert     # roll back the last migration
-npm run seed:run             # build + run pending seeders, recorded in `seeds` (bot_1-bot_5, password "password", for ../cchess's opponent)
-npm run seed:generate -- src/database/seeds/SomeName  # new seeder - dev data only; prod data is a migration
+npm run migration:run    # apply pending migrations
+npm run migration:revert # roll back the last one
+npm run seed:generate -- src/database/seeds/SomeName  # dev data only; production data is a migration
 ```
 
-The e2e fixtures seeder (`src/database/seeds/*-e2e-fixtures.ts`) seeds
-what ../cchess's Maestro suite plays against, on the backend made for it
-(../cchess-infra's `compose.e2e.yaml`, or ../cchess's
-`scripts/e2e/backend-native.sh`): `e2e_main` and `e2e_friend`, friends,
-password "password"; e2e_main's finished games (a blitz game with a queen
-blundered out of the book, for the review flows; wins, losses and a draw
-over the last month; an aborted game); and two daily games in progress,
-against e2e_friend and bot_2. It runs only with `SEED_E2E=1` (doing nothing
-otherwise, untracked - `track = false` - so a dev `seed:run` doesn't mark
-it run), never with `NODE_ENV=production`, and after the bots' seeder, whose
-bot_2 it plays; once e2e_main exists, running it again does nothing.
-
-Run a single test file: `npx vitest run src/games/clock.spec.ts`, or
+A single file: `npx vitest run src/games/clock.spec.ts`, or
 `npm run test:e2e -- test/games.e2e-spec.ts`.
 
-`npm test` never reaches a database or any other service - the rules are
-pure functions, and services are tested over stand-ins for their
-repositories - so it runs anywhere with nothing set up. The e2e run is
-everything that does need Postgres: full HTTP and Socket.IO flows through
-the app (`test/*.e2e-spec.ts`), and services on a real database
-(`test/integration/`). It runs against `cchess_be_test` (not SQLite
-`:memory:` or mocks) - each test app boot truncates every table first
-(`test/utils/db.ts`), so tests are isolated from each other but share that
-one database; don't point `TEST_DB_NAME` at your dev database.
+### Testing
+
+`npm test` never reaches a database or any other service. The rules are pure
+functions, and services are tested against stand-ins for their repositories,
+so it runs anywhere with nothing set up. `npm run test:e2e` covers everything
+that needs Postgres: full HTTP and Socket.IO flows (`test/*.e2e-spec.ts`) and
+services on a real database (`test/integration/`). It runs against
+`cchess_be_test`, which each test app boot truncates first, so never point
+`TEST_DB_NAME` at your dev database.
+
+The e2e fixtures seeder (`src/database/seeds/*-e2e-fixtures.ts`) seeds what
+the app's Maestro suite plays against: `e2e_main` and `e2e_friend` (password
+"password"), finished games for the review and history flows, and two daily
+games in progress. It runs only with `SEED_E2E=1`, never with
+`NODE_ENV=production`, and is untracked, so a dev `seed:run` doesn't mark it
+as run. [cchess-infra](https://github.com/chuxmykel/cchess-infra)'s
+`compose.e2e.yaml` and the app's `scripts/e2e/backend-native.sh` both use it.
 
 ## Architecture
 
-Each domain is its own Nest module under `src/`:
-
 ```
-auth/          Register/login/guest/refresh/logout. Access JWT (short-lived) +
-               opaque refresh token (random, stored only as an HMAC hash, rotated
-               on every use - see token.util.ts).
-users/         Profile CRUD + per-category Glicko-2 ratings (bullet/blitz/rapid/classical/daily).
-friends/       Friend requests as a single self-referencing table with a status
-               (pending/accepted/declined), not a separate "friends" table.
-profiles/      Another player's profile as you see it (presence, totals, your
-               friendship and score with them), their friends, activity, game
-               list and rating stats per category.
-messages/      Direct messages between friends, with a game or position
-               attached if wanted; each person's own read and cleared marks,
-               and the inbox built from them.
-presence/      Who's connected, from the gateway's user:{id} rooms.
-games/         The chess authority: Game/Move entities, GamesService (moves, clocks,
-               resign/draw/abort, PGN export), Glicko-2 rating updates on completion,
-               and finished games' reviews (GameReviewsService - see "Game review").
-               The PGN is in the standard's export format: the Seven Tag Roster,
-               TimeControl in seconds ("300+3"), and each move followed by the
-               mover's clock as a { [%clk 0:04:58] } comment.
-matchmaking/   An in-memory seek queue (see "Known limitations" below) that pairs
-               players whose time control, rated choice and rating ranges all
-               agree, nearest rating first.
-daily-seeks/   Daily games' seeks, kept in the database: posted, and left until
-               another agrees with it, by the same rules (see "Daily games").
-explorer/      An opening explorer: lichess's Masters and Lichess databases, cached,
-               and the games finished here, everyone's or one player's.
-challenges/    Challenges to any player (accept -> creates a Game).
-realtime/      One Socket.IO gateway for everything live: moves, clocks, draw/resign/
-               abort, matchmaking pushes, challenge + friend-request notifications.
-chess/         Framework-free: time control classification, and ServerChessEngine,
-               a thin wrapper over chess.js that is the actual rules authority
-               (mirrors the client's own ChessEngine in the cchess app).
+            REST (auth, profiles, history, ...)      Socket.IO (moves, clocks, pushes)
+                         │                                    │
+                         ▼                                    ▼
+  controllers ──▶ GamesService · MatchmakingService · ...  ◀── RealtimeGateway
+                         │  emit domain events                ▲
+                         └──── @nestjs/event-emitter ─────────┘  pushes to user:{id} rooms
+                         │
+                         ▼
+                  Postgres (TypeORM)
 ```
 
-### How a game is authoritative
-
-`GamesService` is the only place game state is mutated. Every move - whether
-it arrived over REST (`POST /games/:id/moves`, mostly useful for testing/bots)
-or the realtime gateway (`game:move`) - goes through the same
-`GamesService.applyMove`, which:
-
-1. Re-validates the move against `ServerChessEngine` (never trusts the client).
-2. Computes elapsed time since the last move and deducts it from the mover's
-   clock _before_ applying the move, so a move submitted after the flag fell
-   is rejected as a time forfeit instead of silently succeeding.
-3. Persists the `Move` row and updated `Game` row, then reschedules a
-   `setTimeout` flag-fall for whoever's turn it now is.
-4. Checks `chess.js` for checkmate/stalemate/insufficient
-   material/threefold/fifty-move and finalizes the game if so (including
-   Glicko-2 rating updates for rated games, recorded on the game row as each player's
-   rating change alongside the ratings they started with).
-
-A per-game `KeyedMutex` (`src/common/keyed-mutex.ts`) serializes all of
-`applyMove`/`resign`/`offerDraw`/`respondDraw`/`abort`/the flag-fall timer for
-a given game id, so a move landing at the exact instant a clock would have
-flagged can't race the timeout handler. Shutting down (SIGTERM, SIGINT) waits
-for the work it holds to finish before the database closes, so a move already
-sent to the players is never lost to a deploy.
-
-`GamesService` keeps one in-memory `ServerChessEngine` per active game (so
-move validation doesn't replay the whole game from scratch); if it's missing
-(e.g. after a restart) it's rebuilt by replaying the game's `Move` rows.
-
-### Decoupling via events, not direct calls
-
-`GamesService`, `MatchmakingService`, `ChallengesService`, and
-`FriendsService` know nothing about Socket.IO. They emit plain events via
-`@nestjs/event-emitter` (`game.created`, `game.move`, `game.ended`,
-`challenge.created`, `friend.requestAccepted`, etc.), and `RealtimeGateway`
-is the only thing that listens and pushes to the right Socket.IO room
-(`game:{id}` for game state, `user:{id}` for personal notifications like "you
-got matched" or "you were challenged"). This is what lets e.g. matchmaking
-pair two players who are never in the same request: the second player's
-HTTP/socket call creates the game and emits `game.created`, which the gateway
-pushes to _both_ players' personal rooms.
-
-### Time control -> game type
-
-`src/chess/time-control.ts` classifies any `{ initialSeconds, incrementSeconds }`
-pair into bullet/blitz/rapid/classical by _estimated game duration_
-(`(initialSeconds + incrementSeconds * 40) / 60` minutes), the same method Lichess uses - not
-a fixed lookup table. This is what makes "any time control", not just the
-cchess app's 16 presets, a trivial case: the thresholds (3 / 10 / 25 minutes)
-were chosen specifically so they agree with every one of that app's presets
-(see `src/chess/time-control.spec.ts`). Both parts are whole seconds - the
-starting clock (1 second to 3 hours) as well as the increment - so a
-sub-minute start like 5 seconds is exact, and it's stored as an `int`.
-
-A starting clock of whole days with no increment - 1, 2, 3, 5, 7 or 14 -
-is a daily game instead, its own category (see "Daily games"): the days a
-move, kept in `initialSeconds` like any other clock, so seeks, challenges
-and rematches need nothing more to carry it.
-
-### Guests
-
-`POST /auth/guest` creates a real `User` row (`isGuest: true`, no
-email/password) and issues a normal token pair - guests are first-class
-players through the whole stack, they just never get `Rating` rows and any
-game involving one is automatically unrated (`GamesService.createGame`).
-
-## Realtime protocol (Socket.IO)
-
-Connect with the access token in the handshake: `io(url, { auth: { token } })`.
-Every connected socket auto-joins a `user:{id}` room for direct pushes - this
-is also where `game:*` events are sent (not a separate per-game room), so a
-client may receive a game's moves before it has itself emitted `game:join`
-for that particular game; track the server's own `move.ply` idempotently
-rather than counting received events.
-
-The gateway's own CORS is wide open (`origin: '*', credentials: false` -
-see `realtime.gateway.ts`), unlike REST's configurable origin - intentional,
-not an oversight: `@WebSocketGateway` options are static decorator metadata
-evaluated before DI exists, so it can't read `ConfigService` the way REST's
-CORS does, but that's fine here specifically because auth travels in the
-handshake's own `auth.token` payload above, never a cookie - there's no
-ambient credential for a cross-origin page to ride on, so there's nothing
-an origin restriction would protect. This stops being true the moment any
-client authenticates via a cookie instead (e.g. a future browser client) -
-revisit `origin`/`credentials` together if that ever happens.
-
-| Client -> Server      | Payload                                                              | Server -> Client                                                   | Payload                                                                                                          |
-| --------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| `game:join`           | `{ gameId }`                                                         | `game:state`                                                       | Full `GameStateDto`                                                                                              |
-| `game:move`           | `{ gameId, from, to, promotion? }`                                   | `game:move`                                                        | `{ gameId, move, fen, turn, whiteTimeRemainingMs, blackTimeRemainingMs, firstMoveDeadline, moveDeadlineAt }`     |
-| `game:resign`         | `{ gameId }`                                                         | `game:over`                                                        | Full `GameStateDto` (also sent on checkmate/timeout/draw/abort)                                                  |
-| `game:abort`          | `{ gameId }`                                                         | `game:drawOffered`                                                 | `{ gameId, by }`                                                                                                 |
-| `game:drawOffer`      | `{ gameId }`                                                         | `game:drawDeclined`                                                | `{ gameId }`                                                                                                     |
-| `game:drawRespond`    | `{ gameId, accept }`                                                 | `game:created`                                                     | Full `GameStateDto` - pushed to both players, e.g. on a matchmaking pair                                         |
-| `matchmaking:seek`    | `{ initialSeconds, incrementSeconds, rated?, ratingRange?, color? }` | `game:error` / `matchmaking:error`                                 | `{ message }` (and `{ gameId, event, message }` for game errors - `event` is what was refused, e.g. `game:move`) |
-| `matchmaking:cancel`  | -                                                                    | `challenge:received` / `challenge:accepted` / `challenge:resolved` | `ChallengeDto`                                                                                                   |
-| `game:leave`          | `{ gameId }`                                                         | `friend:requestReceived`                                           | `FriendRequestDto` - the requester, described like a friend                                                      |
-| `game:watch`          | `{ gameId }`                                                         | `friend:requestAccepted` / `friend:requestResolved`                | `{ id }` - accepted, or declined/cancelled, to both sides                                                        |
-| `game:unwatch`        | `{ gameId }`                                                         | `friend:removed`                                                   | `{ userIds }` - the two former friends                                                                           |
-| `user:follow`         | `{ userId }`                                                         | `user:gameStarted`                                                 | `{ userId, gameId }` - to sockets following that player, when a game of theirs starts                            |
-| `user:unfollow`       | `{ userId }`                                                         | -                                                                  | -                                                                                                                |
-| -                     | -                                                                    | `friend:status`                                                    | `{ userId, online, playingGameId }` - to the user's friends                                                      |
-| -                     | -                                                                    | `dm:message`                                                       | `{ id, senderId, recipientId, text, attachment, createdAt }` - to both people                                    |
-| -                     | -                                                                    | `dm:read`                                                          | `{ userId, readAt }` - to the other person, when `userId` reads (or clears) their messages                       |
-| `dm:typing`           | `{ userId }` - the friend being written to                           | `dm:typing`                                                        | `{ userId }` - to that friend, `userId` being who's typing; friends only, at most 3 every 5s                     |
-| `game:chat`           | `{ gameId, text }`                                                   | `game:chat`                                                        | `{ id, gameId, userId, kind, text, createdAt }` - to both players                                                |
-| `game:chatHistory`    | `{ gameId }`                                                         | `game:chatHistory`                                                 | `{ gameId, messages, readAt }` - to the player who asked                                                         |
-| `game:chatRead`       | `{ gameId }`                                                         | -                                                                  | -                                                                                                                |
-| -                     | -                                                                    | `game:presence`                                                    | `{ gameId, userId, online }`                                                                                     |
-| -                     | -                                                                    | `lobby:stats`                                                      | `{ playersOnline, gamesInPlay }`                                                                                 |
-| `game:rematchOffer`   | `{ gameId }`                                                         | `game:rematchOffered`                                              | `{ gameId, by }` - to both players                                                                               |
-| `game:rematchDecline` | `{ gameId }`                                                         | `game:rematchDeclined`                                             | `{ gameId, by }` - declined, or withdrawn by the offerer                                                         |
-
-A seek (here or `POST /matchmaking/seek`) is rated unless `rated: false`;
-guests' seeks are always casual. `ratingRange: { below, above }` (whole
-numbers from 0 to 1000) limits opponents to that far below and above your
-rating in the time control's category, and both players' ranges must hold.
-A `null` side has no limit; leave the whole range out to accept any rating.
-Guests have no rating, so ranges don't apply to them.
-`color` - `white`, `black` or `random` (the default) - is the color to
-play: a seek pairs only with one that wants the other color or doesn't
-mind, and each player gets the color they asked for (a coin decides when
-neither minds), as challenges' `color` already does.
-
-Nobody plays two live games at once. While you have one in progress,
-seeking (`matchmaking:error`, or 409 from `POST /matchmaking/seek`),
-sending a live challenge and accepting one all fail with "Finish your game
-in progress first", and accepting a challenge from someone who's since
-started a game fails with "<name> is in the middle of a game" (both
-`GamesService.assertNotPlaying`). Daily games are played alongside
-anything - see "Daily games".
-
-While a seek waits, its socket gets `lobby:stats` straight away and then
-every 5 seconds: `playersOnline` counts users with a connected socket and
-`gamesInPlay` counts active live games. Under clustering, worker 0 sends them.
-
-Once a game is over, either player can send `game:rematchOffer`; when the
-other has offered too, the rematch starts - same time control and rated
-choice, colors swapped - and arrives like any new game, as `game:created`,
-its `rematchOfId` naming the game it follows. `game:rematchDecline` turns
-down the opponent's offer or withdraws your own. A rematch of a game still
-in play or aborted, by someone who didn't play in it, or by a player now in
-another game is refused with `game:error`. `GameStateDto.series` keeps a rematch
-series' score - each side's points, a draw counting half, this game
-included once it's over - and is `null` outside a series; the rows store
-the score going into each game (`seriesWhitePoints`/`seriesBlackPoints`).
-Two players paired any other way - a seek or a challenge - carry their
-series on too, when each one's last finished game was against the other,
-at the same time control, just as rated, and ended within the hour
-(`seriesContinuedBy` in `src/games/rematch-series.ts`). Playing anyone
-else in between ends the series; aborted games are ignored. The points
-follow each player whichever colors they get, and the game it follows has
-its `rematchGameId` set, as an offered rematch does.
-
-Resigning and offering a draw wait until both sides have played a move -
-before that the game can only be aborted - and come back as `game:error`
-"Too early to resign/offer a draw - abort the game instead".
-
-Neither clock runs until both sides have played a move. Until then the side
-to move has `GAME_FIRST_MOVE_TIMEOUT_MS` (default 30s) to play its first
-move - from the start of the game for white, from white's first move for
-black - or the game is aborted. `firstMoveDeadline` (in `GameStateDto` and
-the `game:move` push) says when, and is `null` once both sides have moved.
-
-Joining a game sends the joiner a `game:presence` for their opponent
-(connected or not) and tells the opponent the joiner is online; a player
-whose last socket disconnects is reported offline to their opponents.
-
-Chat is between a game's two players only. A message is trimmed and must be
-1-140 characters, and each player can send at most 5 per 10 seconds; a
-rejected one comes back as `game:error`. Messages are kept, and
-`game:chatHistory` returns them oldest first. Each has a `kind`: `message`
-for a player's words, or `draw-offered`, `draw-declined` or
-`draw-accepted` - notes the server adds itself, with empty text and
-`userId` naming who did it, so a draw's story stays in the history.
-`game:chatRead` marks the chat read up to now for the player who sends it
-(kept in `game_chat_reads`, apart from the cached `games` row), and
-`game:chatHistory` includes their `readAt` (`null` if they never have),
-for counting what's unread.
-
-Chat stays open for `GAME_CHAT_WINDOW_MS` (default 14 days) after a game
-ends; after that a message gets `game:error` "Chat closed". `chatClosesAt`
-in `GameStateDto` says when (`null` while the game is on).
-
-Any user can bookmark any game: `GET`, `PUT` and `DELETE
-/games/:id/bookmark` each answer `{ bookmarked }`.
-
-`game:watch` lets anyone follow a game they aren't playing: it answers
-with `game:state` and then sends that socket the game's `game:move` and
-`game:over` pushes, without presence or abandonment bookkeeping.
-`game:unwatch` stops them. To move on with a player to their next game,
-`user:follow` with their `userId`: that socket then gets
-`user:gameStarted` whenever a game of theirs starts, until
-`user:unfollow`.
-
-### Daily games
-
-A daily game gives each move 1, 2, 3, 5, 7 or 14 days, as chess.com's do.
-Its time doesn't build up: every move resets the mover's clock to the full
-days, and the side to move loses on time when `moveDeadlineAt` (in
-`GameStateDto` and the `game:move` push; `null` for a live game) passes.
-The first moves have those days too, with no `firstMoveDeadline` - missing
-one aborts the game, as a live game's first-move timeout does. It isn't
-forfeited by going offline, it takes no pre-moves, it never continues a
-rematch series, and it's rated in a `daily` category of its own.
-
-Days away, a timeout can't wait on a timer that a restart would lose:
-`DailyDeadlineSweeper` looks every minute, and on boot, for daily games
-out of time, each worker ending those it owns.
-
-A player can have up to 50 daily games in progress, played alongside a
-live game; a profile's or friend's `playingGameId`, and the lobby's
-`gamesInPlay`, count live games only. `GET /games/daily` lists yours in
-progress - those on your move first, then each by when its move runs out -
-with each one's position, last move, deadline and opponent, enough to draw
-it. `GET /games` takes `kind=live` or `kind=daily`.
-
-`POST /daily-seeks { days, rated?, ratingRange?, color? }` starts a game
-with a seek already waiting that agrees with it, by the same rules as live
-seeks (`{ status: 'matched', game }`), or leaves it waiting, however long
-(`{ status: 'queued', seek }`) - the game then arrives as `game:created`.
-A waiting seek is claimed by deleting it, so of two seekers at once only
-one gets it, on any worker. `GET /daily-seeks` lists yours, at most 10
-waiting at once, and `DELETE /daily-seeks/:id` withdraws one. Challenges
-send a daily game's days in `initialSeconds`, and wait three days for an
-answer.
-
-Conditional moves answer the opponent's next moves in advance:
-`POST /games/:id/conditional-moves { basePly, lines }`, while the opponent
-is to move, `basePly` the game's move count and each line their move, your
-reply, theirs... in UCI - checked legal, and added to any saved from that
-position (a last move with no reply is dropped; two different replies to
-one move are refused; at most 10 lines). `PUT` with the same body saves
-the lines in place of those saved - none clears them. The moment the opponent plays a move one answers,
-its reply is played and what follows kept; a move none foresaw drops them
-all. `GET` lists yours, `DELETE` drops them, and the opponent never sees
-them.
-
-`GET` and `PUT /games/:id/notes { body }` keep your own notes on a game,
-up to 4000 characters, seen by nobody else; saving none clears them.
-
-Daily games feed the opening explorer too (below): a game still being
-played is left out of it, so a daily game can't be looked up while it's on.
-
-### Game review
-
-A finished game's review - each move classed best to blunder, each side's
-accuracy, what to say about each move - is worked out **on the player's
-device**, by the app's own Stockfish, not here. The server only keeps what
-it found, so nobody analyses the same game twice:
-
-- `GET /games/:id/review` - the review kept for a game: the engine and the
-  depth it searched to, each side's accuracy, and `evals`, every position's
-  score, best line (UCI) and next best score, the start first. 404 until
-  someone has reviewed it.
-- `PUT /games/:id/review` - keeps one: only for a completed game (not one
-  aborted or still on), with exactly one eval per position (its moves plus
-  one). A review searched as deep as the one kept already is ignored, and
-  the kept one returned; a deeper one replaces it.
-
-The app works out every class and comment from the evals, so wording can
-change without the stored reviews changing. Game lists (`GET /games`, a
-player's `GET /users/:username/games`) carry `accuracy` and
-`opponentAccuracy` once a game's been reviewed, null until then.
-
-Why the device: Stockfish takes a CPU core flat out for 40-80s a game, and
-the server has one core to share with every live game's clocks and moves -
-on the $4 droplet, about 200 MB of memory to spare too (see cchess-infra's
-hosting report). A review is client-computed, so the server can't vouch
-for it; it's informational only and never touches ratings. If server-side
-review is ever wanted, it belongs on a separate worker, with the same
-endpoints.
-
-### Opening explorer
-
-`GET /explorer?fen=` lists every move played from a position, the most
-played first (at most 20), with how those games ended, and the position's
-own totals (`totalGames`, `whiteWins`, `draws`, `blackWins`). `db` picks
-the games:
-
-- **left out** - every finished game here. Each move keeps the position it
-  was played from (`moves.positionKey`, its EPD), so transpositions meet.
-- **`player`** - one player's finished games here, from one side
-  (`user`, `color`).
-- **`masters`** and **`lichess`** - lichess's two databases
-  (explorer.lichess.ovh). Lichess's can be narrowed by `speeds` and
-  `ratings` (comma lists, as lichess's own); left out, they're lichess's
-  defaults - blitz, rapid and classical, 1600 and up.
-
-The answer says where it came from (`source`). It's `cchess`, the games
-played here, whenever lichess can't be asked: it's rate-limiting us, it's
-out of reach, or there's no `LICHESS_TOKEN`.
-
-The server asks lichess as the app's own lichess account. That's a
-personal token with no scopes, never a player's. Lichess asks API clients
-to send one request at a time and to wait a minute after a 429, so:
-
-- **One queue** (`LichessFetchQueue`, on worker 0 under clustering, which
-  the other workers reach over `ClusterBus`) sends every request. The same
-  position asked twice at once is sent once.
-- **Players go first.** A player's request goes before the cache's own.
-- **After a 429**, lichess is left alone for two minutes - five minutes
-  from the fifth 429 with no answer between them, until lichess answers
-  again. A player asking meanwhile is answered from the games here at
-  once.
-- **The cache's requests find lichess's limit.** Lichess doesn't publish
-  it (in practice, about 50 requests a minute). They start a second
-  apart; each 429 doubles the gap, up to 10 seconds, and every 100
-  requests answered in a row shorten it by a tenth - never back to within
-  a tenth of a gap that was rate-limited, though that floor is lowered by
-  a tenth after each day with no 429. So the cache settles just under the
-  limit, leaving the rest for players.
-- **What it learns is kept** in `lichess_fetch_state` (one row: the gap,
-  its floor, the 429s in a row and any pause under way), so a restart
-  takes up where it left off rather than starting at a second again.
-
-Masters, and Lichess with its default filters, are kept in the database:
-
-- **`explorer_positions`** - each position asked about, kept for good:
-  how often it's opened, when last, and whether it's pinned.
-- **`explorer_cache`** - lichess's answer, trimmed to what's shown.
-  - An answer over 30 days old is served marked `stale` while it's fetched
-    afresh.
-  - One whose position has gone 90 days unopened is soft-deleted, then
-    purged 30 days later.
-
-Other filters are asked of lichess every time and kept nowhere.
-
-**Pinned positions** are every position along lichess's named openings,
-7,983 of them, seeded pinned for both databases by the `AddExplorerCache`
-migration (`src/explorer/seed-positions.ts`, built by
-`node scripts/build-explorer-seed.mjs` from lichess's CC0 chess-openings,
-at the commit the app's opening names come from). They never expire.
-
-`ExplorerSweeper` keeps the cache up on worker 0. It fetches pinned
-positions with no answer, or one gone stale, through the queue's
-background lane, after any player's and as far apart as lichess's limit
-needs. With a token, the first fill takes most of a day; after that each
-month's refresh trickles in the same way. `EXPLORER_MAINTENANCE=false` turns the
-upkeep off.
-
-### Friends, challenges and messages
-
-`GET /friends` describes each friend with their ratings, whether they're
-`online`, and `playingGameId` while they're in a game; the `friend:status`
-push keeps that current - on a user's first connect and last disconnect,
-and when their games start or end. Only one friendship or request can be
-live between two users.
-
-Anyone can challenge any player, friend or not. `POST /challenges` takes
-`{ opponentUsername, initialSeconds, incrementSeconds, color?, rated? }` (rated
-unless `rated: false`), replaces any pending challenge to the same player,
-and expires after `CHALLENGE_TTL_MS` (default 2 minutes; three days for a
-daily game; `expiresAt` in `ChallengeDto`). Expiry is pushed as `challenge:resolved` with status
-`expired`, and accepting an expired one fails.
-
-`GET /users/:username` is a player's profile as the caller sees it: ratings,
-`lastSeenAt`/`online`/`playingGameId`, `gamesPlayed` and `timePlayedMs` over
-finished games, `friendsCount`, `friendship: { status, requestId }` (`self`, `none`,
-`friends`, or a pending `outgoing`/`incoming` request) and `score` - the
-caller's wins, draws and losses against them (`null` on their own).
-`GET /users/:username/friends` lists their friends, the most recently added
-first, as `/friends` describes yours (presence, ratings) plus `friendsSince`.
-`GET /users/:username/activity` groups their last 30 days of finished games
-by UTC day and category, and `GET /users/:username/games` lists their games
-like `GET /games` does yours (`limit`, `before`). Both leave out aborted
-games unless asked for them with `status=aborted`.
-`GET /games/counts` and `GET /users/:username/games/counts` count finished
-games by how each ended for that player and its type - `{ result,
-gameType, count }`, one for each pair played - so a history's filters can
-show how many each choice matches without asking again.
-`GET /users/:username/ratings/:category?period=` sums up one category over
-`1w`, `1m` (the default), `3m`, `1y` or `all`: the rating now; its
-`history` (the rating going into the period's first rated game, then after
-each UTC day's closing rating - thinned to at most 1,000 points beyond
-that, keeping each stretch's lowest and highest); the `highest` and `lowest` of those, and `ratingChange` from the
-first to the last; and, over every finished game in the category, rated or
-casual, the games, wins, draws and losses, `timePlayedMs`, and the longest
-win and losing streaks. `bestWin` and `worstLoss` are the rated win over the
-highest-rated opponent and the rated loss to the lowest-rated one.
-`GET /users?search=<term>&limit=&offset=` finds registered players (never
-guests, never the caller) whose username or display name contains the term,
-any case: an exact username first, then names starting with it, then the
-rest, by username (`limit` 1-20, default 10; `offset` skips that many, for
-the next page).
-
-Direct messages are between friends: `POST /messages/:username { text,
-attachment }` (up to 500 characters after trimming, at most 10 per 10
-seconds). `attachment` is optional - a game, `{ kind: 'game', gameId }`, or a
-position, `{ kind: 'position', fen }` - and with one the text may be left
-out. `GET /messages/:username` (newest first, `limit`/`before`) is the
-history. `POST /messages/:username/read` marks them read (pushing `dm:read`
-to the other person), `GET /messages/:username/seen` says when the other
-person last read yours, `GET /messages/unread` counts unread messages by
-sender, and `DELETE /messages/:username` clears the history for the caller
-only.
-
-`GET /messages` is the inbox: a conversation for each person you have
-messages with since you last cleared them, the newest message first - the
-person, that message, how many of theirs you haven't read, and when they
-last read yours. A page of `limit` (1-100, default 30); `before` (the last
-one's `lastMessage.createdAt`) gives the next.
-
-`ping` isn't part of the broadcast protocol above - it's a plain Socket.IO
-acknowledgement (payload: the client's own timestamp as a number), echoed
-straight back as the ack value for round-trip latency measurement, not a
-separate emit.
-
-Disconnecting a socket starts a `GAME_DISCONNECT_GRACE_MS` (default 60s)
-countdown per joined game; reconnecting and re-emitting `game:join` before it
-elapses cancels it, otherwise the disconnected player forfeits by
-abandonment - in a live game; nobody forfeits a daily one so. Disconnecting
-also cancels any pending matchmaking seek, but not a daily seek.
-
-## Performance notes
-
-`GamesService`'s move-application path (`applyMove`) is written to minimize
-per-move DB cost, since it's the one thing called far more often than
-anything else in the system:
-
-- It never loads the `white`/`black` relations (`getGameOrThrow` is a plain,
-  relation-free lookup) - nothing on the move/clock/resign/draw/abort path
-  actually needs the joined `User` rows, only the plain `whiteId`/`blackId`
-  columns. The handful of callers that do need player profiles
-  (`getGameWithMoves`, used for display and PGN export) do their own
-  relation-loaded fetch instead.
-- The `Move` insert and the `Game` update for a single move are one
-  transaction, not two separate commits, written as raw parameterized SQL
-  rather than `manager.save()`/`QueryBuilder` - profiling under load found
-  the query builder's per-call regex SQL templating was the single
-  largest CPU cost on this path, bigger than chess.js's own move
-  validation. Both statements are fixed shape, so there's nothing a query
-  builder buys per call.
-- `ServerChessEngine.attemptMove` resolves checkmate/stalemate/draw
-  detection itself instead of a separate post-hoc call - chess.js's
-  `isCheckmate()`/`isStalemate()` each independently regenerate the full
-  legal-move list (its most expensive operation), so a second call after
-  `attemptMove` already computed the same thing doubled that cost for free.
-- Finalizing a game reuses the in-memory cache of its moves (with their
-  clocks) for the PGN instead of re-querying every `Move` row - unless a
-  restart left the cache short of the engine's history.
-
-These were found and measured via `scripts/load-test/load-test.mjs` (see its own
-comments for usage) - a harness that boots the real server and plays many
-real games end-to-end over Socket.IO, timing each phase and sampling server
-RSS. Moving off synchronous SQLite onto Postgres (this server's current
-state) was the biggest lever of all: `better-sqlite3` blocked the entire
-event loop for every read/write, so one game's DB call stalled every other
-game's processing too, regardless of how unrelated they were; Postgres's
-async driver lets the event loop interleave many games' work during I/O wait
-instead.
-
-Per-move _latency_ (not just aggregate throughput) was the more important
-number once concurrency got high: both SQLite and Postgres degrade roughly
-linearly as concurrent games increase, because every game's move logic runs
-on the one Node event loop regardless of DB backend - a few hundred
-concurrent games already pushes median move latency well past what's
-tolerable for bullet chess, long before either DB "falls over" in the
-throughput sense. That's what `src/cluster/` (below) addresses.
-
-### Horizontal scaling (`src/cluster/`, opt-in)
-
-Set `CLUSTER_WORKERS` to shard `GamesService`'s per-move work across
-multiple Node processes instead of one - see the Architecture notes in
-CLAUDE.md for how game ownership, forwarding, and cross-worker broadcast
-work. Needs Redis running (`REDIS_HOST`/`REDIS_PORT`) only when
-`CLUSTER_WORKERS > 1`; a normal single-process boot (the default) never
-touches it.
-
-**Don't just set this to the core count.** Load testing at several
-concurrency levels (100/500/1000 simultaneous bullet games) on a 10-core
-machine found `CLUSTER_WORKERS=4` to be the latency sweet spot - both
-median and tail (p95/p99) latency got _worse_ past 4 workers, not just
-flatter, as cross-worker coordination overhead (the cluster-bus IPC relay,
-the Redis pub/sub hop) grew faster than the extra parallelism was worth.
-This held up whether those workers ran in one process or were split
-across several - total worker count was the variable that mattered, not
-how many processes it was divided into. Benchmark this per deployment
-(`scripts/load-test/load-test.mjs` with `CLUSTER_WORKERS` set to a few candidate
-values) rather than assuming a higher number is free.
-
-### CPU cores, not just code, set the real ceiling
-
-After the move-path optimizations above, 500 concurrent bullet games holds
-p99 move latency around 150ms on a 10-core machine at `CLUSTER_WORKERS=4`.
-The identical code, same optimizations, same Postgres/Redis, running on a
-2-core machine at `CLUSTER_WORKERS=2` tops out around 100-150 concurrent
-games for the same latency target - past that it degrades sharply (and with
-high run-to-run variance, the signature of a box near its saturation
-point), because chess.js's legal-move generation genuinely has a per-move
-CPU floor that only more cores - not more code changes - can buy more of.
-Don't assume a latency regression on smaller hardware is a logic bug;
-check core count and `CLUSTER_WORKERS` first.
-
-`DB_POOL_SIZE` (env var) overrides the `CLUSTER_WORKERS`-derived pool size
-formula outright - matters when Postgres is on a separate host from the
-app with its own `max_connections` headroom to spend; the formula's own
-default is conservative because it assumes they're colocated.
-
-## Known limitations (by design, for this phase)
-
-- **Matchmaking's seek queue is pinned to worker 0 under clustering**
-  (not fully distributed) - fine, since matching is cheap and infrequent
-  relative to per-move traffic, but still a single point for that one
-  operation. A truly multi-_machine_ deployment (not just multi-process on
-  one box) would need it in a shared store (e.g. Redis) instead.
-- **No bot opponent** - the client's "Play Stockfish" stub is intentionally
-  out of scope for this phase.
+- **One authority per game.** Every move, from REST or the socket, goes
+  through `GamesService.applyMove`. It re-validates the move, deducts the
+  clock before applying it, persists the move and reschedules the flag
+  timer, all under a per-game mutex.
+- **Services know nothing about sockets.** They emit events, and the gateway
+  alone turns those into pushes.
+- **One box.** Live games, clocks and the seek queue are in memory, so the
+  server runs as one process on one host, or as several workers sharded
+  over Node's cluster IPC.
+
+More detail:
+
+- [docs/architecture.md](docs/architecture.md): the modules, the move
+  authority, events, time-control classification, guests
+- [docs/protocol.md](docs/protocol.md): every Socket.IO event and its
+  payloads, seeks, rematches, chat, presence, spectating
+- [docs/features.md](docs/features.md): daily games, game review, the
+  opening explorer, friends, challenges and messages
+- [docs/performance.md](docs/performance.md): the move path's
+  optimisations, load testing, horizontal scaling
+- [CLAUDE.md](CLAUDE.md): the non-obvious things a change is likely to trip
+  over
+
+## Known limitations
+
+- **Matchmaking's seek queue lives on worker 0** under clustering. Matching
+  is cheap, so this is fine on one box, but a deployment across several
+  machines would need it in a shared store such as Redis.
+- **No built-in computer opponent.** The bots (`bot_1`-`bot_5`) are ordinary
+  accounts driven by the app repo's `scripts/opponent.js`, which is a
+  development and testing tool.
+
+## Related repos
+
+- [cchess](https://github.com/chuxmykel/cchess): the iOS and Android app
+- [cchess-infra](https://github.com/chuxmykel/cchess-infra): hosting this
+  server on one VPS with Docker Compose
+
+## License
+
+No license has been chosen yet, so all rights are reserved.
