@@ -32,7 +32,7 @@ export interface PositionEval {
 
 /**
  * A finished game's review: the engine's evaluation of every position,
- * worked out on the device of whoever asked for it first (see README, "Game
+ * worked out on the device of whoever asked for it first (see docs/features.md, "Game
  * review"), and kept so nobody has to again. The app derives each move's
  * class and comment from the evals; the accuracies are kept as columns for
  * game lists.

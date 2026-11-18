@@ -21,7 +21,7 @@ export interface GameAccuracy {
 
 /**
  * Finished games' reviews. The engine runs on the device of whoever asks for
- * a review first - the server has no CPU to spare for it (see README, "Game
+ * a review first - the server has no CPU to spare for it (see docs/features.md, "Game
  * review") - and the evals it sends are kept here, so the game's other
  * player, or anyone looking at it later, sees the same review at once. A
  * review searched deeper replaces a shallower one.

@@ -118,10 +118,13 @@ flagged issues by hand.
 
 ## Architecture
 
-Each domain is its own Nest module under `src/`. Read `README.md` first -
-it covers the move/clock authority model (`GamesService.applyMove`), the
-event-emitter decoupling between services and `RealtimeGateway`, the
-time-control classification scheme, and the full Socket.IO protocol table.
+Each domain is its own Nest module under `src/`. Read `docs/` first -
+`architecture.md` covers the move/clock authority model
+(`GamesService.applyMove`), the event-emitter decoupling between services
+and `RealtimeGateway` and the time-control classification scheme;
+`protocol.md` the full Socket.IO protocol table; `features.md` daily games,
+reviews, the explorer and the social features; `performance.md` the move
+path and clustering.
 The notes below are things a future change is likely to trip over that
 aren't obvious from reading one file in isolation.
 
@@ -229,8 +232,8 @@ access 'X' before initialization` at runtime for any circular entity
   assume they survive a restart. Under `CLUSTER_WORKERS > 1` they're made
   _routable_ across worker processes (see below) rather than moved out of
   memory entirely; a bare restart still loses them the same as today.
-- **Daily games keep nothing that matters in memory** (README's "Daily
-  games"). Their moves are days apart, so a restart in between is the
+- **Daily games keep nothing that matters in memory** (`docs/features.md`'s
+  "Daily games"). Their moves are days apart, so a restart in between is the
   usual case, not a corner one: no flag timer (`DailyDeadlineSweeper`
   finds games out of time in the database every minute, each worker ending
   those it owns), no disconnect forfeit, no pre-moves, and their seeks
@@ -243,6 +246,20 @@ access 'X' before initialization` at runtime for any circular entity
   `assertNotPlaying` is about live games only: daily games are played
   alongside anything, up to `MAX_ACTIVE_DAILY_GAMES` (`assertCanStart`
   picks the check for a time control).
+- **Maintenance (`src/maintenance/`)** stops new live games from the
+  moment it's announced - its `startsAt`, a few minutes on, is only the
+  earliest the restart may come, for the app's banner - so a deploy or reboot (cchess-infra's
+  `scripts/maintenance.sh`) waits for the games in progress rather than
+  cutting them off. Daily games aren't stopped: a restart loses none of
+  them. It's kept in memory - the restart it's for ends it - and under
+  clustering set on every worker by the one the request reached, since any
+  worker may create a game. Every way into a live game checks it:
+  `assertCanStart` (challenges, rematches), `MatchmakingService.seek`, and
+  `createGameLocal` itself, for seeks paired as it began. A new way to
+  start a live game should go through `assertCanStart` too. The
+  `/internal/maintenance` routes answer only connections from the api's own
+  machine (`LoopbackOnlyGuard`, by the socket's address, never a forwarded
+  header) and Caddy refuses `/internal/*` as well.
 - **Multi-process sharding (`src/cluster/`, opt-in via `CLUSTER_WORKERS`)**
   parallelizes the one thing that actually needed it - `GamesService`'s
   per-move work - without touching its logic. `main.ts` forks one Node

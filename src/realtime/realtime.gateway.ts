@@ -49,6 +49,10 @@ import {
   type FriendRequestEvent,
 } from '../friends/friends.service.js';
 import { MatchmakingService } from '../matchmaking/matchmaking.service.js';
+import {
+  MAINTENANCE_MESSAGE,
+  type MaintenanceChangedEvent,
+} from '../maintenance/maintenance.service.js';
 import { toDirectMessageDto } from '../messages/dto/direct-message.dto.js';
 import type {
   DirectMessageEvent,
@@ -696,6 +700,26 @@ export class RealtimeGateway
     if (error instanceof HttpException) return;
     const err = error as Error;
     this.logger.error(`${context}: ${err.message}`, err.stack);
+  }
+
+  /** Maintenance announced or ended: told to everyone, for
+   * the app's banner. */
+  @OnEvent(DOMAIN_EVENTS.MAINTENANCE_CHANGED)
+  onMaintenanceChanged({ startsAt }: MaintenanceChangedEvent) {
+    this.server.emit(WS_EVENTS.SERVER_MAINTENANCE, {
+      startsAt: startsAt?.toISOString() ?? null,
+    });
+  }
+
+  /** Maintenance has begun: the seeks waiting will never be matched. */
+  @OnEvent(DOMAIN_EVENTS.MAINTENANCE_UNDERWAY)
+  onMaintenanceUnderway() {
+    const rooms = this.matchmakingService.dropAllSeeks().map(userRoom);
+    if (rooms.length === 0) return;
+    this.server.in(rooms).socketsLeave(LOBBY_ROOM);
+    this.server
+      .to(rooms)
+      .emit(WS_EVENTS.MATCHMAKING_ERROR, { message: MAINTENANCE_MESSAGE });
   }
 
   @OnEvent(DOMAIN_EVENTS.GAME_CREATED)

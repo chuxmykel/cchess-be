@@ -19,6 +19,7 @@ import {
   wireToVoid,
 } from '../cluster/cluster-wire.js';
 import { MM_RPC } from '../cluster/rpc-channels.js';
+import { MaintenanceService } from '../maintenance/maintenance.service.js';
 import { Game } from '../games/entities/game.entity.js';
 import { GamesService } from '../games/games.service.js';
 import { UsersService } from '../users/users.service.js';
@@ -107,6 +108,7 @@ export class MatchmakingService {
     private readonly gamesService: GamesService,
     private readonly usersService: UsersService,
     private readonly clusterBus: ClusterBus,
+    private readonly maintenance: MaintenanceService,
   ) {
     this.clusterBus.onRequest(MM_RPC.SEEK, this.handleSeekRequest.bind(this));
     this.clusterBus.onRequest(
@@ -171,6 +173,7 @@ export class MatchmakingService {
   }
 
   async seek(user: User, request: SeekRequest): Promise<SeekResult> {
+    this.maintenance.assertLiveGamesAllowed();
     await this.gamesService.assertNotPlaying(user.id);
     return this.runMatchmakerRouted<SeekResult, WireSeekResult>(
       MM_RPC.SEEK,
@@ -249,6 +252,14 @@ export class MatchmakingService {
       seek.rated,
     );
     return { status: 'matched', game };
+  }
+
+  /** Drops every seek waiting, as maintenance begins, and says whose they
+   * were - this worker's alone: only the matchmaker holds any. */
+  dropAllSeeks(): string[] {
+    const userIds = [...this.seeksByUser.keys()];
+    this.seeksByUser.clear();
+    return userIds;
   }
 
   cancelSeek(userId: string): void {

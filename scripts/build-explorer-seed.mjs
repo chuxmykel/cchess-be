@@ -1,5 +1,5 @@
 // Builds src/explorer/seed-positions.ts - the positions the opening explorer
-// keeps from lichess before anyone asks (see README, "Opening explorer") -
+// keeps from lichess before anyone asks (see docs/features.md, "Opening explorer") -
 // from lichess's opening list (github.com/lichess-org/chess-openings, CC0),
 // pinned to the commit ../cchess's scripts/build-openings.js reads, so the
 // book the app names is the book the server keeps:

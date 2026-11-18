@@ -17,6 +17,7 @@ import type { PieceSymbol, Square } from 'chess.js';
 import { EntityManager, In, IsNull, Not, Repository } from 'typeorm';
 
 import { ClusterBus } from '../cluster/cluster-bus.js';
+import { MaintenanceService } from '../maintenance/maintenance.service.js';
 import { isMine, ownerIndex } from '../cluster/cluster.util.js';
 import {
   fromWireGame,
@@ -167,6 +168,7 @@ export class GamesService
     private readonly events: EventEmitter2,
     private readonly configService: ConfigService<AppConfig, true>,
     private readonly clusterBus: ClusterBus,
+    private readonly maintenance: MaintenanceService,
   ) {
     this.registerClusterHandlers();
   }
@@ -401,6 +403,9 @@ export class GamesService
     series: GameSeries | null,
   ): Promise<Game> {
     const gameType = classifyTimeControl(tc);
+    // Every way into a live game checks first (assertCanStart, the seek);
+    // this is for a pair of seeks matched as maintenance began.
+    if (gameType !== 'daily') this.maintenance.assertLiveGamesAllowed();
     const clockMs = toClockMs(tc);
     const isRated = isRatedPairing(rated, white, black);
     // A daily game is one of many at once, played over weeks - never part
@@ -569,15 +574,16 @@ export class GamesService
   }
 
   /** Throws when the user can't start a game of this time control now:
-   * a live one while playing one, a daily one with no room for another. */
-  assertCanStart(
+   * a live one during maintenance or while playing one, a daily one with no
+   * room for another. */
+  async assertCanStart(
     userId: string,
     tc: TimeControl,
     message?: string,
   ): Promise<void> {
-    return isDailyTimeControl(tc)
-      ? this.assertDailyRoom(userId, message)
-      : this.assertNotPlaying(userId, message);
+    if (isDailyTimeControl(tc)) return this.assertDailyRoom(userId, message);
+    this.maintenance.assertLiveGamesAllowed();
+    return this.assertNotPlaying(userId, message);
   }
 
   /** Each of these users' live game in progress, keyed by user id - the

@@ -42,7 +42,7 @@ function setupSwagger(app: INestApplication): void {
     .setTitle('cchess API')
     .setDescription(
       'Chess game server: auth, profiles, friends, matchmaking, challenges, and real-time play. ' +
-        'REST handles everything except moves/live state, which also stream over Socket.IO - see README.md.',
+        'REST handles everything except moves/live state, which also stream over Socket.IO - see docs/protocol.md.',
     )
     .setVersion('1.0')
     .addBearerAuth()
