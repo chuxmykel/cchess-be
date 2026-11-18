@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { RefreshToken } from '../../src/auth/entities/refresh-token.entity.js';
 import { ClusterModule } from '../../src/cluster/cluster.module.js';
+import { MaintenanceService } from '../../src/maintenance/maintenance.service.js';
 import { DOMAIN_EVENTS } from '../../src/common/events.js';
 import { requireEnv } from '../../src/common/require-env.js';
 import {
@@ -65,7 +66,12 @@ async function buildModule(gameConfig: Record<string, unknown> = {}) {
       }),
       TypeOrmModule.forFeature([User, Rating, Game, Move, ConditionalMoveSet]),
     ],
-    providers: [GamesService, UsersService, ConditionalMovesService],
+    providers: [
+      GamesService,
+      UsersService,
+      ConditionalMovesService,
+      MaintenanceService,
+    ],
   }).compile();
 
   await truncateAllTables(moduleRef.get(DataSource));

@@ -23,6 +23,10 @@ export const MM_RPC = {
   STATUS: 'mm:status',
 } as const;
 
+export const MAINTENANCE_RPC = {
+  SET: 'maintenance:set',
+} as const;
+
 export const EXPLORER_RPC = {
   FETCH: 'explorer:fetch',
   REFRESH: 'explorer:refresh',

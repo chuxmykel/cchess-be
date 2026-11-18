@@ -36,6 +36,8 @@ export const DOMAIN_EVENTS = {
   FRIEND_REMOVED: 'friend.removed',
   DIRECT_MESSAGE_SENT: 'directMessage.sent',
   DIRECT_MESSAGES_READ: 'directMessage.read',
+  MAINTENANCE_CHANGED: 'maintenance.changed',
+  MAINTENANCE_UNDERWAY: 'maintenance.underway',
 } as const;
 
 export const WS_EVENTS = {
@@ -86,5 +88,6 @@ export const WS_EVENTS = {
   USER_GAME_STARTED: 'user:gameStarted',
   DIRECT_MESSAGE: 'dm:message',
   DIRECT_MESSAGES_READ: 'dm:read',
+  SERVER_MAINTENANCE: 'server:maintenance',
   // dm:typing goes both ways, under its inbound name.
 } as const;
