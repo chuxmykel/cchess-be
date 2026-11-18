@@ -130,9 +130,11 @@ as run. [cchess-infra](https://github.com/chuxmykel/cchess-infra)'s
   timer, all under a per-game mutex.
 - **Services know nothing about sockets.** They emit events, and the gateway
   alone turns those into pushes.
-- **One box.** Live games, clocks and the seek queue are in memory, so the
-  server runs as one process on one host, or as several workers sharded
-  over Node's cluster IPC.
+- **One api host, for now.** Each live game's clock timer, lock and engine
+  live in the memory of one process, as does the seek queue. Workers on the
+  same machine share the load over Node's cluster IPC, but that can't reach
+  another machine, so a second api server would need the changes under
+  Known limitations. Postgres can live anywhere.
 
 More detail:
 
@@ -149,9 +151,11 @@ More detail:
 
 ## Known limitations
 
-- **Matchmaking's seek queue lives on worker 0** under clustering. Matching
-  is cheap, so this is fine on one box, but a deployment across several
-  machines would need it in a shared store such as Redis.
+- **The api runs on one machine.** Running it on several would take routing
+  each game's work to its owner over the network (Redis, say) rather than
+  Node's cluster IPC, the seek queue in a shared store, and the Redis
+  Socket.IO adapter always on. One small server holds a few hundred games
+  at once (cchess-infra's hosting report), so it isn't needed yet.
 - **No built-in computer opponent.** The bots (`bot_1`-`bot_5`) are ordinary
   accounts driven by the app repo's `scripts/opponent.js`, which is a
   development and testing tool.
@@ -161,7 +165,3 @@ More detail:
 - [cchess](https://github.com/chuxmykel/cchess): the iOS and Android app
 - [cchess-infra](https://github.com/chuxmykel/cchess-infra): hosting this
   server on one VPS with Docker Compose
-
-## License
-
-No license has been chosen yet, so all rights are reserved.
