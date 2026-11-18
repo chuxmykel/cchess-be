@@ -35,6 +35,9 @@ realtime/      One Socket.IO gateway for everything live: moves, clocks, draw/re
 chess/         Framework-free: time control classification, and ServerChessEngine,
                a thin wrapper over chess.js that is the actual rules authority
                (mirrors the client's own ChessEngine in the cchess app).
+maintenance/   Maintenance before a deploy or reboot: once announced, no new live
+               game starts, so the restart comes once the games in progress
+               are over (see protocol.md, "Maintenance").
 cluster/       Opt-in multi-process sharding (CLUSTER_WORKERS): game ownership,
                forwarding over Node's cluster IPC, Redis-backed broadcast (see
                performance.md, "Horizontal scaling").

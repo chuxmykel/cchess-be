@@ -246,6 +246,20 @@ access 'X' before initialization` at runtime for any circular entity
   `assertNotPlaying` is about live games only: daily games are played
   alongside anything, up to `MAX_ACTIVE_DAILY_GAMES` (`assertCanStart`
   picks the check for a time control).
+- **Maintenance (`src/maintenance/`)** stops new live games from the
+  moment it's announced - its `startsAt`, a few minutes on, is only the
+  earliest the restart may come, for the app's banner - so a deploy or reboot (cchess-infra's
+  `scripts/maintenance.sh`) waits for the games in progress rather than
+  cutting them off. Daily games aren't stopped: a restart loses none of
+  them. It's kept in memory - the restart it's for ends it - and under
+  clustering set on every worker by the one the request reached, since any
+  worker may create a game. Every way into a live game checks it:
+  `assertCanStart` (challenges, rematches), `MatchmakingService.seek`, and
+  `createGameLocal` itself, for seeks paired as it began. A new way to
+  start a live game should go through `assertCanStart` too. The
+  `/internal/maintenance` routes answer only connections from the api's own
+  machine (`LoopbackOnlyGuard`, by the socket's address, never a forwarded
+  header) and Caddy refuses `/internal/*` as well.
 - **Multi-process sharding (`src/cluster/`, opt-in via `CLUSTER_WORKERS`)**
   parallelizes the one thing that actually needed it - `GamesService`'s
   per-move work - without touching its logic. `main.ts` forks one Node

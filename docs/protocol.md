@@ -42,6 +42,7 @@ revisit `origin`/`credentials` together if that ever happens.
 | `game:chatRead`       | `{ gameId }`                                                         | -                                                                  | -                                                                                                                |
 | -                     | -                                                                    | `game:presence`                                                    | `{ gameId, userId, online }`                                                                                     |
 | -                     | -                                                                    | `lobby:stats`                                                      | `{ playersOnline, gamesInPlay }`                                                                                 |
+| -                     | -                                                                    | `server:maintenance`                                               | `{ startsAt }` - to everyone, when maintenance is announced, and when it ends (`null`)                           |
 | `game:rematchOffer`   | `{ gameId }`                                                         | `game:rematchOffered`                                              | `{ gameId, by }` - to both players                                                                               |
 | `game:rematchDecline` | `{ gameId }`                                                         | `game:rematchDeclined`                                             | `{ gameId, by }` - declined, or withdrawn by the offerer                                                         |
 
@@ -137,3 +138,21 @@ countdown per joined game; reconnecting and re-emitting `game:join` before it
 elapses cancels it, otherwise the disconnected player forfeits by
 abandonment - in a live game; nobody forfeits a daily one so. Disconnecting
 also cancels any pending matchmaking seek, but not a daily seek.
+
+## Maintenance
+
+Before a deploy or a reboot, cchess-infra's `scripts/maintenance.sh`
+announces maintenance with a time to begin, a few minutes ahead (`PUT
+/internal/maintenance { minutes }`, answered only from the api's own
+machine - from inside its container - and hidden from the API docs). Every
+socket is told with `server:maintenance { startsAt }`, and `GET
+/maintenance` (no sign-in) says the same, for a client that's just
+connected. From the announcement - not from `startsAt` - no new live game
+starts: seeking, live challenges and rematches all fail with
+`MAINTENANCE_MESSAGE` (`matchmaking:error`, or 503 over REST), and the
+seeks waiting are dropped with a `matchmaking:error` of their own. The
+games in progress play out. Daily games start and carry on throughout,
+since a restart loses none of them. The script waits until `GET
+/internal/maintenance`'s `secondsToStart` and `liveGames` are both 0,
+however long that takes, then restarts the api - which keeps maintenance
+only in memory, so the restart ends it.

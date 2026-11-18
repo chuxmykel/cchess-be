@@ -32,6 +32,9 @@ never be trusted into an illegal move or an extra second.
   polite, self-tuning rate-limited queue and a cache, plus the games played
   here.
 - **PGN export** and bookmarks.
+- **Maintenance without interrupting games:** it stops new live games and
+  waits for the ones in progress to finish before a deploy or reboot
+  restarts the server.
 - **Opt-in multi-process sharding** for when one event loop isn't enough.
 
 ## Tech stack
