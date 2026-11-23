@@ -39,6 +39,8 @@ export const DOMAIN_EVENTS = {
   /** One player blocked another: friendships, requests and challenges
    * between them end. */
   USER_BLOCKED: 'user.blocked',
+  /** An account was suspended: its sockets are closed. */
+  USER_SUSPENDED: 'user.suspended',
   /** An account was deleted: its sockets are closed. */
   USER_DELETED: 'user.deleted',
   MAINTENANCE_CHANGED: 'maintenance.changed',

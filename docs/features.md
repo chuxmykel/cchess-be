@@ -269,3 +269,24 @@ through `user.blocked`, which `FriendsService` and `ChallengesService`
 hear, pushing the usual `friend:*` and `challenge:*` events. A profile's
 `blockedByYou` says whether you've blocked them; nothing tells a player
 they've been blocked.
+
+### Reports and moderation
+
+`POST /reports { username, reason, details?, gameId?, messageId? }` reports
+a player - `reason` one of abuse, hate, sexual, spam, cheating, username or
+other. With `messageId` it's for a message: a chat message of `gameId`'s,
+the reporter's game, or without `gameId` a direct message the reported
+player sent the reporter; a copy of its words is kept with the report, so
+it can be judged once the message is gone. At most 10 an hour per player.
+Each report is mailed to `SUPPORT_EMAIL`, with the commands to act on it.
+
+Acting on reports is done from the server itself (`LoopbackOnlyGuard`, as
+for maintenance - `docker compose exec api curl ...`):
+
+- `GET /internal/reports?status=open|resolved`, and
+  `POST /internal/reports/:id/resolve`.
+- `POST /internal/users/:username/suspend` signs the player out everywhere
+  (refresh tokens revoked, sockets closed by `user.suspended`) and refuses
+  their sign-ins (403) and tokens until `.../unsuspend`.
+- `DELETE /internal/game-chat/:id` and `DELETE /internal/direct-messages/:id`
+  take a message down, deleted outright.

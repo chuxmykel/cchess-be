@@ -1,4 +1,8 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -96,6 +100,9 @@ export class AuthService {
       }
       throw new UnauthorizedException('Invalid credentials');
     }
+    if (user.suspendedAt) {
+      throw new ForbiddenException('This account is suspended');
+    }
     return this.issueSession(user);
   }
 
@@ -119,7 +126,8 @@ export class AuthService {
     stored.revoked = true;
     await this.refreshTokens.save(stored);
 
-    const user = await this.usersService.findByIdOrThrow(stored.userId);
+    const user = await this.usersService.findActiveById(stored.userId);
+    if (!user) throw new UnauthorizedException('This account is not available');
     return this.issueSession(user);
   }
 

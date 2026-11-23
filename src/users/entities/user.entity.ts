@@ -60,6 +60,11 @@ export class User {
   @Column({ type: 'timestamptz', nullable: true })
   accountDeletedAt!: Date | null;
 
+  /** While set, the account can't sign in or be used - after reports, by
+   * the internal moderation endpoints. */
+  @Column({ type: 'timestamptz', nullable: true })
+  suspendedAt!: Date | null;
+
   /** Updated on login and on realtime gateway connect; powers "last active". */
   @Column({ type: 'timestamptz', nullable: true })
   lastSeenAt!: Date | null;

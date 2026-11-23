@@ -28,6 +28,7 @@ import { GamesService } from '../games/games.service.js';
 import { MatchmakingService } from '../matchmaking/matchmaking.service.js';
 import { Conversation } from '../messages/entities/conversation.entity.js';
 import { DirectMessage } from '../messages/entities/direct-message.entity.js';
+import { Report } from '../reports/entities/report.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import { UsersService } from '../users/users.service.js';
 
@@ -93,6 +94,10 @@ export class AccountDeletionService {
       await manager.delete(UserBlock, [
         { blockerId: userId },
         { blockedId: userId },
+      ]);
+      await manager.delete(Report, [
+        { reporterId: userId },
+        { reportedUserId: userId },
       ]);
       await manager.delete(RefreshToken, mine);
       await manager.delete(EmailToken, mine);

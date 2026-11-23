@@ -708,8 +708,10 @@ export class RealtimeGateway
     this.logger.error(`${context}: ${err.message}`, err.stack);
   }
 
-  /** A deleted account's sockets close: nothing more reaches it. */
+  /** A deleted or suspended account's sockets close: nothing more
+   * reaches it. */
   @OnEvent(DOMAIN_EVENTS.USER_DELETED)
+  @OnEvent(DOMAIN_EVENTS.USER_SUSPENDED)
   onUserDeleted({ userId }: { userId: string }) {
     this.server.in(userRoom(userId)).disconnectSockets(true);
   }

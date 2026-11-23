@@ -25,6 +25,7 @@ import { GameNote } from '../games/entities/game-note.entity.js';
 import { GameReview } from '../games/entities/game-review.entity.js';
 import { Conversation } from '../messages/entities/conversation.entity.js';
 import { DirectMessage } from '../messages/entities/direct-message.entity.js';
+import { Report } from '../reports/entities/report.entity.js';
 import { Rating } from '../users/entities/rating.entity.js';
 import { User } from '../users/entities/user.entity.js';
 
@@ -62,6 +63,7 @@ export const typeOrmModule = TypeOrmModule.forRootAsync({
       RefreshToken,
       EmailToken,
       UserBlock,
+      Report,
       Friendship,
       Game,
       Move,

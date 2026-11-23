@@ -67,10 +67,11 @@ export class UsersService {
     return this.users.findOne({ where: { id } });
   }
 
-  /** The account, while it can still be used - not once deleted. */
+  /** The account, while it can still be used - not once deleted or
+   * while suspended. */
   async findActiveById(id: string): Promise<User | null> {
     const user = await this.findById(id);
-    return user && !user.accountDeletedAt ? user : null;
+    return user && !user.accountDeletedAt && !user.suspendedAt ? user : null;
   }
 
   async findByIdOrThrow(id: string): Promise<User> {
