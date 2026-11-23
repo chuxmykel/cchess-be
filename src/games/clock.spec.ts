@@ -144,6 +144,25 @@ describe('clockForMove', () => {
     });
   });
 
+  it("refuses a bullet game's first move after 20 seconds", () => {
+    const game = makeGame({
+      gameType: 'bullet',
+      initialSeconds: 60,
+      incrementSeconds: 0,
+      fen: STARTING_FEN,
+      lastMoveAt: null,
+      createdAt: LAST_MOVE_AT,
+    });
+
+    expect(clockForMove(game, 'w', LAST_MOVE_AT.getTime() + 19_000)).toEqual({
+      status: 'ok',
+      remainingAfter: 60_000,
+    });
+    expect(clockForMove(game, 'w', LAST_MOVE_AT.getTime() + 21_000)).toEqual({
+      status: 'late-first-move',
+    });
+  });
+
   it('flags a move made once the time has run out, increment or not', () => {
     const game = makeGame({ ...blitz, whiteTimeRemainingMs: 10_000 });
 

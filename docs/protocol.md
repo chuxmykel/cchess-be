@@ -92,7 +92,8 @@ before that the game can only be aborted - and come back as `game:error`
 "Too early to resign/offer a draw - abort the game instead".
 
 Neither clock runs until both sides have played a move. Until then the side
-to move has `GAME_FIRST_MOVE_TIMEOUT_MS` (default 30s) to play its first
+to move has 20s in bullet, 30s in blitz, rapid and classical (lichess's
+times; `GAME_FIRST_MOVE_TIMEOUT_MS` stands in for both) to play its first
 move - from the start of the game for white, from white's first move for
 black - or the game is aborted. `firstMoveDeadline` (in `GameStateDto` and
 the `game:move` push) says when, and is `null` once both sides have moved.
