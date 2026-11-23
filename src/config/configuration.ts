@@ -3,6 +3,18 @@ import { requireEnv } from '../common/require-env.js';
 export interface AppConfig {
   port: number;
   corsOrigin: string;
+  /** Where the server is reached from outside - https://api.chux.dev in
+   * production - for the links in its emails and pages. */
+  publicUrl: string;
+  mail: {
+    /** The sender, as "Name <address>". */
+    from: string;
+    /** Resend's API key; without one, email is logged rather than sent. */
+    resendApiKey?: string;
+    /** Where players reach a person: reports go here, and the app and
+     * pages show it. */
+    supportEmail: string;
+  };
   database: {
     host: string;
     port: number;
@@ -44,6 +56,14 @@ export interface AppConfig {
 export default (): AppConfig => ({
   port: Number(process.env.PORT ?? 3000),
   corsOrigin: process.env.CORS_ORIGIN ?? '*',
+  publicUrl: (
+    process.env.PUBLIC_URL || `http://localhost:${process.env.PORT ?? 3000}`
+  ).replace(/\/+$/, ''),
+  mail: {
+    from: process.env.MAIL_FROM || 'cchess <no-reply@mail.chux.dev>',
+    resendApiKey: process.env.RESEND_API_KEY || undefined,
+    supportEmail: process.env.SUPPORT_EMAIL || 'support@chux.dev',
+  },
   database: {
     host: requireEnv('DB_HOST'),
     port: Number(requireEnv('DB_PORT')),

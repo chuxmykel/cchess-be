@@ -15,6 +15,7 @@ import { typeOrmModule } from './database/typeorm.module.js';
 import { ExplorerModule } from './explorer/explorer.module.js';
 import { FriendsModule } from './friends/friends.module.js';
 import { GamesModule } from './games/games.module.js';
+import { MailModule } from './mail/mail.module.js';
 import { MaintenanceModule } from './maintenance/maintenance.module.js';
 import { MatchmakingModule } from './matchmaking/matchmaking.module.js';
 import { MessagesModule } from './messages/messages.module.js';
@@ -28,6 +29,7 @@ import { UsersModule } from './users/users.module.js';
     ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
     EventEmitterModule.forRoot(),
     ClusterModule,
+    MailModule,
     MaintenanceModule,
     PresenceModule,
     typeOrmModule,

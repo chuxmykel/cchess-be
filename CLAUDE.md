@@ -95,8 +95,8 @@ applies a file the moment it lands in `src/database/migrations/`. Check drift
 with `migration:generate -- <path> --dryrun`, never by generating a throwaway
 migration there.
 
-The explorer's lichess client (`LichessExplorerClient`) is the only code
-that reaches outside the server. Tests never reach lichess:
+The explorer's lichess client (`LichessExplorerClient`) and the mailer
+(`ResendMailer`) are the only code that reaches outside the server. Tests never reach lichess:
 `LICHESS_TOKEN` is blanked and `EXPLORER_MAINTENANCE=false` in both vitest
 configs, and the e2e swaps the client for a fake (`createTestApp`'s
 `configure`). The lichess queue restores its learned state
@@ -182,6 +182,10 @@ access 'X' before initialization` at runtime for any circular entity
   init), not the gateway itself - so friends and profiles can ask without a
   dependency on `RealtimeGateway`. It reads the `user:{id}` rooms through
   the Socket.IO adapter, so it sees every cluster worker.
+- **Email goes through `Mailer`** (`src/mail/`, a global module): Resend's
+  HTTP API when `RESEND_API_KEY` is set, otherwise `LogMailer`, which only
+  logs - and keeps what it would have sent in `sent`, for a test to read.
+  Both vitest configs blank the key, so no test ever sends.
 - **`GET /users/:username` lives in `ProfilesModule`**, not `UsersModule` -
   it needs games, friends and presence, which `UsersModule` can't import
   without a cycle. `app.module.ts` registers it after `UsersModule` so

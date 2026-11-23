@@ -39,6 +39,9 @@ export default defineConfig({
       LICHESS_TOKEN: '',
       LICHESS_EXPLORER_URL: `http://${NOWHERE_HOST}:${NOWHERE_PORT}`,
       EXPLORER_MAINTENANCE: 'false',
+      // No test ever sends email, whatever the dev .env holds: the log
+      // mailer keeps what would have gone.
+      RESEND_API_KEY: '',
     },
   },
 });
