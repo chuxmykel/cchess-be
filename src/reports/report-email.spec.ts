@@ -33,7 +33,7 @@ describe('reportEmail', () => {
         messageId: null,
         messageText: null,
         details: null,
-      },
+      } as Report,
       'ana',
       'bob',
     );
