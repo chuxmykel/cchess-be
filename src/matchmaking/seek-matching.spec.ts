@@ -178,3 +178,22 @@ describe('firstPlaysWhite', () => {
     expect(firstPlaysWhite('random', 'random', () => false)).toBe(false);
   });
 });
+
+describe('canPair and blocks', () => {
+  const seek = (userId: string, avoid: string[] = []) => ({
+    userId,
+    initialSeconds: 300,
+    incrementSeconds: 0,
+    rated: true,
+    rating: 1500,
+    ratingRange: null,
+    color: 'random' as const,
+    avoidUserIds: new Set(avoid),
+  });
+
+  it('never pairs two players when either has blocked the other', () => {
+    expect(canPair(seek('a', ['b']), seek('b'))).toBe(false);
+    expect(canPair(seek('a'), seek('b', ['a']))).toBe(false);
+    expect(canPair(seek('a', ['c']), seek('b'))).toBe(true);
+  });
+});

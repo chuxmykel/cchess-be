@@ -79,6 +79,7 @@ function setup({
     seeks as unknown as Repository<DailySeek>,
     gamesService as unknown as GamesService,
     usersService as unknown as UsersService,
+    { blockedEitherWay: async () => new Set<string>() } as never,
   );
   return { service, seeks, gamesService, usersService };
 }

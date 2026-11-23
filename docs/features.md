@@ -256,3 +256,16 @@ finished games and ratings still make sense in its opponents' history. Its
 sockets close (`user.deleted`), its access tokens are refused from then on
 (the JWT strategy and the socket handshake look the account up), and it
 never appears in player search.
+
+### Blocking
+
+`POST /users/:username/block` blocks a player, `DELETE` the same path
+unblocks, and `GET /users/me/blocks` lists those you've blocked, the latest
+first. A block works both ways, whoever made it: the two can't send each
+other friend requests or challenges (403), rematch, or chat in a game, and
+matchmaking and daily seeks never pair them. Blocking ends a friendship or
+a request between them, and cancels the challenges waiting either way -
+through `user.blocked`, which `FriendsService` and `ChallengesService`
+hear, pushing the usual `friend:*` and `challenge:*` events. A profile's
+`blockedByYou` says whether you've blocked them; nothing tells a player
+they've been blocked.

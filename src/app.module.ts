@@ -7,6 +7,7 @@ import { AccountModule } from './account/account.module.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
+import { BlocksModule } from './blocks/blocks.module.js';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard.js';
 import { ChallengesModule } from './challenges/challenges.module.js';
 import { ClusterModule } from './cluster/cluster.module.js';
@@ -36,6 +37,7 @@ import { UsersModule } from './users/users.module.js';
     typeOrmModule,
     AuthModule,
     UsersModule,
+    BlocksModule,
     // After UsersModule, so GET /users/me is matched before /users/:username.
     ProfilesModule,
     FriendsModule,

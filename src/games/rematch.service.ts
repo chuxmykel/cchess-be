@@ -10,6 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 
 import type { TimeControl } from '../chess/time-control.js';
+import { BlocksService } from '../blocks/blocks.service.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
 import { Game, type Side } from './entities/game.entity.js';
 import { GamesService } from './games.service.js';
@@ -34,6 +35,7 @@ export class RematchService {
     @InjectRepository(Game) private readonly games: Repository<Game>,
     private readonly gamesService: GamesService,
     private readonly events: EventEmitter2,
+    private readonly blocksService: BlocksService,
   ) {}
 
   /** Offers a rematch - or, when the opponent already has, starts it. */
@@ -43,6 +45,11 @@ export class RematchService {
     const theirs: Side = mine === 'white' ? 'black' : 'white';
     if (game.rematchOfferedBy === theirs) return this.start(game, theirs);
     if (game.rematchOfferedBy === mine) return null;
+    if (
+      await this.blocksService.isBlockedEitherWay(game.whiteId, game.blackId)
+    ) {
+      throw new ForbiddenException("You can't play this player");
+    }
 
     await this.gamesService.assertCanStart(userId, timeControlOf(game));
     const { affected } = await this.games.update(

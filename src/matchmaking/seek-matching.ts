@@ -27,6 +27,8 @@ export interface SeekCriteria extends TimeControl {
   /** Null when any opponent's rating is acceptable. */
   ratingRange: RatingRange | null;
   color: SeekColor;
+  /** Players this seeker mustn't be paired with - blocked, either way. */
+  avoidUserIds?: ReadonlySet<string>;
 }
 
 function isValidDelta(delta: unknown): boolean {
@@ -73,6 +75,8 @@ export function firstPlaysWhite(
 export function canPair(first: SeekCriteria, second: SeekCriteria): boolean {
   return (
     first.userId !== second.userId &&
+    !first.avoidUserIds?.has(second.userId) &&
+    !second.avoidUserIds?.has(first.userId) &&
     colorsFit(first.color, second.color) &&
     first.initialSeconds === second.initialSeconds &&
     first.incrementSeconds === second.incrementSeconds &&

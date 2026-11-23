@@ -202,6 +202,11 @@ access 'X' before initialization` at runtime for any circular entity
   e2e config sets it, since every request there comes from one address.
   Anything else that drives a local server hard from one address (the
   app's e2e backend, the bots) needs it too.
+- **Blocks are global** (`BlocksModule`): friends, challenges, rematches,
+  game chat, matchmaking and daily seeks each ask `BlocksService`, which
+  imports none of them. What a block ends elsewhere, it ends by emitting
+  `user.blocked`, awaited (`emitAsync`) so it's done by the reply. A seek
+  carries `avoidUserIds`, which `canPair` checks.
 - **`GET /users/:username` lives in `ProfilesModule`**, not `UsersModule` -
   it needs games, friends and presence, which `UsersModule` can't import
   without a cycle. `app.module.ts` registers it after `UsersModule` so

@@ -56,6 +56,9 @@ export class PublicProfileDto extends ProfileDto {
     description: "The viewer's results against this user; null on your own",
   })
   score!: ScoreDto | null;
+
+  @ApiProperty({ description: "Whether you've blocked this player" })
+  blockedByYou!: boolean;
 }
 
 export class ActivityDayDto extends ScoreDto {

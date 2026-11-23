@@ -7,6 +7,7 @@ import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { BlocksService } from '../blocks/blocks.service.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
 import { SlidingWindowLimiter } from '../common/sliding-window-limiter.js';
 import { isChatOpen } from './chat-window.js';
@@ -39,6 +40,7 @@ export class GameChatService {
     private readonly reads: Repository<GameChatRead>,
     private readonly gamesService: GamesService,
     private readonly events: EventEmitter2,
+    private readonly blocksService: BlocksService,
   ) {}
 
   async send(
@@ -54,6 +56,11 @@ export class GameChatService {
     const game = await this.gamesService.getGameOrThrow(gameId);
     this.gamesService.colorOf(game, userId);
     if (!isChatOpen(game)) throw new ForbiddenException('Chat closed');
+    if (
+      await this.blocksService.isBlockedEitherWay(game.whiteId, game.blackId)
+    ) {
+      throw new ForbiddenException('Chat is off for this game');
+    }
     this.limiter.recordOrThrow(`${gameId}:${userId}`);
 
     const message = await this.messages.save(

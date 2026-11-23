@@ -11,6 +11,7 @@ import * as bcrypt from 'bcrypt';
 import { DataSource } from 'typeorm';
 
 import { EmailToken } from '../auth/entities/email-token.entity.js';
+import { UserBlock } from '../blocks/entities/user-block.entity.js';
 import { RefreshToken } from '../auth/entities/refresh-token.entity.js';
 import { Challenge } from '../challenges/entities/challenge.entity.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
@@ -88,6 +89,10 @@ export class AccountDeletionService {
       await manager.delete(Challenge, [
         { challengerId: userId },
         { opponentId: userId },
+      ]);
+      await manager.delete(UserBlock, [
+        { blockerId: userId },
+        { blockedId: userId },
       ]);
       await manager.delete(RefreshToken, mine);
       await manager.delete(EmailToken, mine);

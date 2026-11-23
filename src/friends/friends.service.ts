@@ -1,13 +1,16 @@
 import {
+  ForbiddenException,
   BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import type { UserBlockedEvent } from '../blocks/blocks.service.js';
+import { BlocksService } from '../blocks/blocks.service.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
 import { GamesService } from '../games/games.service.js';
 import { PresenceService } from '../presence/presence.service.js';
@@ -38,7 +41,25 @@ export class FriendsService {
     private readonly gamesService: GamesService,
     private readonly presenceService: PresenceService,
     private readonly events: EventEmitter2,
+    private readonly blocksService: BlocksService,
   ) {}
+
+  /** A block ends the friendship, or the request, between the two. */
+  @OnEvent(DOMAIN_EVENTS.USER_BLOCKED)
+  async onUserBlocked({ blockerId, blockedId }: UserBlockedEvent) {
+    const existing = await this.findBetween(blockerId, blockedId);
+    if (!existing) return;
+    await this.friendships.softRemove(existing);
+    const event =
+      existing.status === 'accepted'
+        ? DOMAIN_EVENTS.FRIEND_REMOVED
+        : existing.requesterId === blockerId
+          ? DOMAIN_EVENTS.FRIEND_REQUEST_CANCELLED
+          : DOMAIN_EVENTS.FRIEND_REQUEST_DECLINED;
+    this.events.emit(event, {
+      friendship: existing,
+    } satisfies FriendRequestEvent);
+  }
 
   /** Users as FriendDtos: whether they're online or playing, and ratings. */
   async describe(users: User[]): Promise<FriendDto[]> {
@@ -130,6 +151,9 @@ export class FriendsService {
     if (!target) throw new NotFoundException('User not found');
     if (target.id === requesterId) {
       throw new BadRequestException("You can't friend yourself");
+    }
+    if (await this.blocksService.isBlockedEitherWay(requesterId, target.id)) {
+      throw new ForbiddenException("You can't add this player");
     }
 
     const existing = await this.findBetween(requesterId, target.id);

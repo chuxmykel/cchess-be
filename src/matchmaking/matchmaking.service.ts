@@ -4,6 +4,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 
+import { BlocksService } from '../blocks/blocks.service.js';
 import {
   classifyTimeControl,
   isDailyTimeControl,
@@ -109,6 +110,7 @@ export class MatchmakingService {
     private readonly usersService: UsersService,
     private readonly clusterBus: ClusterBus,
     private readonly maintenance: MaintenanceService,
+    private readonly blocksService: BlocksService,
   ) {
     this.clusterBus.onRequest(MM_RPC.SEEK, this.handleSeekRequest.bind(this));
     this.clusterBus.onRequest(
@@ -227,6 +229,7 @@ export class MatchmakingService {
       rating,
       ratingRange: request.ratingRange ?? null,
       color: request.color ?? 'random',
+      avoidUserIds: await this.blocksService.blockedEitherWay(user.id),
       gameType,
       createdAt: Date.now(),
     };
