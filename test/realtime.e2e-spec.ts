@@ -305,6 +305,56 @@ describe('Realtime gateway (e2e)', () => {
   });
 
   describe('chat', () => {
+    it('lets strangers chat only once both have chosen to', async () => {
+      const white = await registerUser(app, 'ula_rt');
+      const black = await registerUser(app, 'vic_rt');
+      const challenge = await request(app.getHttpServer())
+        .post('/challenges')
+        .set('Authorization', `Bearer ${white.accessToken}`)
+        .send({
+          opponentUsername: black.username,
+          initialSeconds: 300,
+          incrementSeconds: 0,
+        })
+        .expect(201);
+      const game = await request(app.getHttpServer())
+        .post(`/challenges/${challenge.body.id}/accept`)
+        .set('Authorization', `Bearer ${black.accessToken}`)
+        .expect(201);
+      const gameId = game.body.id as string;
+      const whiteSocket = await connect(baseUrl, white.accessToken);
+
+      const historyEnabled = async () => {
+        const history = waitForEvent<{ enabled: boolean }>(
+          whiteSocket,
+          'game:chatHistory',
+        );
+        whiteSocket.emit('game:chatHistory', { gameId });
+        return (await history).enabled;
+      };
+
+      expect(await historyEnabled()).toBe(false);
+      const refused = waitForEvent<{ message: string }>(
+        whiteSocket,
+        'game:error',
+      );
+      whiteSocket.emit('game:chat', { gameId, text: 'hi' });
+      await expect(refused).resolves.toMatchObject({
+        message: 'Chat is off for this game',
+      });
+
+      for (const player of [white, black]) {
+        await request(app.getHttpServer())
+          .patch('/users/me')
+          .set('Authorization', `Bearer ${player.accessToken}`)
+          .send({ chatWithStrangers: true })
+          .expect(200);
+      }
+      expect(await historyEnabled()).toBe(true);
+
+      whiteSocket.disconnect();
+    });
+
     it('sends a message to both players and keeps it for later joins', async () => {
       const { gameId, whiteId, whiteSocket, blackSocket } = await startGame(
         'rita_rt',

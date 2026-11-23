@@ -217,7 +217,11 @@ export class UsersService {
 
   async updateProfile(
     userId: string,
-    updates: { displayName?: string; bio?: string | null },
+    updates: {
+      displayName?: string;
+      bio?: string | null;
+      chatWithStrangers?: boolean;
+    },
   ): Promise<User> {
     if (
       (updates.displayName && isProfane(updates.displayName)) ||
@@ -231,6 +235,9 @@ export class UsersService {
     if (updates.displayName !== undefined)
       user.displayName = updates.displayName;
     if (updates.bio !== undefined) user.bio = updates.bio;
+    if (updates.chatWithStrangers !== undefined) {
+      user.chatWithStrangers = updates.chatWithStrangers;
+    }
     return this.users.save(user);
   }
 

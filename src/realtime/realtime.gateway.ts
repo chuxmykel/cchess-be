@@ -606,14 +606,16 @@ export class RealtimeGateway
       WS_EVENTS.GAME_CHAT_HISTORY,
       payload.gameId,
       async () => {
-        const { messages, readAt } = await this.gameChatService.history(
-          payload.gameId,
-          this.userId(socket),
-        );
+        const { messages, readAt, enabled } =
+          await this.gameChatService.history(
+            payload.gameId,
+            this.userId(socket),
+          );
         socket.emit(WS_EVENTS.GAME_CHAT_HISTORY, {
           gameId: payload.gameId,
           messages: messages.map(toChatMessageDto),
           readAt,
+          enabled,
         });
       },
     );

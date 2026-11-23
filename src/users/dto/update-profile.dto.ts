@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
 
 import {
   BIO_MAX_LENGTH,
@@ -18,4 +18,11 @@ export class UpdateProfileDto {
   @IsString()
   @MaxLength(BIO_MAX_LENGTH)
   bio?: string | null;
+
+  @ApiPropertyOptional({
+    description: "Chat in games with players who aren't your friends",
+  })
+  @IsOptional()
+  @IsBoolean()
+  chatWithStrangers?: boolean;
 }

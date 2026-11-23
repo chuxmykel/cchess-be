@@ -9,8 +9,11 @@ import { Repository } from 'typeorm';
 
 import { BlocksService } from '../blocks/blocks.service.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
+import { Friendship } from '../friends/entities/friendship.entity.js';
+import { UsersService } from '../users/users.service.js';
 import { maskProfanity } from '../common/profanity.js';
 import { SlidingWindowLimiter } from '../common/sliding-window-limiter.js';
+import { chatAllowed } from './chat-rules.js';
 import { isChatOpen } from './chat-window.js';
 import type { Game } from './entities/game.entity.js';
 import {
@@ -42,7 +45,32 @@ export class GameChatService {
     private readonly gamesService: GamesService,
     private readonly events: EventEmitter2,
     private readonly blocksService: BlocksService,
+    @InjectRepository(Friendship)
+    private readonly friendships: Repository<Friendship>,
+    private readonly usersService: UsersService,
   ) {}
+
+  /** Whether the game's two players can chat (see chat-rules.ts). */
+  async isEnabled(game: Game): Promise<boolean> {
+    const [white, black, friends, blocked] = await Promise.all([
+      this.usersService.findByIdOrThrow(game.whiteId),
+      this.usersService.findByIdOrThrow(game.blackId),
+      this.friendships.existsBy([
+        {
+          requesterId: game.whiteId,
+          addresseeId: game.blackId,
+          status: 'accepted',
+        },
+        {
+          requesterId: game.blackId,
+          addresseeId: game.whiteId,
+          status: 'accepted',
+        },
+      ]),
+      this.blocksService.isBlockedEitherWay(game.whiteId, game.blackId),
+    ]);
+    return chatAllowed(white, black, { friends, blocked });
+  }
 
   async send(
     gameId: string,
@@ -57,9 +85,7 @@ export class GameChatService {
     const game = await this.gamesService.getGameOrThrow(gameId);
     this.gamesService.colorOf(game, userId);
     if (!isChatOpen(game)) throw new ForbiddenException('Chat closed');
-    if (
-      await this.blocksService.isBlockedEitherWay(game.whiteId, game.blackId)
-    ) {
+    if (!(await this.isEnabled(game))) {
       throw new ForbiddenException('Chat is off for this game');
     }
     this.limiter.recordOrThrow(`${gameId}:${userId}`);
@@ -107,14 +133,19 @@ export class GameChatService {
   async history(
     gameId: string,
     userId: string,
-  ): Promise<{ messages: GameChatMessage[]; readAt: Date | null }> {
+  ): Promise<{
+    messages: GameChatMessage[];
+    readAt: Date | null;
+    enabled: boolean;
+  }> {
     const game = await this.gamesService.getGameOrThrow(gameId);
     this.gamesService.colorOf(game, userId);
-    const [messages, read] = await Promise.all([
+    const [messages, read, enabled] = await Promise.all([
       this.messages.find({ where: { gameId }, order: { createdAt: 'ASC' } }),
       this.reads.findOne({ where: { gameId, userId } }),
+      this.isEnabled(game),
     ]);
-    return { messages, readAt: read?.readAt ?? null };
+    return { messages, readAt: read?.readAt ?? null, enabled };
   }
 
   /** Marks the chat read up to now: the player has seen all of it. */

@@ -38,7 +38,7 @@ revisit `origin`/`credentials` together if that ever happens.
 | -                     | -                                                                    | `dm:read`                                                          | `{ userId, readAt }` - to the other person, when `userId` reads (or clears) their messages                       |
 | `dm:typing`           | `{ userId }` - the friend being written to                           | `dm:typing`                                                        | `{ userId }` - to that friend, `userId` being who's typing; friends only, at most 3 every 5s                     |
 | `game:chat`           | `{ gameId, text }`                                                   | `game:chat`                                                        | `{ id, gameId, userId, kind, text, createdAt }` - to both players                                                |
-| `game:chatHistory`    | `{ gameId }`                                                         | `game:chatHistory`                                                 | `{ gameId, messages, readAt }` - to the player who asked                                                         |
+| `game:chatHistory`    | `{ gameId }`                                                         | `game:chatHistory`                                                 | `{ gameId, messages, readAt, enabled }` - to the player who asked                                                |
 | `game:chatRead`       | `{ gameId }`                                                         | -                                                                  | -                                                                                                                |
 | -                     | -                                                                    | `game:presence`                                                    | `{ gameId, userId, online }`                                                                                     |
 | -                     | -                                                                    | `lobby:stats`                                                      | `{ playersOnline, gamesInPlay }`                                                                                 |
@@ -102,7 +102,13 @@ Joining a game sends the joiner a `game:presence` for their opponent
 (connected or not) and tells the opponent the joiner is online; a player
 whose last socket disconnects is reported offline to their opponents.
 
-Chat is between a game's two players only. A message is trimmed and must be
+Chat is between a game's two players only, and only when they may chat
+(`src/games/chat-rules.ts`): friends always can; players who aren't friends
+only when both have turned on `chatWithStrangers` (`PATCH /users/me`, off by
+default); a guest never, nor two players either of whom has blocked the
+other. `game:chatHistory`'s `enabled` says whether they may - the app shows
+no chat without it - and a message when they may not gets `game:error`
+"Chat is off for this game". A message is trimmed and must be
 1-140 characters, and each player can send at most 5 per 10 seconds; a
 rejected one comes back as `game:error`. Messages are kept, and
 `game:chatHistory` returns them oldest first. Each has a `kind`: `message`

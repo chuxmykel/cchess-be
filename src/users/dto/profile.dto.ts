@@ -53,6 +53,12 @@ export class MeDto extends ProfileDto {
 
   @ApiProperty({ description: 'Whether the email has been verified' })
   emailVerified!: boolean;
+
+  @ApiProperty({
+    description:
+      "Whether you chat in games with players who aren't your friends",
+  })
+  chatWithStrangers!: boolean;
 }
 
 export function toRatingDto(rating: Rating): RatingDto {
@@ -90,5 +96,6 @@ export function toMeDto(user: User, ratings: Rating[]): MeDto {
     createdAt: profile.createdAt,
     email: user.email,
     emailVerified: user.emailVerifiedAt !== null,
+    chatWithStrangers: user.chatWithStrangers,
   };
 }

@@ -44,6 +44,11 @@ export class User {
   @Column({ type: 'boolean', default: false })
   isGuest!: boolean;
 
+  /** Whether they chat in games with players who aren't their friends -
+   * both players have to have chosen it. Off until turned on. */
+  @Column({ type: 'boolean', default: false })
+  chatWithStrangers!: boolean;
+
   @Column({ type: 'varchar', length: BIO_MAX_LENGTH, nullable: true })
   bio!: string | null;
 
