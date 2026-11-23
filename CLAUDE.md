@@ -30,7 +30,7 @@ nvm use                  # Node 24.15.0 pinned in .nvmrc - this is independent o
                           # the frontend's Node 22 pin, not a typo
 npm install
 
-npm run start:dev        # watch mode, :3000, docs at /docs (Swagger)
+npm run start:dev        # watch mode, :3000, docs at /docs (Swagger; off in production unless SWAGGER=true)
 npm run build             # tsc build via `nest build`
 
 npm test                  # unit specs: src/**/*.spec.ts - no DB, no .env
@@ -207,6 +207,10 @@ access 'X' before initialization` at runtime for any circular entity
   imports none of them. What a block ends elsewhere, it ends by emitting
   `user.blocked`, awaited (`emitAsync`) so it's done by the reply. A seek
   carries `avoidUserIds`, which `canPair` checks.
+- **The legal pages are drafts** (`src/web/pages/legal-pages.ts`), to be
+  reviewed before the app is published. Their dates are `TERMS_VERSION`
+  and `PRIVACY_VERSION` (`src/legal/legal.ts`): changing the terms' date
+  asks every player to accept them again.
 - **`GET /users/:username` lives in `ProfilesModule`**, not `UsersModule` -
   it needs games, friends and presence, which `UsersModule` can't import
   without a cycle. `app.module.ts` registers it after `UsersModule` so

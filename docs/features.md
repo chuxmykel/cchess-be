@@ -307,3 +307,25 @@ version and when (`users.termsVersion`, `termsAcceptedAt`). The version is
 the date the terms last changed (`TERMS_VERSION`, `src/legal/legal.ts`):
 `GET /users/me`'s `termsAccepted` is false once they change, or for a guest,
 and `POST /users/me/terms` accepts the version in force.
+
+### Pages and app config
+
+The server serves a few pages of its own (`src/web/`), signed out, for the
+stores and for players without the app:
+
+- `/legal/privacy` and `/legal/terms` - drafts to review before publishing;
+  their dates are `PRIVACY_VERSION` and `TERMS_VERSION`.
+- `/account/delete` - how to delete an account, in the app or by email.
+- `/app/verify-email` and `/app/reset-password` - where email links land
+  when the app isn't installed to open them: a button or a form there does
+  the work (mail scanners open links, so a visit alone does nothing).
+- `/.well-known/apple-app-site-association` and `/.well-known/assetlinks.json`
+  - let the app open `/app/*` links itself (universal links, app links), once
+    `APPLE_TEAM_ID` and `ANDROID_CERT_SHA256` are set.
+
+`GET /app/config` is what the app reads on launch: `minimumVersion`
+(`MIN_APP_VERSION`) - an older app asks to be updated - the terms' and
+policy's versions and URLs, and the support address.
+
+The API docs (`/docs`) are served outside production only, unless
+`SWAGGER=true`.

@@ -81,12 +81,14 @@ async function bootstrap() {
 
   configureCors(app, configService);
   configureValidationPipe(app);
-  setupSwagger(app);
+  const swagger = configService.get('swagger', { infer: true });
+  if (swagger) setupSwagger(app);
 
   const port = configService.get('port', { infer: true });
   await app.listen(port);
   logger.log(
-    `✅ cchess-be listening on :${port} (docs 📚 at /docs)` +
+    `✅ cchess-be listening on :${port}` +
+      (swagger ? ' (docs 📚 at /docs)' : '') +
       (CLUSTERING_ENABLED
         ? ` [cluster worker ${process.env.CLUSTER_WORKER_INDEX}/${CLUSTER_WORKERS}]`
         : ''),

@@ -26,6 +26,7 @@ import { ProfilesModule } from './profiles/profiles.module.js';
 import { RealtimeModule } from './realtime/realtime.module.js';
 import { ReportsModule } from './reports/reports.module.js';
 import { UsersModule } from './users/users.module.js';
+import { WebModule } from './web/web.module.js';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { UsersModule } from './users/users.module.js';
     RealtimeModule,
     AccountModule,
     ReportsModule,
+    WebModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
