@@ -36,6 +36,8 @@ export const DOMAIN_EVENTS = {
   FRIEND_REMOVED: 'friend.removed',
   DIRECT_MESSAGE_SENT: 'directMessage.sent',
   DIRECT_MESSAGES_READ: 'directMessage.read',
+  /** An account was deleted: its sockets are closed. */
+  USER_DELETED: 'user.deleted',
   MAINTENANCE_CHANGED: 'maintenance.changed',
   MAINTENANCE_UNDERWAY: 'maintenance.underway',
 } as const;

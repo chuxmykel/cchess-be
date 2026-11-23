@@ -67,6 +67,12 @@ export class UsersService {
     return this.users.findOne({ where: { id } });
   }
 
+  /** The account, while it can still be used - not once deleted. */
+  async findActiveById(id: string): Promise<User | null> {
+    const user = await this.findById(id);
+    return user && !user.accountDeletedAt ? user : null;
+  }
+
   async findByIdOrThrow(id: string): Promise<User> {
     const user = await this.findById(id);
     if (!user) throw new NotFoundException('User not found');
@@ -91,6 +97,7 @@ export class UsersService {
     return this.users
       .createQueryBuilder('u')
       .where('u.isGuest = false')
+      .andWhere('u.accountDeletedAt IS NULL')
       .andWhere('u.id != :excludeUserId', { excludeUserId })
       .andWhere(
         `(u.username LIKE :contains ${escape} OR LOWER(u.displayName) LIKE :contains ${escape})`,

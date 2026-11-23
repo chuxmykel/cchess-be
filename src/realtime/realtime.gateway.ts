@@ -227,9 +227,15 @@ export class RealtimeGateway
   async handleConnection(socket: Socket): Promise<void> {
     try {
       const user = verifySocketToken(this.jwtService, socket);
+      // Set before anything awaits: the socket's first events may arrive
+      // meanwhile, and its handlers read them.
       (socket.data as SocketData).user = user;
       (socket.data as SocketData).joinedGames = new Map();
       await socket.join(userRoom(user.userId));
+      // An access token outlives a deleted account by up to its TTL.
+      if (!(await this.usersService.findActiveById(user.userId))) {
+        throw new Error('the account no longer exists');
+      }
       await this.usersService.touchLastSeen(user.userId);
       const sockets = await this.server
         .in(userRoom(user.userId))
@@ -700,6 +706,12 @@ export class RealtimeGateway
     if (error instanceof HttpException) return;
     const err = error as Error;
     this.logger.error(`${context}: ${err.message}`, err.stack);
+  }
+
+  /** A deleted account's sockets close: nothing more reaches it. */
+  @OnEvent(DOMAIN_EVENTS.USER_DELETED)
+  onUserDeleted({ userId }: { userId: string }) {
+    this.server.in(userRoom(userId)).disconnectSockets(true);
   }
 
   /** Maintenance announced or ended: told to everyone, for

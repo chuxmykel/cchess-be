@@ -239,3 +239,20 @@ and per IP address (`src/auth/rate-limits.ts`): only failed sign-ins count
 toward theirs. The limits are in memory, per cluster worker, and off with
 `AUTH_RATE_LIMITS=false`, as both test suites run. Behind a proxy,
 `TRUST_PROXY` says which addresses to believe in `X-Forwarded-For`.
+
+### Deleting an account
+
+`DELETE /users/me { password }` (no password for a guest) deletes the
+account, as both app stores require. Games in progress end first - aborted
+while they can be, resigned after - and any seek is withdrawn. Then, in one
+transaction, everything personal is deleted outright, not soft-deleted:
+direct messages and conversations both ways, game chat and read marks,
+notes, conditional moves, bookmarks, daily seeks, friendships, challenges,
+refresh and email tokens; reviews it asked for lose their `createdById`.
+
+The user row stays, anonymised - `deleted_<random>`, "Deleted player", no
+email, password, bio or last-seen - with `accountDeletedAt` set, so its
+finished games and ratings still make sense in its opponents' history. Its
+sockets close (`user.deleted`), its access tokens are refused from then on
+(the JWT strategy and the socket handshake look the account up), and it
+never appears in player search.

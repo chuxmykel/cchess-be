@@ -55,6 +55,11 @@ export class User {
   @OneToMany(() => Rating, (rating) => rating.user)
   ratings!: Rating[];
 
+  /** When the player deleted their account: the row stays, anonymised, so
+   * their opponents' games keep a name (see AccountDeletionService). */
+  @Column({ type: 'timestamptz', nullable: true })
+  accountDeletedAt!: Date | null;
+
   /** Updated on login and on realtime gateway connect; powers "last active". */
   @Column({ type: 'timestamptz', nullable: true })
   lastSeenAt!: Date | null;
