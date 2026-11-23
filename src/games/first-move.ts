@@ -1,14 +1,21 @@
 import { isDailyGame } from './daily.js';
 import type { Game } from './entities/game.entity.js';
 
-const DEFAULT_FIRST_MOVE_TIMEOUT_MS = 30_000;
+/** A bullet game's first-move time, as lichess gives it. */
+export const BULLET_FIRST_MOVE_TIMEOUT_MS = 20_000;
+/** Every other live game's - blitz, rapid and classical. */
+export const FIRST_MOVE_TIMEOUT_MS = 30_000;
 
-/** How long each side has to play its first move before the game is
- * aborted. Read when needed, so tests can shorten it. */
-export function firstMoveTimeoutMs(): number {
-  return Number(
-    process.env.GAME_FIRST_MOVE_TIMEOUT_MS ?? DEFAULT_FIRST_MOVE_TIMEOUT_MS,
-  );
+/** How long each side of a live game has to play its first move before the
+ * game is aborted: 20s in bullet, 30s otherwise, as on lichess.
+ * GAME_FIRST_MOVE_TIMEOUT_MS, read when needed so tests can shorten it,
+ * stands in for both. */
+export function firstMoveTimeoutMs(game: Pick<Game, 'gameType'>): number {
+  const override = process.env.GAME_FIRST_MOVE_TIMEOUT_MS;
+  if (override !== undefined) return Number(override);
+  return game.gameType === 'bullet'
+    ? BULLET_FIRST_MOVE_TIMEOUT_MS
+    : FIRST_MOVE_TIMEOUT_MS;
 }
 
 function fullmoveNumber(fen: string): number {
@@ -28,7 +35,7 @@ export function firstMoveDeadline(game: Game): Date | null {
   const waitingSince = game.lastMoveAt ?? game.createdAt;
   const timeoutMs = isDailyGame(game)
     ? game.initialSeconds * 1000
-    : firstMoveTimeoutMs();
+    : firstMoveTimeoutMs(game);
   return new Date(waitingSince.getTime() + timeoutMs);
 }
 

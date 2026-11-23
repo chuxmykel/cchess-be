@@ -51,6 +51,29 @@ describe('first move', () => {
     expect(firstMoveDeadline(makeGame({ status: 'aborted' }))).toBeNull();
   });
 
+  it('gives a bullet game 20 seconds', () => {
+    expect(firstMoveDeadline(makeGame({ gameType: 'bullet' }))).toEqual(
+      new Date('2026-10-27T10:00:20Z'),
+    );
+  });
+
+  it.each(['blitz', 'rapid', 'classical'] as const)(
+    'gives a %s game 30 seconds',
+    (gameType) => {
+      expect(firstMoveDeadline(makeGame({ gameType }))).toEqual(
+        new Date('2026-10-27T10:00:30Z'),
+      );
+    },
+  );
+
+  it('takes the timeout from GAME_FIRST_MOVE_TIMEOUT_MS, bullet too', () => {
+    process.env.GAME_FIRST_MOVE_TIMEOUT_MS = '1000';
+
+    expect(firstMoveDeadline(makeGame({ gameType: 'bullet' }))).toEqual(
+      new Date('2026-10-27T10:00:01Z'),
+    );
+  });
+
   it('takes the timeout from GAME_FIRST_MOVE_TIMEOUT_MS', () => {
     process.env.GAME_FIRST_MOVE_TIMEOUT_MS = '1000';
 
