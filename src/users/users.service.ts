@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
@@ -10,6 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, QueryFailedError, Repository } from 'typeorm';
 
 import type { GameType } from '../chess/time-control.js';
+import { isProfane } from '../common/profanity.js';
 import {
   Rating,
   STARTING_DEVIATION,
@@ -132,6 +134,9 @@ export class UsersService {
   }): Promise<User> {
     const username = params.username.toLowerCase();
     const email = params.email.toLowerCase();
+    if (isProfane(username)) {
+      throw new BadRequestException("That username isn't allowed");
+    }
 
     if (await this.findByUsername(username)) {
       throw new ConflictException('Username is already taken');
@@ -214,6 +219,14 @@ export class UsersService {
     userId: string,
     updates: { displayName?: string; bio?: string | null },
   ): Promise<User> {
+    if (
+      (updates.displayName && isProfane(updates.displayName)) ||
+      (updates.bio && isProfane(updates.bio))
+    ) {
+      throw new BadRequestException(
+        "Your name or bio has words that aren't allowed",
+      );
+    }
     const user = await this.findByIdOrThrow(userId);
     if (updates.displayName !== undefined)
       user.displayName = updates.displayName;

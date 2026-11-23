@@ -290,3 +290,12 @@ for maintenance - `docker compose exec api curl ...`):
   their sign-ins (403) and tokens until `.../unsuspend`.
 - `DELETE /internal/game-chat/:id` and `DELETE /internal/direct-messages/:id`
   take a message down, deleted outright.
+
+### Filtering what players write
+
+Game chat and direct messages have slurs and obscenities masked with
+asterisks before they're kept or sent ("you \*\*\*\*ing idiot"); a username,
+display name or bio with one is refused (400). The words are the
+`obscenity` package's English list, with its handling of look-alikes
+("sh1t", "fuuuck") and its whitelist, so "Scunthorpe" and "assessment" pass
+(`src/common/profanity.ts`).

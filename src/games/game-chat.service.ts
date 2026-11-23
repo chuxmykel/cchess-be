@@ -9,6 +9,7 @@ import { Repository } from 'typeorm';
 
 import { BlocksService } from '../blocks/blocks.service.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
+import { maskProfanity } from '../common/profanity.js';
 import { SlidingWindowLimiter } from '../common/sliding-window-limiter.js';
 import { isChatOpen } from './chat-window.js';
 import type { Game } from './entities/game.entity.js';
@@ -64,7 +65,7 @@ export class GameChatService {
     this.limiter.recordOrThrow(`${gameId}:${userId}`);
 
     const message = await this.messages.save(
-      this.messages.create({ gameId, userId, text: trimmed }),
+      this.messages.create({ gameId, userId, text: maskProfanity(trimmed) }),
     );
     this.events.emit(DOMAIN_EVENTS.GAME_CHAT_MESSAGE, {
       game,

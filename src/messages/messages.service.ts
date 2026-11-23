@@ -8,6 +8,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
 
+import { maskProfanity } from '../common/profanity.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
 import { SlidingWindowLimiter } from '../common/sliding-window-limiter.js';
 import { FriendsService } from '../friends/friends.service.js';
@@ -107,7 +108,7 @@ export class MessagesService {
       this.messages.create({
         senderId,
         recipientId: recipient.id,
-        text: trimmed,
+        text: maskProfanity(trimmed),
         attachment,
       }),
     );
