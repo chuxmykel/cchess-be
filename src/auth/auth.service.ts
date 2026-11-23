@@ -5,59 +5,102 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { LessThan, Repository } from 'typeorm';
 
+import { SlidingWindowLimiter } from '../common/sliding-window-limiter.js';
 import type { AppConfig } from '../config/configuration.js';
 import { toMeDto } from '../users/dto/profile.dto.js';
 import type { User } from '../users/entities/user.entity.js';
 import { UsersService } from '../users/users.service.js';
 import type { AccessTokenPayload } from './types.js';
+import { AccountEmailService } from './account-email.service.js';
 import { AuthResponseDto } from './dto/auth-response.dto.js';
 import { RefreshToken } from './entities/refresh-token.entity.js';
+import { AUTH_RATE_LIMITS } from './rate-limits.js';
 import { generateOpaqueToken, hashToken } from './token.util.js';
 
 export const BCRYPT_ROUNDS = 12;
 
+const TRY_LATER = 'Too many attempts - try again later';
+
 @Injectable()
 export class AuthService {
+  private readonly failuresPerAccount = new SlidingWindowLimiter(
+    AUTH_RATE_LIMITS.signInFailuresPerAccount,
+    'Too many sign-in attempts - try again in 15 minutes',
+  );
+  private readonly failuresPerIp = new SlidingWindowLimiter(
+    AUTH_RATE_LIMITS.signInFailuresPerIp,
+    'Too many sign-in attempts - try again in 15 minutes',
+  );
+  private readonly accountsPerIp = new SlidingWindowLimiter(
+    AUTH_RATE_LIMITS.accountsPerIp,
+    TRY_LATER,
+  );
+  private readonly guestsPerIp = new SlidingWindowLimiter(
+    AUTH_RATE_LIMITS.guestsPerIp,
+    TRY_LATER,
+  );
+
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService<AppConfig, true>,
     @InjectRepository(RefreshToken)
     private readonly refreshTokens: Repository<RefreshToken>,
+    private readonly accountEmail: AccountEmailService,
   ) {}
 
-  async register(params: {
-    username: string;
-    email: string;
-    password: string;
-  }): Promise<AuthResponseDto> {
+  private get limited(): boolean {
+    return this.configService.get('authRateLimits', { infer: true });
+  }
+
+  async register(
+    params: {
+      username: string;
+      email: string;
+      password: string;
+    },
+    ip = '',
+  ): Promise<AuthResponseDto> {
+    if (this.limited) this.accountsPerIp.recordOrThrow(ip);
     const passwordHash = await bcrypt.hash(params.password, BCRYPT_ROUNDS);
     const user = await this.usersService.createRegisteredUser({
       username: params.username,
       email: params.email,
       passwordHash,
     });
+    await this.accountEmail.sendVerificationAfterSignUp(user);
     return this.issueSession(user);
   }
 
-  async login(params: {
-    usernameOrEmail: string;
-    password: string;
-  }): Promise<AuthResponseDto> {
-    const user = await this.usersService.findByUsernameOrEmail(
-      params.usernameOrEmail,
-    );
-    if (!user || !user.passwordHash) {
-      throw new UnauthorizedException('Invalid credentials');
+  /** Only failures count toward the limits, by account and by address. */
+  async login(
+    params: {
+      usernameOrEmail: string;
+      password: string;
+    },
+    ip = '',
+  ): Promise<AuthResponseDto> {
+    const account = params.usernameOrEmail.toLowerCase();
+    if (this.limited) {
+      this.failuresPerAccount.throwIfLimited(account);
+      this.failuresPerIp.throwIfLimited(ip);
     }
-    const matches = await bcrypt.compare(params.password, user.passwordHash);
-    if (!matches) {
+    const user = await this.usersService.findByUsernameOrEmail(account);
+    const matches =
+      !!user?.passwordHash &&
+      (await bcrypt.compare(params.password, user.passwordHash));
+    if (!user || !matches) {
+      if (this.limited) {
+        this.failuresPerAccount.record(account);
+        this.failuresPerIp.record(ip);
+      }
       throw new UnauthorizedException('Invalid credentials');
     }
     return this.issueSession(user);
   }
 
-  async loginAsGuest(): Promise<AuthResponseDto> {
+  async loginAsGuest(ip = ''): Promise<AuthResponseDto> {
+    if (this.limited) this.guestsPerIp.recordOrThrow(ip);
     const user = await this.usersService.createGuestUser();
     return this.issueSession(user);
   }

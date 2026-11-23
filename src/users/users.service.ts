@@ -213,6 +213,33 @@ export class UsersService {
     return this.users.save(user);
   }
 
+  /** Marks the account's address as verified - only while it's still
+   * `email`, so a link to an address since replaced does nothing. */
+  async markEmailVerified(userId: string, email: string): Promise<boolean> {
+    const result = await this.users.update(
+      { id: userId, email: email.toLowerCase() },
+      { emailVerifiedAt: new Date() },
+    );
+    return (result.affected ?? 0) > 0;
+  }
+
+  /** Switches the account to a confirmed new address. */
+  async changeEmail(userId: string, email: string): Promise<void> {
+    const lowered = email.toLowerCase();
+    const owner = await this.findByEmail(lowered);
+    if (owner && owner.id !== userId) {
+      throw new ConflictException('An account with that email already exists');
+    }
+    await this.users.update(
+      { id: userId },
+      { email: lowered, emailVerifiedAt: new Date() },
+    );
+  }
+
+  async setPasswordHash(userId: string, passwordHash: string): Promise<void> {
+    await this.users.update({ id: userId }, { passwordHash });
+  }
+
   /** Returns the rating row (creating one at the starting rating if missing - e.g. a guest's first rated game). */
   async findRating(userId: string, category: GameType): Promise<Rating | null> {
     return this.ratings.findOne({ where: { userId, category } });

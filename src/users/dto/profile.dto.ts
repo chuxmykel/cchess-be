@@ -50,6 +50,9 @@ export class ProfileDto {
 export class MeDto extends ProfileDto {
   @ApiProperty({ nullable: true })
   email!: string | null;
+
+  @ApiProperty({ description: 'Whether the email has been verified' })
+  emailVerified!: boolean;
 }
 
 export function toRatingDto(rating: Rating): RatingDto {
@@ -86,5 +89,6 @@ export function toMeDto(user: User, ratings: Rating[]): MeDto {
     ratings: profile.ratings,
     createdAt: profile.createdAt,
     email: user.email,
+    emailVerified: user.emailVerifiedAt !== null,
   };
 }

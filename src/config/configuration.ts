@@ -6,6 +6,9 @@ export interface AppConfig {
   /** Where the server is reached from outside - https://api.chux.dev in
    * production - for the links in its emails and pages. */
   publicUrl: string;
+  /** Whether sign-in, sign-up and account emails are rate limited (see
+   * src/auth/rate-limits.ts) - off for test suites. */
+  authRateLimits: boolean;
   mail: {
     /** The sender, as "Name <address>". */
     from: string;
@@ -59,6 +62,7 @@ export default (): AppConfig => ({
   publicUrl: (
     process.env.PUBLIC_URL || `http://localhost:${process.env.PORT ?? 3000}`
   ).replace(/\/+$/, ''),
+  authRateLimits: process.env.AUTH_RATE_LIMITS !== 'false',
   mail: {
     from: process.env.MAIL_FROM || 'cchess <no-reply@mail.chux.dev>',
     resendApiKey: process.env.RESEND_API_KEY || undefined,

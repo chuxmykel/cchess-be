@@ -186,6 +186,17 @@ access 'X' before initialization` at runtime for any circular entity
   HTTP API when `RESEND_API_KEY` is set, otherwise `LogMailer`, which only
   logs - and keeps what it would have sent in `sent`, for a test to read.
   Both vitest configs blank the key, so no test ever sends.
+- **Account email is single-use links** (`AccountEmailService`): verify,
+  change of address and password reset, each token stored hashed in
+  `email_tokens`, a new one replacing the unused one of its kind, and
+  redeemed with a conditional `UPDATE` so two clicks can't both use it. A
+  reset revokes every refresh token. See docs/features.md, "Accounts and
+  safety".
+- **Rate limits** (`src/auth/rate-limits.ts`, `SlidingWindowLimiter`) are in
+  memory, per cluster worker, and off with `AUTH_RATE_LIMITS=false` - the
+  e2e config sets it, since every request there comes from one address.
+  Anything else that drives a local server hard from one address (the
+  app's e2e backend, the bots) needs it too.
 - **`GET /users/:username` lives in `ProfilesModule`**, not `UsersModule` -
   it needs games, friends and presence, which `UsersModule` can't import
   without a cycle. `app.module.ts` registers it after `UsersModule` so

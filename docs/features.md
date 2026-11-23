@@ -209,3 +209,33 @@ messages with since you last cleared them, the newest message first - the
 person, that message, how many of theirs you haven't read, and when they
 last read yours. A page of `limit` (1-100, default 30); `before` (the last
 one's `lastMessage.createdAt`) gives the next.
+
+## Accounts and safety
+
+### Email
+
+Every account email is a single-use link, kept only as a hash
+(`email_tokens`), its token in the link alone:
+
+- Signing up mails a link to verify the address (24 hours); `GET
+/users/me`'s `emailVerified` says whether it has been. `POST
+/auth/email/verification` sends a new one.
+- `POST /auth/email/change { email, password }` mails a link to the new
+  address (24 hours) and tells the old one; the address changes only once
+  the link is used. `POST /auth/email/verify { token }` uses either kind.
+- `POST /auth/password/forgot { email }` mails a reset link (one hour) when
+  the address has an account - always 204, so it never says whether it
+  does. `POST /auth/password/reset { token, password }` sets the new
+  password, revokes every refresh token and mails a notice.
+
+A new link of a kind replaces the unused one before it. Links open
+`<PUBLIC_URL>/app/verify-email` or `/app/reset-password`: the app, where
+it's installed, by a universal / app link, or else the server's own page.
+Mail goes through `Mailer` (`src/mail/`): Resend when `RESEND_API_KEY` is
+set, otherwise logged.
+
+Sign-ins, sign-ups, guests and these emails are rate limited, per account
+and per IP address (`src/auth/rate-limits.ts`): only failed sign-ins count
+toward theirs. The limits are in memory, per cluster worker, and off with
+`AUTH_RATE_LIMITS=false`, as both test suites run. Behind a proxy,
+`TRUST_PROXY` says which addresses to believe in `X-Forwarded-For`.

@@ -33,6 +33,11 @@ export class User {
   @Column({ type: 'varchar', nullable: true })
   passwordHash!: string | null;
 
+  /** When the player proved they read `email`'s inbox - null until then,
+   * and again once the address changes. */
+  @Column({ type: 'timestamptz', nullable: true })
+  emailVerifiedAt!: Date | null;
+
   @Column({ type: 'varchar', length: DISPLAY_NAME_MAX_LENGTH })
   displayName!: string;
 
