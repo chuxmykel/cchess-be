@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
+  Equals,
   IsEmail,
   IsString,
   Matches,
@@ -31,4 +32,10 @@ export class RegisterDto {
   @MinLength(MIN_PASSWORD_LENGTH)
   @MaxLength(BCRYPT_MAX_PASSWORD_LENGTH)
   password!: string;
+
+  @ApiProperty({
+    description: 'Must be true: the player accepts the terms of use in force',
+  })
+  @Equals(true, { message: 'Accept the terms of use to create an account' })
+  acceptTerms!: boolean;
 }

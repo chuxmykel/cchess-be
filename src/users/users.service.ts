@@ -12,6 +12,7 @@ import { In, QueryFailedError, Repository } from 'typeorm';
 
 import type { GameType } from '../chess/time-control.js';
 import { isProfane } from '../common/profanity.js';
+import { TERMS_VERSION } from '../legal/legal.js';
 import {
   Rating,
   STARTING_DEVIATION,
@@ -153,6 +154,8 @@ export class UsersService {
       isGuest: false,
       bio: null,
       avatarColor: pickAvatarColor(username),
+      termsVersion: TERMS_VERSION,
+      termsAcceptedAt: new Date(),
     });
     const saved = await this.users.save(user);
 
@@ -261,6 +264,14 @@ export class UsersService {
     await this.users.update(
       { id: userId },
       { email: lowered, emailVerifiedAt: new Date() },
+    );
+  }
+
+  /** Records that the player accepted the terms in force, now. */
+  async acceptTerms(userId: string): Promise<void> {
+    await this.users.update(
+      { id: userId },
+      { termsVersion: TERMS_VERSION, termsAcceptedAt: new Date() },
     );
   }
 

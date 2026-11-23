@@ -65,6 +65,14 @@ export class User {
   @Column({ type: 'timestamptz', nullable: true })
   accountDeletedAt!: Date | null;
 
+  /** The terms of use the player accepted (TERMS_VERSION, a date), and
+   * when - null for guests, who've signed up to nothing. */
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  termsVersion!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  termsAcceptedAt!: Date | null;
+
   /** While set, the account can't sign in or be used - after reports, by
    * the internal moderation endpoints. */
   @Column({ type: 'timestamptz', nullable: true })

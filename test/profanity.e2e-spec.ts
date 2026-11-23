@@ -31,6 +31,7 @@ describe('Profanity filter (e2e)', () => {
         username: 'dickhead99',
         email: 'd@example.com',
         password: 'password123',
+        acceptTerms: true,
       })
       .expect(400);
     await request(app.getHttpServer())

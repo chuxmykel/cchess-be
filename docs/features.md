@@ -299,3 +299,11 @@ display name or bio with one is refused (400). The words are the
 `obscenity` package's English list, with its handling of look-alikes
 ("sh1t", "fuuuck") and its whitelist, so "Scunthorpe" and "assessment" pass
 (`src/common/profanity.ts`).
+
+### Terms of use
+
+Signing up needs `acceptTerms: true` (400 without), and records the terms'
+version and when (`users.termsVersion`, `termsAcceptedAt`). The version is
+the date the terms last changed (`TERMS_VERSION`, `src/legal/legal.ts`):
+`GET /users/me`'s `termsAccepted` is false once they change, or for a guest,
+and `POST /users/me/terms` accepts the version in force.

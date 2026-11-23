@@ -22,6 +22,7 @@ describe('Auth (e2e)', () => {
         username: 'carol',
         email: 'carol@example.com',
         password: 'password123',
+        acceptTerms: true,
       })
       .expect(201);
 
@@ -69,6 +70,7 @@ describe('Auth (e2e)', () => {
         username: 'dave',
         email: 'dave@example.com',
         password: 'password123',
+        acceptTerms: true,
       })
       .expect(201);
 
@@ -78,6 +80,7 @@ describe('Auth (e2e)', () => {
         username: 'dave',
         email: 'dave2@example.com',
         password: 'password123',
+        acceptTerms: true,
       })
       .expect(409);
 
@@ -85,6 +88,36 @@ describe('Auth (e2e)', () => {
       .post('/auth/login')
       .send({ usernameOrEmail: 'dave', password: 'wrong-password' })
       .expect(401);
+  });
+
+  it('needs the terms accepted to sign up, and records it', async () => {
+    await request(app.getHttpServer())
+      .post('/auth/register')
+      .send({
+        username: 'erin',
+        email: 'erin@example.com',
+        password: 'password123',
+      })
+      .expect(400);
+    const res = await request(app.getHttpServer())
+      .post('/auth/register')
+      .send({
+        username: 'erin',
+        email: 'erin@example.com',
+        password: 'password123',
+        acceptTerms: true,
+      })
+      .expect(201);
+    expect(res.body.user.termsAccepted).toBe(true);
+
+    const guest = await request(app.getHttpServer())
+      .post('/auth/guest')
+      .expect(200);
+    expect(guest.body.user.termsAccepted).toBe(false);
+    await request(app.getHttpServer())
+      .post('/users/me/terms')
+      .set('Authorization', `Bearer ${guest.body.accessToken}`)
+      .expect(204);
   });
 
   it('logs in as a guest with no email/password', async () => {

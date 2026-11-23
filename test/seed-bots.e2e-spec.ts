@@ -55,6 +55,7 @@ describe('Bot seeder (e2e)', () => {
         username: 'bot_1',
         email: 'bot_1@example.com',
         password: 'password123',
+        acceptTerms: true,
       })
       .expect(201);
 

@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Patch } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
@@ -19,6 +27,15 @@ export class UsersController {
     const user = await this.usersService.findByIdOrThrow(currentUser.userId);
     const ratings = await this.usersService.getRatings(user.id);
     return toMeDto(user, ratings);
+  }
+
+  @Post('me/terms')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Accept the terms of use in force' })
+  async acceptTerms(
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<void> {
+    await this.usersService.acceptTerms(currentUser.userId);
   }
 
   @Patch('me')

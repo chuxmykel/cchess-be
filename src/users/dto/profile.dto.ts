@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 import type { GameType } from '../../chess/time-control.js';
+import { TERMS_VERSION } from '../../legal/legal.js';
 import { isProvisional, type Rating } from '../entities/rating.entity.js';
 import type { User } from '../entities/user.entity.js';
 
@@ -59,6 +60,12 @@ export class MeDto extends ProfileDto {
       "Whether you chat in games with players who aren't your friends",
   })
   chatWithStrangers!: boolean;
+
+  @ApiProperty({
+    description:
+      'Whether the account has accepted the terms in force - false for guests, and when they change',
+  })
+  termsAccepted!: boolean;
 }
 
 export function toRatingDto(rating: Rating): RatingDto {
@@ -97,5 +104,6 @@ export function toMeDto(user: User, ratings: Rating[]): MeDto {
     email: user.email,
     emailVerified: user.emailVerifiedAt !== null,
     chatWithStrangers: user.chatWithStrangers,
+    termsAccepted: user.termsVersion === TERMS_VERSION,
   };
 }

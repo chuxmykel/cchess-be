@@ -35,6 +35,7 @@ describe('Account email (e2e)', () => {
         username: 'carol',
         email: 'Carol@Example.com',
         password: 'password123',
+        acceptTerms: true,
       })
       .expect(201);
     token = res.body.accessToken;
