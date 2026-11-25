@@ -245,10 +245,12 @@ toward theirs. The limits are in memory, per cluster worker, and off with
 `DELETE /users/me { password }` (no password for a guest) deletes the
 account, as both app stores require. Games in progress end first - aborted
 while they can be, resigned after - and any seek is withdrawn. Then, in one
-transaction, everything personal is deleted outright, not soft-deleted:
-direct messages and conversations both ways, game chat and read marks,
+transaction, everything personal is soft-deleted, as every delete here
+is: direct messages and conversations both ways, game chat and read marks,
 notes, conditional moves, bookmarks, daily seeks, friendships, challenges,
-refresh and email tokens; reviews it asked for lose their `createdById`.
+blocks and reports both ways, refresh and email tokens; reviews it asked
+for lose their `createdById`. Erasing those rows for good - within the 30
+days the privacy policy promises - is a purge still to be written.
 
 The user row stays, anonymised - `deleted_<random>`, "Deleted player", no
 email, password, bio or last-seen - with `accountDeletedAt` set, so its

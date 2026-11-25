@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as bcrypt from 'bcrypt';
-import { DataSource } from 'typeorm';
+import { DataSource, EntityTarget, IsNull, ObjectLiteral } from 'typeorm';
 
 import { EmailToken } from '../auth/entities/email-token.entity.js';
 import { UserBlock } from '../blocks/entities/user-block.entity.js';
@@ -36,10 +36,10 @@ import { UsersService } from '../users/users.service.js';
 export const DELETED_PLAYER_NAME = 'Deleted player';
 
 /**
- * Deletes an account, as both stores require: everything personal goes -
- * really goes, not soft-deleted, the one place this app hard-deletes -
- * while the user row stays, anonymised, so the games it played keep a
- * player for their opponents' history and ratings.
+ * Deletes an account, as both stores require: everything personal is
+ * soft-deleted, gone from the app at once (a purge erases it for good
+ * later), while the user row stays, anonymised, so the games it played
+ * keep a player for their opponents' history and ratings.
  */
 @Injectable()
 export class AccountDeletionService {
@@ -68,39 +68,33 @@ export class AccountDeletionService {
     await this.endGamesInProgress(userId);
 
     await this.dataSource.transaction(async (manager) => {
-      const mine = { userId };
-      await manager.delete(DirectMessage, [
-        { senderId: userId },
-        { recipientId: userId },
-      ]);
-      await manager.delete(Conversation, [
-        { ownerId: userId },
-        { otherUserId: userId },
-      ]);
-      await manager.delete(GameChatMessage, mine);
-      await manager.delete(GameChatRead, mine);
-      await manager.delete(GameNote, mine);
-      await manager.delete(ConditionalMoveSet, mine);
-      await manager.delete(Bookmark, mine);
-      await manager.delete(DailySeek, mine);
-      await manager.delete(Friendship, [
-        { requesterId: userId },
-        { addresseeId: userId },
-      ]);
-      await manager.delete(Challenge, [
-        { challengerId: userId },
-        { opponentId: userId },
-      ]);
-      await manager.delete(UserBlock, [
-        { blockerId: userId },
-        { blockedId: userId },
-      ]);
-      await manager.delete(Report, [
-        { reporterId: userId },
-        { reportedUserId: userId },
-      ]);
-      await manager.delete(RefreshToken, mine);
-      await manager.delete(EmailToken, mine);
+      // Soft-deleted, as everything is: gone from the app at once, and
+      // erased for good by the purge that follows deleted accounts.
+      const erase: Array<[EntityTarget<ObjectLiteral>, ObjectLiteral]> = [
+        [DirectMessage, { senderId: userId }],
+        [DirectMessage, { recipientId: userId }],
+        [Conversation, { ownerId: userId }],
+        [Conversation, { otherUserId: userId }],
+        [GameChatMessage, { userId }],
+        [GameChatRead, { userId }],
+        [GameNote, { userId }],
+        [ConditionalMoveSet, { userId }],
+        [Bookmark, { userId }],
+        [DailySeek, { userId }],
+        [Friendship, { requesterId: userId }],
+        [Friendship, { addresseeId: userId }],
+        [Challenge, { challengerId: userId }],
+        [Challenge, { opponentId: userId }],
+        [UserBlock, { blockerId: userId }],
+        [UserBlock, { blockedId: userId }],
+        [Report, { reporterId: userId }],
+        [Report, { reportedUserId: userId }],
+        [RefreshToken, { userId }],
+        [EmailToken, { userId }],
+      ];
+      for (const [entity, where] of erase) {
+        await manager.softDelete(entity, { ...where, deletedAt: IsNull() });
+      }
       await manager.update(
         GameReview,
         { createdById: userId },

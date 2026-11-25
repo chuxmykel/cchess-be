@@ -1,7 +1,11 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import { DataSource } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { DirectMessage } from '../src/messages/entities/direct-message.entity.js';
+import { Friendship } from '../src/friends/entities/friendship.entity.js';
+import { RefreshToken } from '../src/auth/entities/refresh-token.entity.js';
 import {
   createTestApp,
   makeFriends,
@@ -83,6 +87,33 @@ describe('Account deletion (e2e)', () => {
     expect((await as(bob).get('/friends').expect(200)).body).toEqual([]);
     expect((await as(bob).get('/messages').expect(200)).body).toEqual([]);
     await as(bob).get(`/users/${ana.username}`).expect(404);
+  });
+
+  it('soft-deletes what is personal, for a purge to erase later', async () => {
+    await as(ana)
+      .delete('/users/me')
+      .send({ password: 'password123' })
+      .expect(204);
+
+    const db = app.get(DataSource);
+    const kept = [
+      await db.getRepository(DirectMessage).find({
+        where: { senderId: ana.userId },
+        withDeleted: true,
+      }),
+      await db.getRepository(Friendship).find({
+        where: [{ requesterId: ana.userId }, { addresseeId: ana.userId }],
+        withDeleted: true,
+      }),
+      await db.getRepository(RefreshToken).find({
+        where: { userId: ana.userId },
+        withDeleted: true,
+      }),
+    ];
+    for (const rows of kept) {
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((row) => row.deletedAt !== null)).toBe(true);
+    }
   });
 
   it('deletes a guest without a password', async () => {

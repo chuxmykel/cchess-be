@@ -85,10 +85,10 @@ soft-deleted (`softDelete`). An upsert that brings a row back sets
 something, as the daily seek claim does. Raw SQL has to filter on `deletedAt`
 itself. Repository finds skip soft-deleted rows on their own.
 
-The one exception is deleting an account (`AccountDeletionService`,
-`src/account/`): personal data is deleted outright there, since the
-stores require it gone, and the user row is anonymised rather than deleted
-so its games keep a player (docs/features.md, "Deleting an account").
+Deleting an account (`AccountDeletionService`, `src/account/`) follows
+it too: personal data is soft-deleted, and the user row anonymised rather
+than deleted so its games keep a player (docs/features.md, "Deleting an
+account"). Erasing it for good is a purge's job, not yet written.
 
 Migrations are written with `queryRunner`'s schema methods (`createTable`,
 `addColumn`, `createIndex`, `createForeignKey`, ...), naming their
