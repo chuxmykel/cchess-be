@@ -17,7 +17,7 @@ function escapeHtml(text: string): string {
 function page(paragraphs: string[], button?: { label: string; link: string }) {
   const body = paragraphs.map((p) => `<p>${escapeHtml(p)}</p>`).join('');
   const action = button
-    ? `<p><a href="${escapeHtml(button.link)}" style="display:inline-block;padding:12px 20px;background:#769656;color:#fff;text-decoration:none;border-radius:8px;font-weight:600">${escapeHtml(button.label)}</a></p>` +
+    ? `<p><a href="${escapeHtml(button.link)}" style="display:inline-block;padding:12px 20px;background:#c2411a;color:#fff;text-decoration:none;border-radius:8px;font-weight:600">${escapeHtml(button.label)}</a></p>` +
       `<p style="color:#666;font-size:13px">Or open this link: ${escapeHtml(button.link)}</p>`
     : '';
   return `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#222;max-width:520px">${body}${action}</div>`;
