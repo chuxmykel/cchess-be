@@ -72,14 +72,14 @@ export class WebController {
   @Header('Content-Type', HTML)
   @ApiExcludeEndpoint()
   verifyEmail(): string {
-    return verifyEmailPage();
+    return verifyEmailPage(this.supportEmail);
   }
 
   @Get('app/reset-password')
   @Header('Content-Type', HTML)
   @ApiExcludeEndpoint()
   resetPassword(): string {
-    return resetPasswordPage(MIN_PASSWORD_LENGTH);
+    return resetPasswordPage(MIN_PASSWORD_LENGTH, this.supportEmail);
   }
 
   @Get('.well-known/apple-app-site-association')

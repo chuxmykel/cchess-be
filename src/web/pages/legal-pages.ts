@@ -1,5 +1,10 @@
 import { escapeHtml, layout } from './layout.js';
 
+/** Under each legal page: the others. */
+const LEGAL_FOOTER = `<a href="/legal/privacy">Privacy policy</a> &middot;
+<a href="/legal/terms">Terms of use</a> &middot;
+<a href="/account/delete">Delete your account</a>`;
+
 /**
  * The privacy policy and terms of use. DRAFTS, written for a free chess app
  * run by one person: read them, and have them checked, before the app is
@@ -60,11 +65,12 @@ address.</li>
 </ul>
 
 <h2>How long we keep it</h2>
-<p>As long as your account exists. When you delete it, your email, password,
-profile, messages, chat, notes, friends and blocks are deleted at once. Your
-finished games stay, so your opponents' histories and ratings still make
-sense, but under "Deleted player", with nothing that identifies you. Copies in
-our backups are gone within 30 days.</p>
+<p>As long as your account exists. When you delete it, your email, password
+and profile are erased at once, and your messages, chat, notes, friends and
+blocks are removed at once and erased for good within 30 days. Your finished
+games stay, so your opponents' histories and ratings still make sense, but
+under "Deleted player", with nothing that identifies you. Copies in our
+backups are gone within 30 days.</p>
 
 <h2>Deleting your account</h2>
 <p>In the app: Settings, Delete account. Or see
@@ -83,6 +89,7 @@ an account, write to us and we'll delete it.</p>
 <h2>Changes</h2>
 <p>If this policy changes, the date above changes, and the app tells you about
 anything that matters.</p>`,
+    { footer: LEGAL_FOOTER },
   );
 }
 
@@ -136,6 +143,7 @@ breaks these terms.</p>
 <h2>Changes</h2>
 <p>If these terms change, the date above changes and the app asks you to accept
 them again.</p>`,
+    { footer: LEGAL_FOOTER },
   );
 }
 
@@ -150,10 +158,12 @@ your password. It's deleted at once.</p>
 from the address on your account, with your username, asking for it to be
 deleted. We delete it within 7 days and reply when it's done.</p>
 <h2>What's deleted</h2>
-<p>Your email, password, profile, direct messages, game chat, notes, friends,
-challenges and blocks are deleted. Your finished games stay, so your opponents'
-histories and ratings still make sense, but under "Deleted player", with
-nothing that identifies you. Copies in backups are gone within 30 days. See the
+<p>Your email, password and profile are erased at once. Your direct messages,
+game chat, notes, friends, challenges and blocks are removed at once and erased
+for good within 30 days. Your finished games stay, so your opponents' histories
+and ratings still make sense, but under "Deleted player", with nothing that
+identifies you. Copies in backups are gone within 30 days. See the
 <a href="/legal/privacy">privacy policy</a>.</p>`,
+    { footer: LEGAL_FOOTER },
   );
 }
