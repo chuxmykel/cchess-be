@@ -1,7 +1,9 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import { DataSource } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { DirectMessage } from '../src/messages/entities/direct-message.entity.js';
 import { LogMailer } from '../src/mail/log-mailer.js';
 import { Mailer } from '../src/mail/mailer.js';
 import {
@@ -83,6 +85,35 @@ describe('Reports and moderation (e2e)', () => {
       .post('/reports')
       .send({ username: ana.username, reason: 'spam' })
       .expect(400);
+  });
+
+  it('takes a message down for both players, soft-deleted', async () => {
+    const sent = await as(bob)
+      .post(`/messages/${ana.username}`)
+      .send({ text: 'you are terrible' })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .delete(`/internal/direct-messages/${sent.body.id}`)
+      .expect(204);
+    await request(app.getHttpServer())
+      .delete(`/internal/direct-messages/${sent.body.id}`)
+      .expect(404);
+
+    for (const [reader, other] of [
+      [ana, bob],
+      [bob, ana],
+    ]) {
+      const history = await as(reader)
+        .get(`/messages/${other.username}`)
+        .expect(200);
+      expect(JSON.stringify(history.body)).not.toContain('you are terrible');
+    }
+    const kept = await app
+      .get(DataSource)
+      .getRepository(DirectMessage)
+      .findOne({ where: { id: sent.body.id }, withDeleted: true });
+    expect(kept?.deletedAt).not.toBeNull();
   });
 
   it('suspends an account until unsuspended', async () => {

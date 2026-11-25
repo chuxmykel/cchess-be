@@ -291,7 +291,8 @@ for maintenance - `docker compose exec api curl ...`):
   (refresh tokens revoked, sockets closed by `user.suspended`) and refuses
   their sign-ins (403) and tokens until `.../unsuspend`.
 - `DELETE /internal/game-chat/:id` and `DELETE /internal/direct-messages/:id`
-  take a message down, deleted outright.
+  take a message down: soft-deleted, so it's gone from both players at
+  once, and erased for good by the purge (see "Deleting an account").
 
 ### Filtering what players write
 

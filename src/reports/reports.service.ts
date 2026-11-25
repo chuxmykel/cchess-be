@@ -7,7 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, IsNull, Repository } from 'typeorm';
 
 import { RefreshToken } from '../auth/entities/refresh-token.entity.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
@@ -156,15 +156,16 @@ export class ReportsService {
       .update({ id: user.id }, { suspendedAt: null });
   }
 
-  /** Takes a message down - deleted outright, its copy kept in the
-   * report. */
+  /** Takes a message down - soft-deleted, gone from both players at once
+   * and erased for good by the purge; its copy kept in the report. */
   async deleteMessage(
     kind: 'game-chat' | 'direct-message',
     messageId: string,
   ): Promise<void> {
     const { affected } = await this.dataSource
       .getRepository(kind === 'game-chat' ? GameChatMessage : DirectMessage)
-      .delete({ id: messageId });
+      // deletedAt in the criteria: one already taken down is not found.
+      .softDelete({ id: messageId, deletedAt: IsNull() });
     if (!affected) throw new NotFoundException('Message not found');
   }
 
