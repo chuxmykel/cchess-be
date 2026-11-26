@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 
+import { maskProfanity } from '../../common/profanity.js';
 import {
   CHAT_MESSAGE_KINDS,
   type ChatMessageKind,
@@ -32,13 +33,15 @@ export class ChatMessageDto {
   createdAt!: Date;
 }
 
+/** A game chat message as it goes out - its words masked (they're kept as
+ * written, for a report to show what was said). */
 export function toChatMessageDto(message: GameChatMessage): ChatMessageDto {
   return {
     id: message.id,
     gameId: message.gameId,
     userId: message.userId,
     kind: message.kind,
-    text: message.text,
+    text: maskProfanity(message.text),
     createdAt: message.createdAt,
   };
 }

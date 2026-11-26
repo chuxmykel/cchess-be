@@ -11,7 +11,6 @@ import { BlocksService } from '../blocks/blocks.service.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
 import { Friendship } from '../friends/entities/friendship.entity.js';
 import { UsersService } from '../users/users.service.js';
-import { maskProfanity } from '../common/profanity.js';
 import { SlidingWindowLimiter } from '../common/sliding-window-limiter.js';
 import { chatAllowed } from './chat-rules.js';
 import { isChatOpen } from './chat-window.js';
@@ -91,7 +90,7 @@ export class GameChatService {
     this.limiter.recordOrThrow(`${gameId}:${userId}`);
 
     const message = await this.messages.save(
-      this.messages.create({ gameId, userId, text: maskProfanity(trimmed) }),
+      this.messages.create({ gameId, userId, text: trimmed }),
     );
     this.events.emit(DOMAIN_EVENTS.GAME_CHAT_MESSAGE, {
       game,

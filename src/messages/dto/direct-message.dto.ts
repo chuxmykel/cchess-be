@@ -10,6 +10,7 @@ import {
   Min,
 } from 'class-validator';
 
+import { maskProfanity } from '../../common/profanity.js';
 import type { MessageAttachment } from '../attachment.js';
 import type { DirectMessage } from '../entities/direct-message.entity.js';
 
@@ -152,12 +153,14 @@ export class SeenDto {
   theirLastReadAt!: Date | null;
 }
 
+/** A direct message as it goes out - its words masked (they're kept as
+ * written, for a report to show what was said). */
 export function toDirectMessageDto(message: DirectMessage): DirectMessageDto {
   return {
     id: message.id,
     senderId: message.senderId,
     recipientId: message.recipientId,
-    text: message.text,
+    text: maskProfanity(message.text),
     attachment: message.attachment ?? null,
     createdAt: message.createdAt,
   };

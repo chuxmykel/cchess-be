@@ -1,6 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { io } from 'socket.io-client';
+import { DataSource } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -8,6 +9,7 @@ import {
   makeFriends,
   registerUser,
 } from './utils/app.js';
+import { GameChatMessage } from '../src/games/entities/game-chat-message.entity.js';
 import { connect, waitForEvent } from './utils/socket.js';
 
 describe('Realtime gateway (e2e)', () => {
@@ -378,6 +380,38 @@ describe('Realtime gateway (e2e)', () => {
         gameId,
         messages: [expected],
       });
+
+      whiteSocket.disconnect();
+      blackSocket.disconnect();
+    });
+
+    it('keeps a message as written, masking it as it goes out', async () => {
+      const { gameId, whiteSocket, blackSocket } = await startGame(
+        'tess_rt',
+        'umar_rt',
+      );
+
+      const seenByBlack = waitForEvent<{ text: string }>(
+        blackSocket,
+        'game:chat',
+      );
+      whiteSocket.emit('game:chat', { gameId, text: 'you fucking idiot' });
+      await expect(seenByBlack).resolves.toMatchObject({
+        text: 'you ****ing idiot',
+      });
+
+      const history = waitForEvent<{ messages: { text: string }[] }>(
+        blackSocket,
+        'game:chatHistory',
+      );
+      blackSocket.emit('game:chatHistory', { gameId });
+      expect((await history).messages[0].text).toBe('you ****ing idiot');
+
+      const kept = await app
+        .get(DataSource)
+        .getRepository(GameChatMessage)
+        .findOneByOrFail({ gameId });
+      expect(kept.text).toBe('you fucking idiot');
 
       whiteSocket.disconnect();
       blackSocket.disconnect();

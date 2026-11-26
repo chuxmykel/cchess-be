@@ -22,7 +22,8 @@ export function isProfane(text: string): boolean {
 }
 
 /** The text with each slur or obscenity masked with asterisks - for chat
- * and messages, which go through. */
+ * and messages, which go through: kept as written, masked as they're sent
+ * out (toChatMessageDto, toDirectMessageDto). */
 export function maskProfanity(text: string): string {
   const matches = matcher.getAllMatches(text);
   return matches.length === 0 ? text : censor.applyTo(text, matches);

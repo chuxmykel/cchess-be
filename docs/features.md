@@ -306,8 +306,10 @@ seeks aren't affected - the bots don't seek daily games.
 
 ### Filtering what players write
 
-Game chat and direct messages have slurs and obscenities masked with
-asterisks before they're kept or sent ("you \*\*\*\*ing idiot"); a username,
+Game chat and direct messages are kept as written, and have slurs and
+obscenities masked with asterisks as they're sent out ("you \*\*\*\*ing
+idiot") - in the one mapper each goes out by (`toChatMessageDto`,
+`toDirectMessageDto`), so a report keeps what was really said; a username,
 display name or bio with one is refused (400). The words are the
 `obscenity` package's English list, with its handling of look-alikes
 ("sh1t", "fuuuck") and its whitelist, so "Scunthorpe" and "assessment" pass

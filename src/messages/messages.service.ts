@@ -8,7 +8,6 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
 
-import { maskProfanity } from '../common/profanity.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
 import { SlidingWindowLimiter } from '../common/sliding-window-limiter.js';
 import { FriendsService } from '../friends/friends.service.js';
@@ -26,6 +25,7 @@ import {
   DEFAULT_MESSAGES_PAGE,
   MAX_CONVERSATIONS_PAGE,
   MAX_MESSAGES_PAGE,
+  toDirectMessageDto,
 } from './dto/direct-message.dto.js';
 import { Conversation } from './entities/conversation.entity.js';
 import {
@@ -108,7 +108,7 @@ export class MessagesService {
       this.messages.create({
         senderId,
         recipientId: recipient.id,
-        text: maskProfanity(trimmed),
+        text: trimmed,
         attachment,
       }),
     );
@@ -234,14 +234,15 @@ export class MessagesService {
         displayName: row.displayName,
         avatarColor: row.avatarColor,
       },
-      lastMessage: {
+      // Through the one mapper every message goes out by, masked there.
+      lastMessage: toDirectMessageDto({
         id: row.id,
         senderId: row.senderId,
         recipientId: row.recipientId,
         text: row.text,
         attachment: row.attachment,
         createdAt: row.createdAt,
-      },
+      } as DirectMessage),
       unreadCount: Number(row.unreadCount),
       theirLastReadAt: row.theirLastReadAt,
     }));
