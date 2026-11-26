@@ -4,6 +4,7 @@ import type { INestApplication } from '@nestjs/common';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 import { AppModule } from './app.module.js';
@@ -57,9 +58,14 @@ async function bootstrap() {
   // to be given before the app exists. dotenv has already loaded .env by
   // now (cluster.util.ts, reached through AppModule's imports).
   const logLevel = process.env.LOG_LEVEL?.trim().toLowerCase();
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: logLevelsFrom(logLevel),
   });
+  // Behind a proxy (Caddy, in production), which addresses to believe in
+  // X-Forwarded-For - Express's own setting, e.g. "loopback, uniquelocal"
+  // - so the sign-in limits see each player's address, not the proxy's.
+  const trustProxy = process.env.TRUST_PROXY?.trim();
+  if (trustProxy) app.set('trust proxy', trustProxy);
   if (logLevel && !isLogLevel(logLevel)) {
     logger.warn(
       `LOG_LEVEL "${process.env.LOG_LEVEL}" isn't a level - using "${DEFAULT_LOG_LEVEL}"`,
@@ -75,12 +81,14 @@ async function bootstrap() {
 
   configureCors(app, configService);
   configureValidationPipe(app);
-  setupSwagger(app);
+  const swagger = configService.get('swagger', { infer: true });
+  if (swagger) setupSwagger(app);
 
   const port = configService.get('port', { infer: true });
   await app.listen(port);
   logger.log(
-    `✅ cchess-be listening on :${port} (docs 📚 at /docs)` +
+    `✅ cchess-be listening on :${port}` +
+      (swagger ? ' (docs 📚 at /docs)' : '') +
       (CLUSTERING_ENABLED
         ? ` [cluster worker ${process.env.CLUSTER_WORKER_INDEX}/${CLUSTER_WORKERS}]`
         : ''),

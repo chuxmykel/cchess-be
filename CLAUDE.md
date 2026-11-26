@@ -30,7 +30,7 @@ nvm use                  # Node 24.15.0 pinned in .nvmrc - this is independent o
                           # the frontend's Node 22 pin, not a typo
 npm install
 
-npm run start:dev        # watch mode, :3000, docs at /docs (Swagger)
+npm run start:dev        # watch mode, :3000, docs at /docs (Swagger; off in production unless SWAGGER=true)
 npm run build             # tsc build via `nest build`
 
 npm test                  # unit specs: src/**/*.spec.ts - no DB, no .env
@@ -85,6 +85,11 @@ soft-deleted (`softDelete`). An upsert that brings a row back sets
 something, as the daily seek claim does. Raw SQL has to filter on `deletedAt`
 itself. Repository finds skip soft-deleted rows on their own.
 
+Deleting an account (`AccountDeletionService`, `src/account/`) follows
+it too: personal data is soft-deleted, and the user row anonymised rather
+than deleted so its games keep a player (docs/features.md, "Deleting an
+account"). Erasing it for good is a purge's job, not yet written.
+
 Migrations are written with `queryRunner`'s schema methods (`createTable`,
 `addColumn`, `createIndex`, `createForeignKey`, ...), naming their
 constraints and indexes, and move data with `queryRunner.manager`'s query
@@ -95,8 +100,8 @@ applies a file the moment it lands in `src/database/migrations/`. Check drift
 with `migration:generate -- <path> --dryrun`, never by generating a throwaway
 migration there.
 
-The explorer's lichess client (`LichessExplorerClient`) is the only code
-that reaches outside the server. Tests never reach lichess:
+The explorer's lichess client (`LichessExplorerClient`) and the mailer
+(`ResendMailer`) are the only code that reaches outside the server. Tests never reach lichess:
 `LICHESS_TOKEN` is blanked and `EXPLORER_MAINTENANCE=false` in both vitest
 configs, and the e2e swaps the client for a fake (`createTestApp`'s
 `configure`). The lichess queue restores its learned state
@@ -182,6 +187,30 @@ access 'X' before initialization` at runtime for any circular entity
   init), not the gateway itself - so friends and profiles can ask without a
   dependency on `RealtimeGateway`. It reads the `user:{id}` rooms through
   the Socket.IO adapter, so it sees every cluster worker.
+- **Email goes through `Mailer`** (`src/mail/`, a global module): Resend's
+  HTTP API when `RESEND_API_KEY` is set, otherwise `LogMailer`, which only
+  logs - and keeps what it would have sent in `sent`, for a test to read.
+  Both vitest configs blank the key, so no test ever sends.
+- **Account email is single-use links** (`AccountEmailService`): verify,
+  change of address and password reset, each token stored hashed in
+  `email_tokens`, a new one replacing the unused one of its kind, and
+  redeemed with a conditional `UPDATE` so two clicks can't both use it. A
+  reset revokes every refresh token. See docs/features.md, "Accounts and
+  safety".
+- **Rate limits** (`src/auth/rate-limits.ts`, `SlidingWindowLimiter`) are in
+  memory, per cluster worker, and off with `AUTH_RATE_LIMITS=false` - the
+  e2e config sets it, since every request there comes from one address.
+  Anything else that drives a local server hard from one address (the
+  app's e2e backend, the bots) needs it too.
+- **Blocks are global** (`BlocksModule`): friends, challenges, rematches,
+  game chat, matchmaking and daily seeks each ask `BlocksService`, which
+  imports none of them. What a block ends elsewhere, it ends by emitting
+  `user.blocked`, awaited (`emitAsync`) so it's done by the reply. A seek
+  carries `avoidUserIds`, which `canPair` checks.
+- **The legal pages are drafts** (`src/web/pages/legal-pages.ts`), to be
+  reviewed before the app is published. Their dates are `TERMS_VERSION`
+  and `PRIVACY_VERSION` (`src/legal/legal.ts`): changing the terms' date
+  asks every player to accept them again.
 - **`GET /users/:username` lives in `ProfilesModule`**, not `UsersModule` -
   it needs games, friends and presence, which `UsersModule` can't import
   without a cycle. `app.module.ts` registers it after `UsersModule` so

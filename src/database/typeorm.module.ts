@@ -1,7 +1,9 @@
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { EmailToken } from '../auth/entities/email-token.entity.js';
 import { RefreshToken } from '../auth/entities/refresh-token.entity.js';
+import { UserBlock } from '../blocks/entities/user-block.entity.js';
 import { Challenge } from '../challenges/entities/challenge.entity.js';
 import { DailySeek } from '../daily-seeks/entities/daily-seek.entity.js';
 import {
@@ -23,6 +25,7 @@ import { GameNote } from '../games/entities/game-note.entity.js';
 import { GameReview } from '../games/entities/game-review.entity.js';
 import { Conversation } from '../messages/entities/conversation.entity.js';
 import { DirectMessage } from '../messages/entities/direct-message.entity.js';
+import { Report } from '../reports/entities/report.entity.js';
 import { Rating } from '../users/entities/rating.entity.js';
 import { User } from '../users/entities/user.entity.js';
 
@@ -58,6 +61,9 @@ export const typeOrmModule = TypeOrmModule.forRootAsync({
       User,
       Rating,
       RefreshToken,
+      EmailToken,
+      UserBlock,
+      Report,
       Friendship,
       Game,
       Move,

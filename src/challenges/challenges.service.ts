@@ -7,7 +7,7 @@ import {
   NotFoundException,
   type OnModuleDestroy,
 } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
   type FindOptionsWhere,
@@ -23,6 +23,10 @@ import {
   SECONDS_PER_DAY,
   type TimeControl,
 } from '../chess/time-control.js';
+import {
+  BlocksService,
+  type UserBlockedEvent,
+} from '../blocks/blocks.service.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
 import { Game } from '../games/entities/game.entity.js';
 import { GamesService } from '../games/games.service.js';
@@ -68,7 +72,15 @@ export class ChallengesService implements OnModuleDestroy {
     private readonly usersService: UsersService,
     private readonly gamesService: GamesService,
     private readonly events: EventEmitter2,
+    private readonly blocksService: BlocksService,
   ) {}
+
+  /** A block cancels the challenges waiting between the two, either way. */
+  @OnEvent(DOMAIN_EVENTS.USER_BLOCKED)
+  async onUserBlocked({ blockerId, blockedId }: UserBlockedEvent) {
+    await this.cancelPendingBetween(blockerId, blockedId);
+    await this.cancelPendingBetween(blockedId, blockerId);
+  }
 
   onModuleDestroy(): void {
     for (const timer of this.expiryTimers.values()) clearTimeout(timer);
@@ -87,6 +99,11 @@ export class ChallengesService implements OnModuleDestroy {
     if (!opponent) throw new NotFoundException('User not found');
     if (opponent.id === challenger.id)
       throw new BadRequestException("You can't challenge yourself");
+    if (
+      await this.blocksService.isBlockedEitherWay(challenger.id, opponent.id)
+    ) {
+      throw new ForbiddenException("You can't challenge this player");
+    }
     await this.gamesService.assertCanStart(challenger.id, tc);
 
     await this.cancelPendingBetween(challenger.id, opponent.id);

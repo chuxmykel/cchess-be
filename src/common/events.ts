@@ -36,6 +36,13 @@ export const DOMAIN_EVENTS = {
   FRIEND_REMOVED: 'friend.removed',
   DIRECT_MESSAGE_SENT: 'directMessage.sent',
   DIRECT_MESSAGES_READ: 'directMessage.read',
+  /** One player blocked another: friendships, requests and challenges
+   * between them end. */
+  USER_BLOCKED: 'user.blocked',
+  /** An account was suspended: its sockets are closed. */
+  USER_SUSPENDED: 'user.suspended',
+  /** An account was deleted: its sockets are closed. */
+  USER_DELETED: 'user.deleted',
   MAINTENANCE_CHANGED: 'maintenance.changed',
   MAINTENANCE_UNDERWAY: 'maintenance.underway',
 } as const;

@@ -14,6 +14,9 @@ export class UserSearchResultDto {
 
   @ApiProperty()
   avatarColor!: string;
+
+  @ApiProperty({ description: 'A computer opponent' })
+  isBot!: boolean;
 }
 
 export function toUserSearchResultDto(user: User): UserSearchResultDto {
@@ -22,5 +25,6 @@ export function toUserSearchResultDto(user: User): UserSearchResultDto {
     username: user.username,
     displayName: user.displayName,
     avatarColor: user.avatarColor,
+    isBot: user.isBot,
   };
 }

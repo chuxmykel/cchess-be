@@ -33,11 +33,27 @@ export class User {
   @Column({ type: 'varchar', nullable: true })
   passwordHash!: string | null;
 
+  /** When the player proved they read `email`'s inbox - null until then,
+   * and again once the address changes. */
+  @Column({ type: 'timestamptz', nullable: true })
+  emailVerifiedAt!: Date | null;
+
   @Column({ type: 'varchar', length: DISPLAY_NAME_MAX_LENGTH })
   displayName!: string;
 
   @Column({ type: 'boolean', default: false })
   isGuest!: boolean;
+
+  /** A computer opponent - a house bot. Two are never paired by
+   * matchmaking, and players see them marked as bots. Set by an operator
+   * (`/internal/users/:username/bot`). */
+  @Column({ type: 'boolean', default: false })
+  isBot!: boolean;
+
+  /** Whether they chat in games with players who aren't their friends -
+   * both players have to have chosen it. Off until turned on. */
+  @Column({ type: 'boolean', default: false })
+  chatWithStrangers!: boolean;
 
   @Column({ type: 'varchar', length: BIO_MAX_LENGTH, nullable: true })
   bio!: string | null;
@@ -49,6 +65,24 @@ export class User {
 
   @OneToMany(() => Rating, (rating) => rating.user)
   ratings!: Rating[];
+
+  /** When the player deleted their account: the row stays, anonymised, so
+   * their opponents' games keep a name (see AccountDeletionService). */
+  @Column({ type: 'timestamptz', nullable: true })
+  accountDeletedAt!: Date | null;
+
+  /** The terms of use the player accepted (TERMS_VERSION, a date), and
+   * when - null for guests, who've signed up to nothing. */
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  termsVersion!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  termsAcceptedAt!: Date | null;
+
+  /** While set, the account can't sign in or be used - after reports, by
+   * the internal moderation endpoints. */
+  @Column({ type: 'timestamptz', nullable: true })
+  suspendedAt!: Date | null;
 
   /** Updated on login and on realtime gateway connect; powers "last active". */
   @Column({ type: 'timestamptz', nullable: true })

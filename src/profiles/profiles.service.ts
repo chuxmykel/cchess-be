@@ -1,3 +1,4 @@
+import { BlocksService } from '../blocks/blocks.service.js';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -37,11 +38,14 @@ export class ProfilesService {
     private readonly gamesService: GamesService,
     private readonly friendsService: FriendsService,
     private readonly presenceService: PresenceService,
+    private readonly blocksService: BlocksService,
   ) {}
 
   async findUserOrThrow(username: string): Promise<User> {
     const user = await this.usersService.findByUsername(username);
-    if (!user) throw new NotFoundException('User not found');
+    if (!user || user.accountDeletedAt) {
+      throw new NotFoundException('User not found');
+    }
     return user;
   }
 
@@ -51,16 +55,25 @@ export class ProfilesService {
   ): Promise<PublicProfileDto> {
     const user = await this.findUserOrThrow(username);
     const isSelf = user.id === viewerId;
-    const [ratings, online, playing, totals, friendsCount, friendship, score] =
-      await Promise.all([
-        this.usersService.getRatings(user.id),
-        this.presenceService.isOnline(user.id),
-        this.gamesService.activeGameIdsFor([user.id]),
-        this.finishedGameTotals(user.id),
-        this.friendsService.countFriends(user.id),
-        this.viewerFriendship(viewerId, user.id),
-        isSelf ? null : this.scoreAgainst(viewerId, user.id),
-      ]);
+    const [
+      ratings,
+      online,
+      playing,
+      totals,
+      friendsCount,
+      friendship,
+      score,
+      blockedByYou,
+    ] = await Promise.all([
+      this.usersService.getRatings(user.id),
+      this.presenceService.isOnline(user.id),
+      this.gamesService.activeGameIdsFor([user.id]),
+      this.finishedGameTotals(user.id),
+      this.friendsService.countFriends(user.id),
+      this.viewerFriendship(viewerId, user.id),
+      isSelf ? null : this.scoreAgainst(viewerId, user.id),
+      isSelf ? false : this.blocksService.hasBlocked(viewerId, user.id),
+    ]);
     const profile = toProfileDto(user, ratings);
     return {
       id: profile.id,
@@ -69,6 +82,7 @@ export class ProfilesService {
       bio: profile.bio,
       avatarColor: profile.avatarColor,
       isGuest: profile.isGuest,
+      isBot: profile.isBot,
       ratings: profile.ratings,
       createdAt: profile.createdAt,
       lastSeenAt: user.lastSeenAt,
@@ -78,6 +92,7 @@ export class ProfilesService {
       friendsCount,
       friendship,
       score,
+      blockedByYou,
     };
   }
 

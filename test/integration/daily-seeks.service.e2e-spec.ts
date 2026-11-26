@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { truncateAllTables } from '../utils/db.js';
 import { RefreshToken } from '../../src/auth/entities/refresh-token.entity.js';
+import { BlocksService } from '../../src/blocks/blocks.service.js';
+import { UserBlock } from '../../src/blocks/entities/user-block.entity.js';
 import { ClusterModule } from '../../src/cluster/cluster.module.js';
 import { MaintenanceService } from '../../src/maintenance/maintenance.service.js';
 import { requireEnv } from '../../src/common/require-env.js';
@@ -51,6 +53,7 @@ async function buildModule() {
           Move,
           DailySeek,
           ConditionalMoveSet,
+          UserBlock,
         ],
         synchronize: false,
       }),
@@ -61,6 +64,7 @@ async function buildModule() {
         Move,
         DailySeek,
         ConditionalMoveSet,
+        UserBlock,
       ]),
     ],
     providers: [
@@ -68,6 +72,7 @@ async function buildModule() {
       GamesService,
       UsersService,
       MaintenanceService,
+      BlocksService,
     ],
   }).compile();
 

@@ -1,6 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { io } from 'socket.io-client';
+import { DataSource } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -8,6 +9,7 @@ import {
   makeFriends,
   registerUser,
 } from './utils/app.js';
+import { GameChatMessage } from '../src/games/entities/game-chat-message.entity.js';
 import { connect, waitForEvent } from './utils/socket.js';
 
 describe('Realtime gateway (e2e)', () => {
@@ -305,6 +307,56 @@ describe('Realtime gateway (e2e)', () => {
   });
 
   describe('chat', () => {
+    it('lets strangers chat only once both have chosen to', async () => {
+      const white = await registerUser(app, 'ula_rt');
+      const black = await registerUser(app, 'vic_rt');
+      const challenge = await request(app.getHttpServer())
+        .post('/challenges')
+        .set('Authorization', `Bearer ${white.accessToken}`)
+        .send({
+          opponentUsername: black.username,
+          initialSeconds: 300,
+          incrementSeconds: 0,
+        })
+        .expect(201);
+      const game = await request(app.getHttpServer())
+        .post(`/challenges/${challenge.body.id}/accept`)
+        .set('Authorization', `Bearer ${black.accessToken}`)
+        .expect(201);
+      const gameId = game.body.id as string;
+      const whiteSocket = await connect(baseUrl, white.accessToken);
+
+      const historyEnabled = async () => {
+        const history = waitForEvent<{ enabled: boolean }>(
+          whiteSocket,
+          'game:chatHistory',
+        );
+        whiteSocket.emit('game:chatHistory', { gameId });
+        return (await history).enabled;
+      };
+
+      expect(await historyEnabled()).toBe(false);
+      const refused = waitForEvent<{ message: string }>(
+        whiteSocket,
+        'game:error',
+      );
+      whiteSocket.emit('game:chat', { gameId, text: 'hi' });
+      await expect(refused).resolves.toMatchObject({
+        message: 'Chat is off for this game',
+      });
+
+      for (const player of [white, black]) {
+        await request(app.getHttpServer())
+          .patch('/users/me')
+          .set('Authorization', `Bearer ${player.accessToken}`)
+          .send({ chatWithStrangers: true })
+          .expect(200);
+      }
+      expect(await historyEnabled()).toBe(true);
+
+      whiteSocket.disconnect();
+    });
+
     it('sends a message to both players and keeps it for later joins', async () => {
       const { gameId, whiteId, whiteSocket, blackSocket } = await startGame(
         'rita_rt',
@@ -328,6 +380,38 @@ describe('Realtime gateway (e2e)', () => {
         gameId,
         messages: [expected],
       });
+
+      whiteSocket.disconnect();
+      blackSocket.disconnect();
+    });
+
+    it('keeps a message as written, masking it as it goes out', async () => {
+      const { gameId, whiteSocket, blackSocket } = await startGame(
+        'tess_rt',
+        'umar_rt',
+      );
+
+      const seenByBlack = waitForEvent<{ text: string }>(
+        blackSocket,
+        'game:chat',
+      );
+      whiteSocket.emit('game:chat', { gameId, text: 'you fucking idiot' });
+      await expect(seenByBlack).resolves.toMatchObject({
+        text: 'you ****ing idiot',
+      });
+
+      const history = waitForEvent<{ messages: { text: string }[] }>(
+        blackSocket,
+        'game:chatHistory',
+      );
+      blackSocket.emit('game:chatHistory', { gameId });
+      expect((await history).messages[0].text).toBe('you ****ing idiot');
+
+      const kept = await app
+        .get(DataSource)
+        .getRepository(GameChatMessage)
+        .findOneByOrFail({ gameId });
+      expect(kept.text).toBe('you fucking idiot');
 
       whiteSocket.disconnect();
       blackSocket.disconnect();

@@ -37,6 +37,26 @@ describe('canPair', () => {
     expect(canPair(seek('black', 'a'), seek('black'))).toBe(false);
   });
 
+  it('never pairs two bots, only a bot with a player', () => {
+    const bot = (userId: string) => makeSeek({ userId, isBot: true });
+
+    expect(canPair(bot('a'), bot('b'))).toBe(false);
+    expect(canPair(bot('a'), makeSeek({ userId: 'player' }))).toBe(true);
+    expect(canPair(makeSeek({ userId: 'player' }), bot('b'))).toBe(true);
+  });
+
+  it('finds a waiting player for a bot, passing over the bots', () => {
+    const waiting = [
+      makeSeek({ userId: 'bot-1', isBot: true }),
+      makeSeek({ userId: 'player', rating: 1900 }),
+    ];
+
+    expect(
+      findBestOpponent(makeSeek({ userId: 'bot-2', isBot: true }), waiting)
+        ?.userId,
+    ).toBe('player');
+  });
+
   it('never pairs a player with themselves', () => {
     expect(canPair(makeSeek(), makeSeek())).toBe(false);
   });
@@ -176,5 +196,24 @@ describe('firstPlaysWhite', () => {
   it('tosses a coin when neither minds', () => {
     expect(firstPlaysWhite('random', 'random', () => true)).toBe(true);
     expect(firstPlaysWhite('random', 'random', () => false)).toBe(false);
+  });
+});
+
+describe('canPair and blocks', () => {
+  const seek = (userId: string, avoid: string[] = []) => ({
+    userId,
+    initialSeconds: 300,
+    incrementSeconds: 0,
+    rated: true,
+    rating: 1500,
+    ratingRange: null,
+    color: 'random' as const,
+    avoidUserIds: new Set(avoid),
+  });
+
+  it('never pairs two players when either has blocked the other', () => {
+    expect(canPair(seek('a', ['b']), seek('b'))).toBe(false);
+    expect(canPair(seek('a'), seek('b', ['a']))).toBe(false);
+    expect(canPair(seek('a', ['c']), seek('b'))).toBe(true);
   });
 });

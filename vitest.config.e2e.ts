@@ -30,6 +30,12 @@ export default defineConfig({
       LICHESS_EXPLORER_URL: 'http://127.0.0.1:9',
       // Tests run the upkeep themselves, so it never races their rows.
       EXPLORER_MAINTENANCE: 'false',
+      // No test ever sends email, whatever the dev .env holds: the log
+      // mailer keeps what would have gone.
+      RESEND_API_KEY: '',
+      // Every request here comes from one address, which the sign-in and
+      // sign-up limits would soon refuse.
+      AUTH_RATE_LIMITS: 'false',
     },
     fileParallelism: false,
   },

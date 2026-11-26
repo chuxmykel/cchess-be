@@ -43,6 +43,9 @@ export class GamePlayerDto {
       'Whether that rating was still uncertain (rating deviation above 110)',
   })
   provisional!: boolean;
+
+  @ApiProperty({ description: 'A computer opponent' })
+  isBot!: boolean;
 }
 
 export class SeriesScoreDto {
@@ -227,6 +230,7 @@ function toPlayerDto(
     avatarColor: user.avatarColor,
     rating,
     provisional: isProvisional(deviation),
+    isBot: user.isBot,
   };
 }
 

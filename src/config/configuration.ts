@@ -3,6 +3,36 @@ import { requireEnv } from '../common/require-env.js';
 export interface AppConfig {
   port: number;
   corsOrigin: string;
+  /** Where the server is reached from outside - https://api.chux.dev in
+   * production - for the links in its emails and pages. */
+  publicUrl: string;
+  app: {
+    /** The app's bundle ID / package name, the same on both stores. */
+    bundleId: string;
+    /** The oldest app version the server still works with: older ones
+     * are asked to update (GET /app/config). */
+    minimumVersion: string;
+    /** For iOS universal links: the Apple developer team's ID. */
+    appleTeamId?: string;
+    /** For Android app links: the SHA-256 fingerprints of the app's
+     * signing certificates (Play App Signing's, and the upload key's). */
+    androidCertSha256: string[];
+  };
+  /** Whether the API docs are served at /docs - not in production unless
+   * asked for. */
+  swagger: boolean;
+  /** Whether sign-in, sign-up and account emails are rate limited (see
+   * src/auth/rate-limits.ts) - off for test suites. */
+  authRateLimits: boolean;
+  mail: {
+    /** The sender, as "Name <address>". */
+    from: string;
+    /** Resend's API key; without one, email is logged rather than sent. */
+    resendApiKey?: string;
+    /** Where players reach a person: reports go here, and the app and
+     * pages show it. */
+    supportEmail: string;
+  };
   database: {
     host: string;
     port: number;
@@ -44,6 +74,27 @@ export interface AppConfig {
 export default (): AppConfig => ({
   port: Number(process.env.PORT ?? 3000),
   corsOrigin: process.env.CORS_ORIGIN ?? '*',
+  publicUrl: (
+    process.env.PUBLIC_URL || `http://localhost:${process.env.PORT ?? 3000}`
+  ).replace(/\/+$/, ''),
+  app: {
+    bundleId: process.env.APP_BUNDLE_ID || 'dev.chux.cchess',
+    minimumVersion: process.env.MIN_APP_VERSION || '0.0.0',
+    appleTeamId: process.env.APPLE_TEAM_ID || undefined,
+    androidCertSha256: (process.env.ANDROID_CERT_SHA256 ?? '')
+      .split(',')
+      .map((fingerprint) => fingerprint.trim())
+      .filter(Boolean),
+  },
+  swagger:
+    process.env.SWAGGER === 'true' ||
+    (process.env.SWAGGER !== 'false' && process.env.NODE_ENV !== 'production'),
+  authRateLimits: process.env.AUTH_RATE_LIMITS !== 'false',
+  mail: {
+    from: process.env.MAIL_FROM || 'cchess <no-reply@mail.chux.dev>',
+    resendApiKey: process.env.RESEND_API_KEY || undefined,
+    supportEmail: process.env.SUPPORT_EMAIL || 'support@chux.dev',
+  },
   database: {
     host: requireEnv('DB_HOST'),
     port: Number(requireEnv('DB_PORT')),

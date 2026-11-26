@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
+  Equals,
   IsEmail,
   IsString,
   Matches,
@@ -9,7 +10,8 @@ import {
 
 // bcrypt silently truncates/rejects input past 72 bytes - this is that
 // algorithm's own fixed limit, not a length this app chose.
-const BCRYPT_MAX_PASSWORD_LENGTH = 72;
+export const BCRYPT_MAX_PASSWORD_LENGTH = 72;
+export const MIN_PASSWORD_LENGTH = 8;
 
 export class RegisterDto {
   @ApiProperty({ minLength: 3, maxLength: 20, pattern: '^[a-zA-Z0-9_]+$' })
@@ -25,9 +27,15 @@ export class RegisterDto {
   @IsEmail()
   email!: string;
 
-  @ApiProperty({ minLength: 8 })
+  @ApiProperty({ minLength: MIN_PASSWORD_LENGTH })
   @IsString()
-  @MinLength(8)
+  @MinLength(MIN_PASSWORD_LENGTH)
   @MaxLength(BCRYPT_MAX_PASSWORD_LENGTH)
   password!: string;
+
+  @ApiProperty({
+    description: 'Must be true: the player accepts the terms of use in force',
+  })
+  @Equals(true, { message: 'Accept the terms of use to create an account' })
+  acceptTerms!: boolean;
 }

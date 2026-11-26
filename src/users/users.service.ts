@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
@@ -10,6 +11,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, QueryFailedError, Repository } from 'typeorm';
 
 import type { GameType } from '../chess/time-control.js';
+import { isProfane } from '../common/profanity.js';
+import { TERMS_VERSION } from '../legal/legal.js';
 import {
   Rating,
   STARTING_DEVIATION,
@@ -67,6 +70,13 @@ export class UsersService {
     return this.users.findOne({ where: { id } });
   }
 
+  /** The account, while it can still be used - not once deleted or
+   * while suspended. */
+  async findActiveById(id: string): Promise<User | null> {
+    const user = await this.findById(id);
+    return user && !user.accountDeletedAt && !user.suspendedAt ? user : null;
+  }
+
   async findByIdOrThrow(id: string): Promise<User> {
     const user = await this.findById(id);
     if (!user) throw new NotFoundException('User not found');
@@ -91,6 +101,7 @@ export class UsersService {
     return this.users
       .createQueryBuilder('u')
       .where('u.isGuest = false')
+      .andWhere('u.accountDeletedAt IS NULL')
       .andWhere('u.id != :excludeUserId', { excludeUserId })
       .andWhere(
         `(u.username LIKE :contains ${escape} OR LOWER(u.displayName) LIKE :contains ${escape})`,
@@ -124,6 +135,9 @@ export class UsersService {
   }): Promise<User> {
     const username = params.username.toLowerCase();
     const email = params.email.toLowerCase();
+    if (isProfane(username)) {
+      throw new BadRequestException("That username isn't allowed");
+    }
 
     if (await this.findByUsername(username)) {
       throw new ConflictException('Username is already taken');
@@ -140,6 +154,8 @@ export class UsersService {
       isGuest: false,
       bio: null,
       avatarColor: pickAvatarColor(username),
+      termsVersion: TERMS_VERSION,
+      termsAcceptedAt: new Date(),
     });
     const saved = await this.users.save(user);
 
@@ -204,13 +220,63 @@ export class UsersService {
 
   async updateProfile(
     userId: string,
-    updates: { displayName?: string; bio?: string | null },
+    updates: {
+      displayName?: string;
+      bio?: string | null;
+      chatWithStrangers?: boolean;
+    },
   ): Promise<User> {
+    if (
+      (updates.displayName && isProfane(updates.displayName)) ||
+      (updates.bio && isProfane(updates.bio))
+    ) {
+      throw new BadRequestException(
+        "Your name or bio has words that aren't allowed",
+      );
+    }
     const user = await this.findByIdOrThrow(userId);
     if (updates.displayName !== undefined)
       user.displayName = updates.displayName;
     if (updates.bio !== undefined) user.bio = updates.bio;
+    if (updates.chatWithStrangers !== undefined) {
+      user.chatWithStrangers = updates.chatWithStrangers;
+    }
     return this.users.save(user);
+  }
+
+  /** Marks the account's address as verified - only while it's still
+   * `email`, so a link to an address since replaced does nothing. */
+  async markEmailVerified(userId: string, email: string): Promise<boolean> {
+    const result = await this.users.update(
+      { id: userId, email: email.toLowerCase() },
+      { emailVerifiedAt: new Date() },
+    );
+    return (result.affected ?? 0) > 0;
+  }
+
+  /** Switches the account to a confirmed new address. */
+  async changeEmail(userId: string, email: string): Promise<void> {
+    const lowered = email.toLowerCase();
+    const owner = await this.findByEmail(lowered);
+    if (owner && owner.id !== userId) {
+      throw new ConflictException('An account with that email already exists');
+    }
+    await this.users.update(
+      { id: userId },
+      { email: lowered, emailVerifiedAt: new Date() },
+    );
+  }
+
+  /** Records that the player accepted the terms in force, now. */
+  async acceptTerms(userId: string): Promise<void> {
+    await this.users.update(
+      { id: userId },
+      { termsVersion: TERMS_VERSION, termsAcceptedAt: new Date() },
+    );
+  }
+
+  async setPasswordHash(userId: string, passwordHash: string): Promise<void> {
+    await this.users.update({ id: userId }, { passwordHash });
   }
 
   /** Returns the rating row (creating one at the starting rating if missing - e.g. a guest's first rated game). */

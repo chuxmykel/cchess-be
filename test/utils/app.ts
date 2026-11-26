@@ -58,6 +58,7 @@ export async function registerUser(
       username,
       email: `${username}@example.com`,
       password: 'password123',
+      acceptTerms: true,
     })
     .expect(201);
   return {

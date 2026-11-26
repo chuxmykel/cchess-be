@@ -209,3 +209,138 @@ messages with since you last cleared them, the newest message first - the
 person, that message, how many of theirs you haven't read, and when they
 last read yours. A page of `limit` (1-100, default 30); `before` (the last
 one's `lastMessage.createdAt`) gives the next.
+
+## Accounts and safety
+
+### Email
+
+Every account email is a single-use link, kept only as a hash
+(`email_tokens`), its token in the link alone:
+
+- Signing up mails a link to verify the address (24 hours); `GET
+/users/me`'s `emailVerified` says whether it has been. `POST
+/auth/email/verification` sends a new one.
+- `POST /auth/email/change { email, password }` mails a link to the new
+  address (24 hours) and tells the old one; the address changes only once
+  the link is used. `POST /auth/email/verify { token }` uses either kind.
+- `POST /auth/password/forgot { email }` mails a reset link (one hour) when
+  the address has an account - always 204, so it never says whether it
+  does. `POST /auth/password/reset { token, password }` sets the new
+  password, revokes every refresh token and mails a notice.
+
+A new link of a kind replaces the unused one before it. Links open
+`<PUBLIC_URL>/app/verify-email` or `/app/reset-password`: the app, where
+it's installed, by a universal / app link, or else the server's own page.
+Mail goes through `Mailer` (`src/mail/`): Resend when `RESEND_API_KEY` is
+set, otherwise logged.
+
+Sign-ins, sign-ups, guests and these emails are rate limited, per account
+and per IP address (`src/auth/rate-limits.ts`): only failed sign-ins count
+toward theirs. The limits are in memory, per cluster worker, and off with
+`AUTH_RATE_LIMITS=false`, as both test suites run. Behind a proxy,
+`TRUST_PROXY` says which addresses to believe in `X-Forwarded-For`.
+
+### Deleting an account
+
+`DELETE /users/me { password }` (no password for a guest) deletes the
+account, as both app stores require. Games in progress end first - aborted
+while they can be, resigned after - and any seek is withdrawn. Then, in one
+transaction, everything personal is soft-deleted, as every delete here
+is: direct messages and conversations both ways, game chat and read marks,
+notes, conditional moves, bookmarks, daily seeks, friendships, challenges,
+blocks and reports both ways, refresh and email tokens; reviews it asked
+for lose their `createdById`. Erasing those rows for good - within the 30
+days the privacy policy promises - is a purge still to be written.
+
+The user row stays, anonymised - `deleted_<random>`, "Deleted player", no
+email, password, bio or last-seen - with `accountDeletedAt` set, so its
+finished games and ratings still make sense in its opponents' history. Its
+sockets close (`user.deleted`), its access tokens are refused from then on
+(the JWT strategy and the socket handshake look the account up), and it
+never appears in player search.
+
+### Blocking
+
+`POST /users/:username/block` blocks a player, `DELETE` the same path
+unblocks, and `GET /users/me/blocks` lists those you've blocked, the latest
+first. A block works both ways, whoever made it: the two can't send each
+other friend requests or challenges (403), rematch, or chat in a game, and
+matchmaking and daily seeks never pair them. Blocking ends a friendship or
+a request between them, and cancels the challenges waiting either way -
+through `user.blocked`, which `FriendsService` and `ChallengesService`
+hear, pushing the usual `friend:*` and `challenge:*` events. A profile's
+`blockedByYou` says whether you've blocked them; nothing tells a player
+they've been blocked.
+
+### Reports and moderation
+
+`POST /reports { username, reason, details?, gameId?, messageId? }` reports
+a player - `reason` one of abuse, hate, sexual, spam, cheating, username or
+other. With `messageId` it's for a message: a chat message of `gameId`'s,
+the reporter's game, or without `gameId` a direct message the reported
+player sent the reporter; a copy of its words is kept with the report, so
+it can be judged once the message is gone. At most 10 an hour per player.
+Each report is mailed to `SUPPORT_EMAIL`, with the commands to act on it.
+
+Acting on reports is done from the server itself (`LoopbackOnlyGuard`, as
+for maintenance - `docker compose exec api curl ...`):
+
+- `GET /internal/reports?status=open|resolved`, and
+  `POST /internal/reports/:id/resolve`.
+- `POST /internal/users/:username/suspend` signs the player out everywhere
+  (refresh tokens revoked, sockets closed by `user.suspended`) and refuses
+  their sign-ins (403) and tokens until `.../unsuspend`.
+- `DELETE /internal/game-chat/:id` and `DELETE /internal/direct-messages/:id`
+  take a message down: soft-deleted, so it's gone from both players at
+  once, and erased for good by the purge (see "Deleting an account").
+
+### House bots
+
+Computer opponents the server runs (cchess-infra's `housebots`), so a
+reviewer or tester always finds a game, are ordinary accounts marked as
+bots: `POST /internal/users/:username/bot` (and `DELETE` to unmark) sets
+`users.isBot`. Matchmaking never pairs two bots (`canPair`), so any number
+can wait at one time control and a player always gets one; `isBot` is in a
+game's players, profiles and player search, for the app to tag them. Daily
+seeks aren't affected - the bots don't seek daily games.
+
+### Filtering what players write
+
+Game chat and direct messages are kept as written, and have slurs and
+obscenities masked with asterisks as they're sent out ("you \*\*\*\*ing
+idiot") - in the one mapper each goes out by (`toChatMessageDto`,
+`toDirectMessageDto`), so a report keeps what was really said; a username,
+display name or bio with one is refused (400). The words are the
+`obscenity` package's English list, with its handling of look-alikes
+("sh1t", "fuuuck") and its whitelist, so "Scunthorpe" and "assessment" pass
+(`src/common/profanity.ts`).
+
+### Terms of use
+
+Signing up needs `acceptTerms: true` (400 without), and records the terms'
+version and when (`users.termsVersion`, `termsAcceptedAt`). The version is
+the date the terms last changed (`TERMS_VERSION`, `src/legal/legal.ts`):
+`GET /users/me`'s `termsAccepted` is false once they change, or for a guest,
+and `POST /users/me/terms` accepts the version in force.
+
+### Pages and app config
+
+The server serves a few pages of its own (`src/web/`), signed out, for the
+stores and for players without the app:
+
+- `/legal/privacy` and `/legal/terms` - drafts to review before publishing;
+  their dates are `PRIVACY_VERSION` and `TERMS_VERSION`.
+- `/account/delete` - how to delete an account, in the app or by email.
+- `/app/verify-email` and `/app/reset-password` - where email links land
+  when the app isn't installed to open them: a button or a form there does
+  the work (mail scanners open links, so a visit alone does nothing).
+- `/.well-known/apple-app-site-association` and `/.well-known/assetlinks.json`
+  - let the app open `/app/*` links itself (universal links, app links), once
+    `APPLE_TEAM_ID` and `ANDROID_CERT_SHA256` are set.
+
+`GET /app/config` is what the app reads on launch: `minimumVersion`
+(`MIN_APP_VERSION`) - an older app asks to be updated - the terms' and
+policy's versions and URLs, and the support address.
+
+The API docs (`/docs`) are served outside production only, unless
+`SWAGGER=true`.

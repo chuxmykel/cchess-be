@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { Friendship } from '../friends/entities/friendship.entity.js';
 import { UsersModule } from '../users/users.module.js';
 import { BookmarksService } from './bookmarks.service.js';
 import { DailyDeadlineSweeper } from './daily-deadline.sweeper.js';
@@ -31,6 +32,7 @@ import { RematchService } from './rematch.service.js';
       GameNote,
       ConditionalMoveSet,
       GameReview,
+      Friendship,
     ]),
     UsersModule,
   ],

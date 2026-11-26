@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { BlocksService } from '../blocks/blocks.service.js';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Not, Repository } from 'typeorm';
 
@@ -68,6 +69,7 @@ export class DailySeeksService {
     private readonly seeks: Repository<DailySeek>,
     private readonly gamesService: GamesService,
     private readonly usersService: UsersService,
+    private readonly blocksService: BlocksService,
   ) {}
 
   async seek(user: User, request: DailySeekRequest): Promise<DailySeekResult> {
@@ -145,7 +147,10 @@ export class DailySeeksService {
       },
       order: { createdAt: 'ASC' },
     });
-    const criteria = criteriaOf(seek);
+    const criteria = {
+      ...criteriaOf(seek),
+      avoidUserIds: await this.blocksService.blockedEitherWay(seek.userId),
+    };
     let waiting = candidates;
     for (;;) {
       const best = findBestOpponent(
