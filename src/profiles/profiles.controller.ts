@@ -29,6 +29,7 @@ import {
   toUserSearchResultDto,
   UserSearchResultDto,
 } from './dto/user-search-result.dto.js';
+import { PatternsDto } from './dto/patterns.dto.js';
 import { ProfilesService } from './profiles.service.js';
 
 @ApiTags('users')
@@ -70,6 +71,23 @@ export class ProfilesController {
     @Param('username') username: string,
   ): Promise<PublicProfileDto> {
     return this.profilesService.getProfile(viewer.userId, username);
+  }
+
+  @Get(':username/patterns')
+  @ApiOperation({
+    summary:
+      "A player's patterns from their reviewed games: their last games' digests (to themselves alone) and the badges they've earned",
+  })
+  async patterns(
+    @CurrentUser() viewer: AuthenticatedUser,
+    @Param('username') username: string,
+  ): Promise<PatternsDto> {
+    const user = await this.profilesService.findUserOrThrow(username);
+    const { games, badges } = await this.gameReviewsService.patterns(
+      user.id,
+      user.id === viewer.userId,
+    );
+    return { games, badges };
   }
 
   @Get(':username/friends')

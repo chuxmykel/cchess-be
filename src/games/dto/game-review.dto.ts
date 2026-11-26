@@ -7,6 +7,8 @@ import {
   IsIn,
   IsInt,
   IsNumber,
+  IsObject,
+  IsOptional,
   IsString,
   Length,
   Matches,
@@ -123,6 +125,21 @@ export class SaveGameReviewDto {
   @ValidateNested({ each: true })
   @Type(() => PositionEvalDto)
   evals!: PositionEvalDto[];
+
+  @ApiProperty({
+    required: false,
+    description:
+      "Each side's review boiled down ({ w, b }), for patterns and badges",
+  })
+  @IsOptional()
+  @IsObject()
+  digests?: Record<string, unknown>;
+}
+
+export class SaveReviewDigestsDto {
+  @ApiProperty({ description: "Each side's review boiled down ({ w, b })" })
+  @IsObject()
+  digests!: Record<string, unknown>;
 }
 
 export class GameReviewDto {
@@ -144,6 +161,13 @@ export class GameReviewDto {
   @ApiProperty({ type: [PositionEvalDto] })
   evals!: PositionEvalDto[];
 
+  @ApiProperty({
+    nullable: true,
+    description:
+      "Each side's review boiled down ({ w, b }) - none until sent, so the app knows to",
+  })
+  digests!: Record<string, unknown> | null;
+
   @ApiProperty()
   createdAt!: Date;
 }
@@ -156,6 +180,7 @@ export function toGameReviewDto(review: GameReview): GameReviewDto {
     whiteAccuracy: review.whiteAccuracy,
     blackAccuracy: review.blackAccuracy,
     evals: review.evals,
+    digests: review.digests,
     createdAt: review.createdAt,
   };
 }

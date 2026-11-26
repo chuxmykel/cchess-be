@@ -12,6 +12,7 @@ import {
 } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity.js';
+import type { ReviewDigests } from '../review-digests.js';
 import { Game } from './game.entity.js';
 
 /** A score as the app's engine reports it, from white's side: centipawns,
@@ -76,6 +77,11 @@ export class GameReview {
   /** Every position's eval, the start first. */
   @Column({ type: 'jsonb' })
   evals!: PositionEval[];
+
+  /** Each side's review boiled down (review-digests.ts), for players'
+   * patterns and badges - none until the app has sent them. */
+  @Column({ type: 'jsonb', nullable: true })
+  digests!: ReviewDigests | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
