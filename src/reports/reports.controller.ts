@@ -93,6 +93,25 @@ export class ReportsController {
     await this.reportsService.unsuspend(username);
   }
 
+  /** Marks an account a computer opponent - a house bot - or no longer. */
+  @Public()
+  @UseGuards(LoopbackOnlyGuard)
+  @Post('internal/users/:username/bot')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiExcludeEndpoint()
+  async markBot(@Param('username') username: string): Promise<void> {
+    await this.reportsService.setBot(username, true);
+  }
+
+  @Public()
+  @UseGuards(LoopbackOnlyGuard)
+  @Delete('internal/users/:username/bot')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiExcludeEndpoint()
+  async unmarkBot(@Param('username') username: string): Promise<void> {
+    await this.reportsService.setBot(username, false);
+  }
+
   @Public()
   @UseGuards(LoopbackOnlyGuard)
   @Delete('internal/game-chat/:id')

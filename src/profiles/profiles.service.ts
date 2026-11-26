@@ -82,6 +82,7 @@ export class ProfilesService {
       bio: profile.bio,
       avatarColor: profile.avatarColor,
       isGuest: profile.isGuest,
+      isBot: profile.isBot,
       ratings: profile.ratings,
       createdAt: profile.createdAt,
       lastSeenAt: user.lastSeenAt,

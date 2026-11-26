@@ -156,6 +156,15 @@ export class ReportsService {
       .update({ id: user.id }, { suspendedAt: null });
   }
 
+  /** Marks an account a computer opponent (User.isBot), or no longer. A
+   * seek already waiting keeps what it was until it's made again. */
+  async setBot(username: string, isBot: boolean): Promise<void> {
+    const user = await this.userOrThrow(username);
+    await this.dataSource
+      .getRepository(User)
+      .update({ id: user.id }, { isBot });
+  }
+
   /** Takes a message down - soft-deleted, gone from both players at once
    * and erased for good by the purge; its copy kept in the report. */
   async deleteMessage(

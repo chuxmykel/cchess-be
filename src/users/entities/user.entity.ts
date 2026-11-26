@@ -44,6 +44,12 @@ export class User {
   @Column({ type: 'boolean', default: false })
   isGuest!: boolean;
 
+  /** A computer opponent - a house bot. Two are never paired by
+   * matchmaking, and players see them marked as bots. Set by an operator
+   * (`/internal/users/:username/bot`). */
+  @Column({ type: 'boolean', default: false })
+  isBot!: boolean;
+
   /** Whether they chat in games with players who aren't their friends -
    * both players have to have chosen it. Off until turned on. */
   @Column({ type: 'boolean', default: false })

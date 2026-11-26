@@ -45,6 +45,7 @@ interface WireSeekUser {
   displayName: string;
   avatarColor: string;
   isGuest: boolean;
+  isBot: boolean;
 }
 
 function toWireSeekUser(user: User): WireSeekUser {
@@ -54,6 +55,7 @@ function toWireSeekUser(user: User): WireSeekUser {
     displayName: user.displayName,
     avatarColor: user.avatarColor,
     isGuest: user.isGuest,
+    isBot: user.isBot,
   };
 }
 
@@ -230,6 +232,7 @@ export class MatchmakingService {
       ratingRange: request.ratingRange ?? null,
       color: request.color ?? 'random',
       avoidUserIds: await this.blocksService.blockedEitherWay(user.id),
+      isBot: user.isBot,
       gameType,
       createdAt: Date.now(),
     };

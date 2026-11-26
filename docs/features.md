@@ -294,6 +294,16 @@ for maintenance - `docker compose exec api curl ...`):
   take a message down: soft-deleted, so it's gone from both players at
   once, and erased for good by the purge (see "Deleting an account").
 
+### House bots
+
+Computer opponents the server runs (cchess-infra's `housebots`), so a
+reviewer or tester always finds a game, are ordinary accounts marked as
+bots: `POST /internal/users/:username/bot` (and `DELETE` to unmark) sets
+`users.isBot`. Matchmaking never pairs two bots (`canPair`), so any number
+can wait at one time control and a player always gets one; `isBot` is in a
+game's players, profiles and player search, for the app to tag them. Daily
+seeks aren't affected - the bots don't seek daily games.
+
 ### Filtering what players write
 
 Game chat and direct messages have slurs and obscenities masked with

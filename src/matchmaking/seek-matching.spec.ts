@@ -37,6 +37,26 @@ describe('canPair', () => {
     expect(canPair(seek('black', 'a'), seek('black'))).toBe(false);
   });
 
+  it('never pairs two bots, only a bot with a player', () => {
+    const bot = (userId: string) => makeSeek({ userId, isBot: true });
+
+    expect(canPair(bot('a'), bot('b'))).toBe(false);
+    expect(canPair(bot('a'), makeSeek({ userId: 'player' }))).toBe(true);
+    expect(canPair(makeSeek({ userId: 'player' }), bot('b'))).toBe(true);
+  });
+
+  it('finds a waiting player for a bot, passing over the bots', () => {
+    const waiting = [
+      makeSeek({ userId: 'bot-1', isBot: true }),
+      makeSeek({ userId: 'player', rating: 1900 }),
+    ];
+
+    expect(
+      findBestOpponent(makeSeek({ userId: 'bot-2', isBot: true }), waiting)
+        ?.userId,
+    ).toBe('player');
+  });
+
   it('never pairs a player with themselves', () => {
     expect(canPair(makeSeek(), makeSeek())).toBe(false);
   });

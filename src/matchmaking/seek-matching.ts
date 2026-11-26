@@ -29,6 +29,8 @@ export interface SeekCriteria extends TimeControl {
   color: SeekColor;
   /** Players this seeker mustn't be paired with - blocked, either way. */
   avoidUserIds?: ReadonlySet<string>;
+  /** A computer opponent: never paired with another. */
+  isBot?: boolean;
 }
 
 function isValidDelta(delta: unknown): boolean {
@@ -75,6 +77,7 @@ export function firstPlaysWhite(
 export function canPair(first: SeekCriteria, second: SeekCriteria): boolean {
   return (
     first.userId !== second.userId &&
+    !(first.isBot && second.isBot) &&
     !first.avoidUserIds?.has(second.userId) &&
     !second.avoidUserIds?.has(first.userId) &&
     colorsFit(first.color, second.color) &&

@@ -41,6 +41,9 @@ export class ProfileDto {
   @ApiProperty()
   isGuest!: boolean;
 
+  @ApiProperty({ description: 'A computer opponent' })
+  isBot!: boolean;
+
   @ApiProperty({ type: [RatingDto] })
   ratings!: RatingDto[];
 
@@ -85,6 +88,7 @@ export function toProfileDto(user: User, ratings: Rating[]): ProfileDto {
     bio: user.bio,
     avatarColor: user.avatarColor,
     isGuest: user.isGuest,
+    isBot: user.isBot,
     ratings: ratings.map(toRatingDto),
     createdAt: user.createdAt,
   };
@@ -99,6 +103,7 @@ export function toMeDto(user: User, ratings: Rating[]): MeDto {
     bio: profile.bio,
     avatarColor: profile.avatarColor,
     isGuest: profile.isGuest,
+    isBot: profile.isBot,
     ratings: profile.ratings,
     createdAt: profile.createdAt,
     email: user.email,

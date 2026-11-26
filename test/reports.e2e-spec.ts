@@ -134,4 +134,30 @@ describe('Reports and moderation (e2e)', () => {
       .send({ usernameOrEmail: bob.username, password: 'password123' })
       .expect(200);
   });
+
+  it('marks an account a bot, shown as one, until unmarked', async () => {
+    await request(app.getHttpServer())
+      .post(`/internal/users/${bob.username}/bot`)
+      .expect(204);
+    const profile = await as(ana).get(`/users/${bob.username}`).expect(200);
+    expect(profile.body.isBot).toBe(true);
+    const search = await as(ana)
+      .get(`/users?search=${bob.username}`)
+      .expect(200);
+    expect(
+      search.body.find((u: { id: string }) => u.id === bob.userId)?.isBot,
+    ).toBe(true);
+
+    await request(app.getHttpServer())
+      .delete(`/internal/users/${bob.username}/bot`)
+      .expect(204);
+    const after = await as(ana).get(`/users/${bob.username}`).expect(200);
+    expect(after.body.isBot).toBe(false);
+  });
+
+  it('marks only an account that exists', async () => {
+    await request(app.getHttpServer())
+      .post('/internal/users/nobody_here/bot')
+      .expect(404);
+  });
 });
