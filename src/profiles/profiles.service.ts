@@ -4,6 +4,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { Game } from '../games/entities/game.entity.js';
+import { PuzzleRating } from '../puzzles/entities/puzzle-rating.entity.js';
+import { isProvisional } from '../users/entities/rating.entity.js';
 import { GamesService } from '../games/games.service.js';
 import type { UserFriendDto } from '../friends/dto/friend.dto.js';
 import { FriendsService } from '../friends/friends.service.js';
@@ -34,6 +36,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export class ProfilesService {
   constructor(
     @InjectRepository(Game) private readonly games: Repository<Game>,
+    @InjectRepository(PuzzleRating)
+    private readonly puzzleRatings: Repository<PuzzleRating>,
     private readonly usersService: UsersService,
     private readonly gamesService: GamesService,
     private readonly friendsService: FriendsService,
@@ -64,6 +68,7 @@ export class ProfilesService {
       friendship,
       score,
       blockedByYou,
+      puzzleRating,
     ] = await Promise.all([
       this.usersService.getRatings(user.id),
       this.presenceService.isOnline(user.id),
@@ -73,6 +78,7 @@ export class ProfilesService {
       this.viewerFriendship(viewerId, user.id),
       isSelf ? null : this.scoreAgainst(viewerId, user.id),
       isSelf ? false : this.blocksService.hasBlocked(viewerId, user.id),
+      this.puzzleRatings.findOneBy({ userId: user.id }),
     ]);
     const profile = toProfileDto(user, ratings);
     return {
@@ -93,6 +99,15 @@ export class ProfilesService {
       friendship,
       score,
       blockedByYou,
+      // A rating made on first asking, with nothing tried, isn't one yet.
+      puzzleRating:
+        puzzleRating && puzzleRating.attempts > 0
+          ? {
+              rating: Math.round(puzzleRating.rating),
+              attempts: puzzleRating.attempts,
+              provisional: isProvisional(puzzleRating.deviation),
+            }
+          : null,
     };
   }
 

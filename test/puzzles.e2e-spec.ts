@@ -92,6 +92,25 @@ describe('Puzzles (e2e)', () => {
       );
     });
 
+    it("shows your puzzle rating on your profile, once you've tried one", async () => {
+      await pool([{ id: 'only1', rating: 1500, themes: ['mate'] }]);
+      await as(ana).get('/puzzles/rating').expect(200);
+      const before = await as(bob).get(`/users/${ana.username}`).expect(200);
+      expect(before.body.puzzleRating).toBeNull();
+
+      const { body } = await as(ana)
+        .post('/puzzles/only1/attempt')
+        .send({ solved: true })
+        .expect(200);
+
+      const after = await as(bob).get(`/users/${ana.username}`).expect(200);
+      expect(after.body.puzzleRating).toEqual({
+        rating: Math.round(body.ratingAfter),
+        attempts: 1,
+        provisional: true,
+      });
+    });
+
     it('has no attempt at a puzzle that is not there', async () => {
       await as(ana)
         .post('/puzzles/nope/attempt')
