@@ -38,6 +38,7 @@ import {
   GameReviewDto,
   SaveGameReviewDto,
   toGameReviewDto,
+  SaveReviewDigestsDto,
 } from './dto/game-review.dto.js';
 import { GameStateDto, toGameStateDto } from './dto/game-state.dto.js';
 import { GameSummaryDto, toGameSummaryDto } from './dto/game-summary.dto.js';
@@ -188,6 +189,19 @@ export class GamesController {
     return toGameReviewDto(
       await this.gameReviewsService.save(user.userId, id, dto),
     );
+  }
+
+  @Put(':id/review/digests')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary:
+      "Keep the digests of a review kept without them: each side's review boiled down",
+  })
+  async saveReviewDigests(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SaveReviewDigestsDto,
+  ): Promise<void> {
+    await this.gameReviewsService.saveDigests(id, dto.digests);
   }
 
   @Get(':id/conditional-moves')

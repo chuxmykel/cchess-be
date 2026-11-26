@@ -15,6 +15,7 @@ import {
   STARTING_FEN,
 } from '../../games/entities/game.entity.js';
 import { Move } from '../../games/entities/move.entity.js';
+import { Puzzle } from '../../puzzles/entities/puzzle.entity.js';
 import { Rating } from '../../users/entities/rating.entity.js';
 import { User } from '../../users/entities/user.entity.js';
 import { UsersService } from '../../users/users.service.js';
@@ -172,6 +173,8 @@ export class E2eFixtures1794782381887 implements Seeder {
       respondedAt: new Date(),
     });
 
+    await seedPuzzles(dataSource);
+
     const now = Date.now();
     for (const fixture of FIXTURES) {
       const opponent = fixture.opponent
@@ -186,6 +189,33 @@ export class E2eFixtures1794782381887 implements Seeder {
     }
     return [E2E_MAIN, E2E_FRIEND];
   }
+}
+
+/** The e2e flows' puzzle pool: the same back-rank mate in one under a few
+ * ids, so whichever is served, the flow knows its answer - black plays
+ * a7a6, then Rd1-d8 mates. Checked through chess.js, as the games are. */
+export const E2E_PUZZLE = {
+  fen: '6k1/p4ppp/8/8/8/8/5PPP/3R2K1 b - - 0 1',
+  moves: 'a7a6 d1d8',
+};
+
+async function seedPuzzles(dataSource: DataSource): Promise<void> {
+  const chess = new Chess(E2E_PUZZLE.fen);
+  for (const uci of E2E_PUZZLE.moves.split(' ')) {
+    chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4) });
+  }
+  if (!chess.isCheckmate()) throw new Error("The e2e puzzle doesn't mate");
+  await dataSource.getRepository(Puzzle).save(
+    [1, 2, 3, 4, 5].map((n) => ({
+      id: `e2emate${n}`,
+      ...E2E_PUZZLE,
+      rating: 1500,
+      ratingDeviation: 80,
+      popularity: 95,
+      nbPlays: 1000,
+      themes: ['mate', 'mateIn1', 'backRankMate', 'short'],
+    })),
+  );
 }
 
 /** A fixture game and its moves, played through chess.js so an illegal

@@ -80,6 +80,56 @@ for it; it's informational only and never touches ratings. If server-side
 review is ever wanted, it belongs on a separate worker, with the same
 endpoints.
 
+### Digests and patterns
+
+With a review the app sends `digests` - for each side, a few hundred bytes
+read off the review: its accuracy and result, the opening, how many moves
+and missed tactics, each slip (its ply, mark, what it did, the game's phase
+and the share of the clock left), accuracy with time to spare and short of
+it, and the badges it earned (a swindle, a comeback, a held draw, a clean
+game, a sacrifice that worked). They're the only part of a review the
+server reads, so a player's patterns are a query rather than a re-analysis:
+
+- `PUT /games/:id/review` takes them alongside the evals, and
+  `PUT /games/:id/review/digests` fills them for a review kept before them -
+  the app sends them when it opens one without.
+- `GET /users/:username/patterns` - everyone's badge counts across their
+  reviewed games; and, to the player alone, the digests of their last 10
+  reviewed games (each with the game, their color and when it ended), which
+  the app reads for their profile's patterns and the puzzles it suggests.
+
+## Puzzles
+
+Two decks. The pool's puzzles move a puzzle rating of the player's own
+(Glicko-2, as games' do, kept in `puzzle_ratings` - the `ratings` table's
+categories are game types); their own puzzles go on a schedule instead:
+
+- **The pool** - a slice of [lichess's puzzle database](https://database.lichess.org/#puzzles)
+  (CC0), imported once per environment (`npm run puzzles:import`, below).
+  `GET /puzzles/next?theme=` gives one near the player's puzzle rating (within
+  150, then 400, then anywhere), of a lichess theme if given, and none they've
+  tried in the last 30 days; 404 once there's none. A try,
+  `POST /puzzles/:id/attempt {solved}`, is rated as a game against the
+  puzzle's rating, and returns the rating before and after. `GET /puzzles/rating` is the player's,
+  and a profile (`GET /users/:username`) shows it as `puzzleRating` -
+  null until they've tried one.
+- **Their own** - the tactics they missed in their reviewed games, which the
+  app finds in the review (the position, the engine's winning line, its
+  themes) and posts with `POST /puzzles/mine {gameId, puzzles}`: only for a
+  game they played, each line checked legal with chess.js, one per game and
+  ply. `GET /puzzles/mine` is those due (20 at most), and how many are being
+  learnt and learnt. `POST /puzzles/mine/:id/attempt {solved}` moves one along
+  a spaced schedule - back in 1, 3, 7, 14 and 30 days; found at the last, it's
+  learnt and retired; missed, back to tomorrow.
+
+The import streams the zstd-compressed CSV from lichess (or `--file`, a
+`.csv` or `.csv.zst` already downloaded) and keeps up to `--limit` (default
+50,000) of those with a popularity of at least 80 and 500 plays, rated
+600-2800, an even share per 100 points so no band takes the pool. A puzzle
+already there is updated, so it can be run again. Each lichess puzzle starts
+before the opponent's move: `moves[0]` is theirs, the solver's every other
+one after.
+
 ## Opening explorer
 
 `GET /explorer?fen=` lists every move played from a position, the most
@@ -248,7 +298,8 @@ while they can be, resigned after - and any seek is withdrawn. Then, in one
 transaction, everything personal is soft-deleted, as every delete here
 is: direct messages and conversations both ways, game chat and read marks,
 notes, conditional moves, bookmarks, daily seeks, friendships, challenges,
-blocks and reports both ways, refresh and email tokens; reviews it asked
+blocks and reports both ways, refresh and email tokens, its own puzzles,
+puzzle attempts and puzzle rating; reviews it asked
 for lose their `createdById`. Erasing those rows for good - within the 30
 days the privacy policy promises - is a purge still to be written.
 

@@ -197,4 +197,93 @@ describe('Game reviews (e2e)', () => {
   it("has nothing for a game that doesn't exist", async () => {
     await put('00000000-0000-4000-8000-000000000000', review()).expect(404);
   });
+
+  describe('digests and patterns', () => {
+    const side = (overrides: Record<string, unknown> = {}) => ({
+      v: 1,
+      accuracy: 90,
+      result: 'win',
+      opening: "King's Pawn Game",
+      moves: 1,
+      missedTactics: 0,
+      slips: [
+        {
+          ply: 1,
+          mark: '??',
+          facts: ['hangs'],
+          phase: 'opening',
+          clockShare: 0.9,
+        },
+      ],
+      accuracyByClock: null,
+      badges: ['comeback'],
+      ...overrides,
+    });
+    const DIGESTS = { w: side(), b: side({ result: 'loss', badges: [] }) };
+    const patternsOf = (username: string, viewer = ivan) =>
+      request(app.getHttpServer())
+        .get(`/users/${username}/patterns`)
+        .set('Authorization', `Bearer ${viewer.accessToken}`)
+        .expect(200);
+
+    it('keeps them with a review, for the player and their badges', async () => {
+      const gameId = await playGame();
+      await put(gameId, review({ digests: DIGESTS })).expect(200);
+
+      const mine = await patternsOf(ivan.username);
+      expect(mine.body.games).toEqual([
+        expect.objectContaining({ gameId, color: 'w', digest: DIGESTS.w }),
+      ]);
+      expect(mine.body.badges).toEqual({ comeback: 1 });
+
+      // Another player sees the badges, never the games.
+      const theirs = await patternsOf(ivan.username, judy);
+      expect(theirs.body).toEqual({ games: [], badges: { comeback: 1 } });
+    });
+
+    it('gives a review kept without them its digests later', async () => {
+      const gameId = await playGame();
+      await put(gameId, review()).expect(200);
+      expect((await patternsOf(ivan.username)).body.games).toEqual([]);
+
+      await request(app.getHttpServer())
+        .put(`/games/${gameId}/review/digests`)
+        .set('Authorization', `Bearer ${judy.accessToken}`)
+        .send({ digests: DIGESTS })
+        .expect(204);
+      expect((await patternsOf(judy.username, judy)).body.games).toEqual([
+        expect.objectContaining({ color: 'b', digest: DIGESTS.b }),
+      ]);
+
+      // A review saved again, as deep, keeps them.
+      await put(gameId, review()).expect(200);
+      expect((await patternsOf(ivan.username)).body.games).toHaveLength(1);
+    });
+
+    it("refuses digests that are not a review's", async () => {
+      const gameId = await playGame();
+      await put(gameId, review({ digests: { w: side(), b: { v: 2 } } })).expect(
+        400,
+      );
+      await put(gameId, review()).expect(200);
+      await request(app.getHttpServer())
+        .put(`/games/${gameId}/review/digests`)
+        .set('Authorization', `Bearer ${ivan.accessToken}`)
+        .send({ digests: { w: side({ badges: ['champion'] }), b: side() } })
+        .expect(400);
+    });
+
+    it('has none for a game not reviewed, nor a player who does not exist', async () => {
+      const gameId = await playGame();
+      await request(app.getHttpServer())
+        .put(`/games/${gameId}/review/digests`)
+        .set('Authorization', `Bearer ${ivan.accessToken}`)
+        .send({ digests: DIGESTS })
+        .expect(404);
+      await request(app.getHttpServer())
+        .get('/users/nobody_at_all/patterns')
+        .set('Authorization', `Bearer ${ivan.accessToken}`)
+        .expect(404);
+    });
+  });
 });

@@ -30,7 +30,8 @@
     "migration:run": "npm run build && node --env-file=.env node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js",
     "migration:revert": "npm run build && node --env-file=.env node_modules/typeorm/cli.js migration:revert -d dist/database/data-source.js",
     "seed:run": "npm run build && node --env-file=.env node_modules/typeorm-extension/bin/cli.mjs seed run -d dist/database/data-source.js",
-    "seed:generate": "node scripts/seed-generate.mjs"
+    "seed:generate": "node scripts/seed-generate.mjs",
+    "puzzles:import": "npm run build && node --env-file-if-exists=.env dist/puzzles/import/import-puzzles.js"
   },
   "dependencies": {
     "@nestjs/common": "~12.1.2",

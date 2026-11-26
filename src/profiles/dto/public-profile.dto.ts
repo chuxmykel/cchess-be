@@ -28,6 +28,20 @@ export class ViewerFriendshipDto {
   requestId!: string | null;
 }
 
+export class PuzzleRatingSummaryDto {
+  @ApiProperty()
+  rating!: number;
+
+  @ApiProperty({ description: 'Pool puzzles tried' })
+  attempts!: number;
+
+  @ApiProperty({
+    description:
+      'Whether the rating is still uncertain (rating deviation above 110)',
+  })
+  provisional!: boolean;
+}
+
 export class PublicProfileDto extends ProfileDto {
   @ApiProperty({ nullable: true })
   lastSeenAt!: Date | null;
@@ -59,6 +73,13 @@ export class PublicProfileDto extends ProfileDto {
 
   @ApiProperty({ description: "Whether you've blocked this player" })
   blockedByYou!: boolean;
+
+  @ApiProperty({
+    type: PuzzleRatingSummaryDto,
+    nullable: true,
+    description: 'Their puzzle rating; null until they try a pool puzzle',
+  })
+  puzzleRating!: PuzzleRatingSummaryDto | null;
 }
 
 export class ActivityDayDto extends ScoreDto {
