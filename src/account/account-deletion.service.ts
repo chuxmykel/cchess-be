@@ -12,6 +12,9 @@ import { DataSource, EntityTarget, IsNull, ObjectLiteral } from 'typeorm';
 
 import { EmailToken } from '../auth/entities/email-token.entity.js';
 import { UserBlock } from '../blocks/entities/user-block.entity.js';
+import { PersonalPuzzle } from '../puzzles/entities/personal-puzzle.entity.js';
+import { PuzzleAttempt } from '../puzzles/entities/puzzle-attempt.entity.js';
+import { PuzzleRating } from '../puzzles/entities/puzzle-rating.entity.js';
 import { RefreshToken } from '../auth/entities/refresh-token.entity.js';
 import { Challenge } from '../challenges/entities/challenge.entity.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
@@ -91,6 +94,9 @@ export class AccountDeletionService {
         [Report, { reportedUserId: userId }],
         [RefreshToken, { userId }],
         [EmailToken, { userId }],
+        [PersonalPuzzle, { userId }],
+        [PuzzleAttempt, { userId }],
+        [PuzzleRating, { userId }],
       ];
       for (const [entity, where] of erase) {
         await manager.softDelete(entity, { ...where, deletedAt: IsNull() });

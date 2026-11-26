@@ -26,6 +26,7 @@ import {
 import { Friendship } from '../../src/friends/entities/friendship.entity.js';
 import { Game } from '../../src/games/entities/game.entity.js';
 import { Move } from '../../src/games/entities/move.entity.js';
+import { Puzzle } from '../../src/puzzles/entities/puzzle.entity.js';
 import { Rating } from '../../src/users/entities/rating.entity.js';
 import { User } from '../../src/users/entities/user.entity.js';
 import { truncateAllTables } from '../utils/db.js';
@@ -42,7 +43,7 @@ describe('E2eFixtures seeder', () => {
       username: requireEnv('DB_USERNAME'),
       password: requireEnv('DB_PASSWORD'),
       database: requireEnv('DB_NAME'),
-      entities: [User, Rating, RefreshToken, Friendship, Game, Move],
+      entities: [User, Rating, RefreshToken, Friendship, Game, Move, Puzzle],
       synchronize: false,
     }).initialize();
   });
@@ -128,5 +129,16 @@ describe('E2eFixtures seeder', () => {
 
     expect(await new E2eFixtures().run(dataSource)).toEqual([]);
     expect(await dataSource.getRepository(Game).count()).toBe(count);
+  });
+
+  it("fills the flows' puzzle pool with a mate in one", async () => {
+    await new E2eFixtures().run(dataSource);
+
+    const puzzles = await dataSource.getRepository(Puzzle).find();
+    expect(puzzles).toHaveLength(5);
+    expect(puzzles[0]).toMatchObject({
+      fen: '6k1/p4ppp/8/8/8/8/5PPP/3R2K1 b - - 0 1',
+      moves: 'a7a6 d1d8',
+    });
   });
 });

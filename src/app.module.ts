@@ -24,6 +24,7 @@ import { MessagesModule } from './messages/messages.module.js';
 import { PresenceModule } from './presence/presence.module.js';
 import { ProfilesModule } from './profiles/profiles.module.js';
 import { RealtimeModule } from './realtime/realtime.module.js';
+import { PuzzlesModule } from './puzzles/puzzles.module.js';
 import { ReportsModule } from './reports/reports.module.js';
 import { UsersModule } from './users/users.module.js';
 import { WebModule } from './web/web.module.js';
@@ -52,6 +53,7 @@ import { WebModule } from './web/web.module.js';
     RealtimeModule,
     AccountModule,
     ReportsModule,
+    PuzzlesModule,
     WebModule,
   ],
   controllers: [AppController],
