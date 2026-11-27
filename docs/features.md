@@ -86,17 +86,52 @@ With a review the app sends `digests` - for each side, a few hundred bytes
 read off the review: its accuracy and result, the opening, how many moves
 and missed tactics, each slip (its ply, mark, what it did, the game's phase
 and the share of the clock left), accuracy with time to spare and short of
-it, and the badges it earned (a swindle, a comeback, a held draw, a clean
-game, a sacrifice that worked). They're the only part of a review the
-server reads, so a player's patterns are a query rather than a re-analysis:
+it and in each phase, how many moves earned each mark, and the highest and
+lowest winning chances after the book. They're what a player's patterns
+are read from, so those are a query rather than a re-analysis:
 
-- `PUT /games/:id/review` takes them alongside the evals, and
-  `PUT /games/:id/review/digests` fills them for a review kept before them -
-  the app sends them when it opens one without.
-- `GET /users/:username/patterns` - everyone's badge counts across their
-  reviewed games; and, to the player alone, the digests of their last 10
-  reviewed games (each with the game, their color and when it ended), which
-  the app reads for their profile's patterns and the puzzles it suggests.
+- `PUT /games/:id/review` takes them alongside the evals.
+- `GET /users/:username/patterns?period=` (`1w`, `1m` - the default -
+  `3m`, `1y`, `all`) - the player's reviewed games' digests over the
+  period, newest first, each with the game, their color and when it ended:
+  to the player alone - anyone else gets none. The app works the patterns
+  out from them: accuracy by game and phase, marks a game, winning
+  positions won and losing ones saved, tactics missed, the clock, openings.
+
+## Badges
+
+Every badge is awarded here, kept in `user_badges` - one row an award, with
+the game that earned it - and the player told at once over the socket
+(`badge:awarded`), whatever screen they're on:
+
+- **When a game ends** (`src/badges/badge-rules.ts`' `gameBadges`, from
+  its moves, clock and ratings): a miniature or a marathon, the mates
+  (smothered, back rank, a pawn's), a king's march, an underpromotion, a
+  fortress, a photo finish, a giant killed. And the milestones: each power
+  of ten of games finished, and each multiple of 100 a rating first crosses
+  going up, per category - once: crossing it again after falling back
+  earns nothing.
+- **When its review is saved** (`reviewBadges`, from the review's scores
+  and each move's class): a swindle, a comeback, a draw held, never in
+  doubt, a rollercoaster, an endgame grind; a brilliancy, a sacrifice that
+  worked, a queen sacrifice, a fork frenzy; a clean game, a flawless one,
+  a book worm; a deep think that found the best move, precision in bullet.
+  The scores are the review's; the classes - best, brilliant, book... and
+  what each move did (a fork, a sacrifice) - come with it from the app
+  (`moveClasses`, one a move, kept with the review), since the classifier
+  runs on the device with the engine: the server holds every rule, the
+  device only the judgement of each move, as it already holds the scores.
+
+Each badge is earned once a game (a milestone once ever), by its `key`.
+Every bar is in `src/badges/thresholds.ts`.
+
+- `GET /users/:username/badges` - a player's badges, the newest first, each
+  with its game (the opponent, the result for them, when it ended), and
+  when it was claimed - to its owner only.
+- `POST /badges/:id/claim` - claim one of your own (the app's card has
+  Claim); badges show publicly whether claimed or not.
+- `GET /games/:id/review` and `PUT` give each side's badges from the game
+  (`badges: { w, b }`), its review's included.
 
 ## Puzzles
 
@@ -112,7 +147,12 @@ categories are game types); their own puzzles go on a schedule instead:
   `POST /puzzles/:id/attempt {solved}`, is rated as a game against the
   puzzle's rating, and returns the rating before and after. `GET /puzzles/rating` is the player's,
   and a profile (`GET /users/:username`) shows it as `puzzleRating` -
-  null until they've tried one.
+  null until they've tried one. `GET /users/:username/puzzles/stats?period=`
+  (`1w`, `1m` - the default - `3m`, `1y` or `all`) is anyone's history and
+  tries, as a game category's rating stats: each day's closing rating, the
+  highest and lowest, the change; tries, solves and misses, the
+  highest-rated puzzle solved, the longest streaks, and each theme tried.
+  404 until they've tried one.
 - **Their own** - the tactics they missed in their reviewed games, which the
   app finds in the review (the position, the engine's winning line, its
   themes) and posts with `POST /puzzles/mine {gameId, puzzles}`: only for a
@@ -299,7 +339,7 @@ transaction, everything personal is soft-deleted, as every delete here
 is: direct messages and conversations both ways, game chat and read marks,
 notes, conditional moves, bookmarks, daily seeks, friendships, challenges,
 blocks and reports both ways, refresh and email tokens, its own puzzles,
-puzzle attempts and puzzle rating; reviews it asked
+puzzle attempts and puzzle rating, its badges; reviews it asked
 for lose their `createdById`. Erasing those rows for good - within the 30
 days the privacy policy promises - is a purge still to be written.
 
