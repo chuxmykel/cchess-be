@@ -30,6 +30,7 @@ import {
   UserSearchResultDto,
 } from './dto/user-search-result.dto.js';
 import { PatternsDto } from './dto/patterns.dto.js';
+import { PuzzleStatsDto } from './dto/puzzle-stats.dto.js';
 import { ProfilesService } from './profiles.service.js';
 
 @ApiTags('users')
@@ -119,6 +120,21 @@ export class ProfilesController {
     return this.profilesService.getRatingStats(
       username,
       category,
+      query.period ?? DEFAULT_RATING_STATS_PERIOD,
+    );
+  }
+
+  @Get(':username/puzzles/stats')
+  @ApiOperation({
+    summary:
+      "A user's puzzle rating history and tries at pool puzzles over a period",
+  })
+  getPuzzleStats(
+    @Param('username') username: string,
+    @Query() query: RatingStatsQuery,
+  ): Promise<PuzzleStatsDto> {
+    return this.profilesService.getPuzzleStats(
+      username,
       query.period ?? DEFAULT_RATING_STATS_PERIOD,
     );
   }
