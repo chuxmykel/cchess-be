@@ -19,8 +19,7 @@ import type { BadgeKind } from '../badge-kinds.js';
 /**
  * A badge a player earned: in a game - when it ended, or when its review
  * was saved - or a milestone (games played, a rating line crossed), with
- * the game that reached it. Each is earned once, by its `key`; the player
- * claims it when it's shown them.
+ * the game that reached it. Each is earned once, by its `key`.
  */
 @Entity('user_badges')
 @Index('UQ_user_badges_user_key', ['userId', 'key'], { unique: true })
@@ -64,9 +63,6 @@ export class UserBadge {
   /** What makes it one badge: a game badge per game, a milestone once. */
   @Column({ type: 'varchar', length: 80 })
   key!: string;
-
-  @Column({ type: 'timestamptz', nullable: true })
-  claimedAt!: Date | null;
 
   /** When it was earned. */
   @CreateDateColumn({ type: 'timestamptz' })

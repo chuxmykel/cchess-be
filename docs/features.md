@@ -127,10 +127,9 @@ Each badge is earned once a game (a milestone once ever), by its `key`.
 Every bar is in `src/badges/thresholds.ts`.
 
 - `GET /users/:username/badges` - a player's badges, the newest first, each
-  with its game (the opponent, the result for them, when it ended), and
-  when it was claimed - to its owner only.
-- `POST /badges/:id/claim` - claim one of your own (the app's card has
-  Claim); badges show publicly whether claimed or not.
+  with its game (the opponent, the result for them, when it ended). The
+  app shows the ones a game earned in a card once you've left its screen,
+  from the push as it ends.
 - `GET /games/:id/review` and `PUT` give each side's badges from the game
   (`badges: { w, b }`), its review's included.
 

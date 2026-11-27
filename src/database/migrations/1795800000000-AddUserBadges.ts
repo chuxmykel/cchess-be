@@ -8,10 +8,9 @@ import {
 } from 'typeorm';
 
 /** Badges: each one a player earned - in a game, from the game or its
- * review, or a milestone, with the game that reached it - and whether
- * they've claimed it (user_badges); and each reviewed move's class, kept
- * with its review, which the review's badges are read from. See
- * docs/features.md, "Badges". */
+ * review, or a milestone, with the game that reached it (user_badges); and
+ * each reviewed move's class, kept with its review, which the review's
+ * badges are read from. See docs/features.md, "Badges". */
 export class AddUserBadges1795800000000 implements MigrationInterface {
   name = 'AddUserBadges1795800000000';
 
@@ -32,7 +31,6 @@ export class AddUserBadges1795800000000 implements MigrationInterface {
           { name: 'category', type: 'varchar', length: '16', isNullable: true },
           { name: 'value', type: 'int', isNullable: true },
           { name: 'key', type: 'varchar', length: '80' },
-          { name: 'claimedAt', type: 'timestamptz', isNullable: true },
           { name: 'createdAt', type: 'timestamptz', default: 'now()' },
           { name: 'updatedAt', type: 'timestamptz', default: 'now()' },
           { name: 'deletedAt', type: 'timestamptz', isNullable: true },

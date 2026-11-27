@@ -81,7 +81,6 @@ describe('Badges (e2e)', () => {
       id: string;
       kind: string;
       game: { gameId: string; result: string; opponentUsername: string } | null;
-      claimedAt: string | null;
       value: number | null;
       category: string | null;
     }[];
@@ -103,7 +102,6 @@ describe('Badges (e2e)', () => {
             result: 'win',
             opponentUsername: ivan.username,
           }),
-          claimedAt: null,
         }),
       ]),
     );
@@ -169,27 +167,13 @@ describe('Badges (e2e)', () => {
       .expect(400);
   });
 
-  it('lets a player claim their own badges, telling no one else when', async () => {
+  it("shows anyone a player's badges", async () => {
     await playGame();
     await settle();
-    const badge = (await badgesOf(judy)).find((b) => b.kind === 'miniature')!;
 
-    await request(app.getHttpServer())
-      .post(`/badges/${badge.id}/claim`)
-      .set('Authorization', `Bearer ${ivan.accessToken}`)
-      .expect(403);
-    const claimed = await request(app.getHttpServer())
-      .post(`/badges/${badge.id}/claim`)
-      .set('Authorization', `Bearer ${judy.accessToken}`)
-      .expect(200);
-    expect(claimed.body.claimedAt).toEqual(expect.any(String));
-
-    const mine = await badgesOf(judy);
-    expect(mine.find((b) => b.id === badge.id)?.claimedAt).toEqual(
-      expect.any(String),
-    );
-    const theirs = await badgesOf(judy, ivan);
-    expect(theirs.every((b) => b.claimedAt === null)).toBe(true);
+    expect((await badgesOf(judy, ivan)).map((b) => b.kind)).toEqual([
+      'miniature',
+    ]);
   });
 
   it('awards milestones: the 10th game, and each rating line crossed once the rating is certain', async () => {

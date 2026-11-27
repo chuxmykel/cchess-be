@@ -49,11 +49,4 @@ export class BadgeDto {
 
   @ApiProperty({ description: 'When it was earned' })
   awardedAt!: Date;
-
-  @ApiProperty({
-    type: String,
-    nullable: true,
-    description: 'When its owner claimed it - null to anyone else',
-  })
-  claimedAt!: Date | null;
 }

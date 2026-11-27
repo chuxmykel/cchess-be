@@ -10,7 +10,7 @@ import { BadgesService } from './badges.service.js';
 import { UserBadge } from './entities/user-badge.entity.js';
 
 /** Badges: awarded when a game ends and when its review is saved, listed
- * on profiles, and claimed by their players. */
+ * on profiles and on a game's result card. */
 @Module({
   imports: [TypeOrmModule.forFeature([UserBadge, Game, Move, User, Rating])],
   controllers: [BadgesController],

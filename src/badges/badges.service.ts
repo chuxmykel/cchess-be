@@ -1,5 +1,4 @@
 import {
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -44,7 +43,8 @@ const SIDES: Color[] = ['w', 'b'];
  * Awards badges: those a game earns when it ends (from the game alone), and
  * the milestones it reaches; those it earns when its review is saved (from
  * the review's scores and the app's classification of each move). Each is
- * awarded once, and its player told at once.
+ * awarded once, and its player told at once - the app shows a game's on its
+ * result card.
  */
 @Injectable()
 export class BadgesService implements OnModuleDestroy {
@@ -121,9 +121,8 @@ export class BadgesService implements OnModuleDestroy {
     await this.award(awarded);
   }
 
-  /** A player's badges, the newest first - claimed or not to them, only
-   * when it was to anyone else. */
-  async list(username: string, viewerId: string): Promise<BadgeDto[]> {
+  /** A player's badges, the newest first. */
+  async list(username: string): Promise<BadgeDto[]> {
     const user = await this.users.findOneBy({ username });
     if (!user || user.accountDeletedAt) {
       throw new NotFoundException('User not found');
@@ -132,7 +131,7 @@ export class BadgesService implements OnModuleDestroy {
       where: { userId: user.id },
       order: { createdAt: 'DESC' },
     });
-    return this.toDtos(badges, user.id === viewerId);
+    return this.toDtos(badges);
   }
 
   /** Each side's badges from one game: those its review shows. */
@@ -144,20 +143,6 @@ export class BadgesService implements OnModuleDestroy {
         .filter((b) => b.userId === userId && b.value === null)
         .map((b) => b.kind as GameBadgeKind);
     return { w: of(game?.whiteId), b: of(game?.blackId) };
-  }
-
-  /** A player claims a badge shown them. */
-  async claim(userId: string, id: string): Promise<BadgeDto> {
-    const badge = await this.badges.findOneBy({ id });
-    if (!badge) throw new NotFoundException('Badge not found');
-    if (badge.userId !== userId) {
-      throw new ForbiddenException('Only your own badges');
-    }
-    if (!badge.claimedAt) {
-      badge.claimedAt = new Date();
-      await this.badges.save(badge);
-    }
-    return (await this.toDtos([badge]))[0];
   }
 
   private async forBadges(game: Game): Promise<Omit<GameForBadges, 'side'>> {
@@ -255,11 +240,8 @@ export class BadgesService implements OnModuleDestroy {
     }
   }
 
-  // Each with its game - when it was claimed only for its owner.
-  private async toDtos(
-    badges: UserBadge[],
-    forOwner = true,
-  ): Promise<BadgeDto[]> {
+  // Each with its game.
+  private async toDtos(badges: UserBadge[]): Promise<BadgeDto[]> {
     const gameIds = [
       ...new Set(badges.map((b) => b.gameId).filter((id) => id !== null)),
     ];
@@ -297,7 +279,6 @@ export class BadgesService implements OnModuleDestroy {
         category: badge.category,
         value: badge.value,
         awardedAt: badge.createdAt,
-        claimedAt: forOwner ? badge.claimedAt : null,
       };
     });
   }
