@@ -14,6 +14,7 @@ import { DOMAIN_EVENTS } from '../common/events.js';
 import type { GameReview } from '../games/entities/game-review.entity.js';
 import { Game } from '../games/entities/game.entity.js';
 import { Move } from '../games/entities/move.entity.js';
+import { isProvisional, Rating } from '../users/entities/rating.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import type { GameBadgeKind } from './badge-kinds.js';
 import {
@@ -58,6 +59,8 @@ export class BadgesService implements OnModuleDestroy {
     private readonly moves: Repository<Move>,
     @InjectRepository(User)
     private readonly users: Repository<User>,
+    @InjectRepository(Rating)
+    private readonly ratings: Repository<Rating>,
     private readonly events: EventEmitter2,
   ) {}
 
@@ -178,7 +181,8 @@ export class BadgesService implements OnModuleDestroy {
   }
 
   // The milestones a game reached for one side: its games finished, if a
-  // power of ten; each rating line it crossed going up.
+  // power of ten; each rating line it crossed going up - once the rating
+  // is certain: a provisional one (shown with a "?") reaches none.
   private async milestones(game: Game, side: Color): Promise<NewBadge[]> {
     const userId = side === 'w' ? game.whiteId : game.blackId;
     const reached: NewBadge[] = [];
@@ -200,7 +204,17 @@ export class BadgesService implements OnModuleDestroy {
     const before =
       side === 'w' ? game.whiteRatingAtStart : game.blackRatingAtStart;
     const diff = side === 'w' ? game.whiteRatingDiff : game.blackRatingDiff;
-    if (game.rated && before !== null && diff !== null && diff > 0) {
+    // Saved before the game's end is announced: the rating after it.
+    const rating =
+      game.rated && diff !== null && diff > 0
+        ? await this.ratings.findOneBy({ userId, category: game.gameType })
+        : null;
+    if (
+      rating &&
+      !isProvisional(rating.deviation) &&
+      before !== null &&
+      diff !== null
+    ) {
       for (const line of ratingLinesCrossed(before, before + diff)) {
         reached.push({
           userId,

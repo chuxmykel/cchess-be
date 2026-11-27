@@ -109,8 +109,9 @@ the game that earned it - and the player told at once over the socket
   (smothered, back rank, a pawn's), a king's march, an underpromotion, a
   fortress, a photo finish, a giant killed. And the milestones: each power
   of ten of games finished, and each multiple of 100 a rating first crosses
-  going up, per category - once: crossing it again after falling back
-  earns nothing.
+  going up, per category, once it's certain (no longer provisional - a
+  "?" in the app; lines crossed before then don't count) - once: crossing
+  it again after falling back earns nothing.
 - **When its review is saved** (`reviewBadges`, from the review's scores
   and each move's class): a swindle, a comeback, a draw held, never in
   doubt, a rollercoaster, an endgame grind; a brilliancy, a sacrifice that

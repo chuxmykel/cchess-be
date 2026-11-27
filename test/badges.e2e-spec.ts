@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { BadgesService } from '../src/badges/badges.service.js';
 import { Game } from '../src/games/entities/game.entity.js';
+import { Rating } from '../src/users/entities/rating.entity.js';
 import {
   createTestApp,
   makeFriends,
@@ -104,16 +105,11 @@ describe('Badges (e2e)', () => {
           }),
           claimedAt: null,
         }),
-        // Challenges are rated: her first win took her past 1600.
-        expect.objectContaining({
-          kind: 'ratingReached',
-          category: 'blitz',
-          value: 1600,
-          game: expect.objectContaining({ gameId }),
-        }),
       ]),
     );
-    expect(judys).toHaveLength(2);
+    // Challenges are rated, and her first win took her past 1600 - but a
+    // first rating is provisional, so it reaches no line yet.
+    expect(judys).toHaveLength(1);
     expect(await badgesOf(ivan)).toEqual([]);
   });
 
@@ -192,12 +188,11 @@ describe('Badges (e2e)', () => {
     expect(mine.find((b) => b.id === badge.id)?.claimedAt).toEqual(
       expect.any(String),
     );
-    expect(mine.find((b) => b.id !== badge.id)?.claimedAt).toBeNull();
     const theirs = await badgesOf(judy, ivan);
     expect(theirs.every((b) => b.claimedAt === null)).toBe(true);
   });
 
-  it('awards milestones: the 10th game, and each rating line crossed once', async () => {
+  it('awards milestones: the 10th game, and each rating line crossed once the rating is certain', async () => {
     const games = app.get(DataSource).getRepository(Game);
     const finished = (minute: number) =>
       ({
@@ -218,39 +213,46 @@ describe('Badges (e2e)', () => {
         endedAt: new Date(Date.UTC(2026, 9, 1, 0, minute)),
       }) as Partial<Game>;
     await games.save(Array.from({ length: 9 }, (_, i) => finished(i)));
-    // The 10th: rated, judy crossing 1600 and 1700.
-    const tenth = await games.save({
-      ...finished(10),
-      rated: true,
-      result: 'white',
-      whiteRatingAtStart: 1590,
-      whiteRatingDiff: 120,
-    } as Partial<Game>);
+    const ratings = app.get(DataSource).getRepository(Rating);
     const service = app.get(BadgesService);
-    await service.awardForGame(tenth.id as string);
+    const award = async (before: number, diff: number, minute: number) => {
+      const game = await games.save({
+        ...finished(minute),
+        rated: true,
+        result: 'white',
+        whiteRatingAtStart: before,
+        whiteRatingDiff: diff,
+      } as Partial<Game>);
+      await service.awardForGame(game.id as string);
+      return game.id as string;
+    };
+    const ratingLines = async () =>
+      (await badgesOf(judy))
+        .filter((b) => b.kind === 'ratingReached')
+        .map((b) => [b.category, b.value, b.game?.gameId]);
 
-    const milestones = (await badgesOf(judy)).filter((b) => b.value !== null);
-    expect(
-      milestones.map((b) => [b.kind, b.category, b.value, b.game?.gameId]),
-    ).toEqual(
-      expect.arrayContaining([
-        ['gamesPlayed', null, 10, tenth.id],
-        ['ratingReached', 'blitz', 1600, tenth.id],
-        ['ratingReached', 'blitz', 1700, tenth.id],
-      ]),
+    // The 10th, crossing 1600 and 1700 - while her rating's provisional:
+    // the games milestone, but no rating line.
+    await ratings.upsert(
+      { userId: judy.userId, category: 'blitz', rating: 1710, deviation: 200 },
+      ['userId', 'category'],
     );
-
-    // Crossing 1700 again later earns nothing new.
-    const again = await games.save({
-      ...finished(20),
-      rated: true,
-      result: 'white',
-      whiteRatingAtStart: 1690,
-      whiteRatingDiff: 20,
-    } as Partial<Game>);
-    await service.awardForGame(again.id as string);
+    const tenth = await award(1590, 120, 10);
     expect(
-      (await badgesOf(judy)).filter((b) => b.kind === 'ratingReached'),
-    ).toHaveLength(2);
+      (await badgesOf(judy))
+        .filter((b) => b.value !== null)
+        .map((b) => [b.kind, b.value, b.game?.gameId]),
+    ).toEqual([['gamesPlayed', 10, tenth]]);
+    expect(await ratingLines()).toEqual([]);
+
+    // Certain now: crossing 1700 again counts, once.
+    await ratings.update(
+      { userId: judy.userId, category: 'blitz' },
+      { deviation: 60 },
+    );
+    const certain = await award(1690, 20, 20);
+    expect(await ratingLines()).toEqual([['blitz', 1700, certain]]);
+    await award(1690, 30, 30);
+    expect(await ratingLines()).toHaveLength(1);
   });
 });
