@@ -43,6 +43,8 @@ export const DOMAIN_EVENTS = {
   USER_SUSPENDED: 'user.suspended',
   /** An account was deleted: its sockets are closed. */
   USER_DELETED: 'user.deleted',
+  /** A player earned badges: they're told at once. */
+  BADGES_AWARDED: 'badges.awarded',
   MAINTENANCE_CHANGED: 'maintenance.changed',
   MAINTENANCE_UNDERWAY: 'maintenance.underway',
 } as const;
@@ -77,6 +79,8 @@ export const WS_EVENTS = {
   GAME_ERROR: 'game:error',
   GAME_CREATED: 'game:created',
   GAME_OVER: 'game:over',
+  /** Badges just earned: { badges: BadgeDto[] }. */
+  BADGE_AWARDED: 'badge:awarded',
   GAME_DRAW_OFFERED: 'game:drawOffered',
   GAME_DRAW_DECLINED: 'game:drawDeclined',
   GAME_REMATCH_OFFERED: 'game:rematchOffered',

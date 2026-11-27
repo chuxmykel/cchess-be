@@ -111,6 +111,54 @@ describe('Puzzles (e2e)', () => {
       });
     });
 
+    it("charts anyone's puzzle rating and tries over a period", async () => {
+      await pool([
+        { id: 'easy1', rating: 1400, themes: ['fork'] },
+        { id: 'hard1', rating: 1700, themes: ['fork', 'pin'] },
+      ]);
+      await as(bob).get(`/users/${ana.username}/puzzles/stats`).expect(404);
+
+      await as(ana)
+        .post('/puzzles/easy1/attempt')
+        .send({ solved: false })
+        .expect(200);
+      const last = await as(ana)
+        .post('/puzzles/hard1/attempt')
+        .send({ solved: true })
+        .expect(200);
+
+      const { body } = await as(bob)
+        .get(`/users/${ana.username}/puzzles/stats?period=1w`)
+        .expect(200);
+      expect(body).toMatchObject({
+        period: '1w',
+        rating: {
+          rating: Math.round(last.body.ratingAfter),
+          attempts: 2,
+          provisional: true,
+        },
+        attempts: 2,
+        solved: 1,
+        missed: 1,
+        bestSolve: { puzzleId: 'hard1', rating: 1700 },
+        longestSolvedStreak: 1,
+        longestMissedStreak: 1,
+        ratingChange: Math.round(last.body.ratingAfter) - 1500,
+      });
+      // The rating going in, then the day's close.
+      expect(body.history.map((p: { rating: number }) => p.rating)).toEqual([
+        1500,
+        Math.round(last.body.ratingAfter),
+      ]);
+      expect(body.themes).toEqual([
+        { theme: 'fork', attempts: 2, solved: 1 },
+        { theme: 'pin', attempts: 1, solved: 1 },
+      ]);
+      await as(bob)
+        .get(`/users/${ana.username}/puzzles/stats?period=2w`)
+        .expect(400);
+    });
+
     it('has no attempt at a puzzle that is not there', async () => {
       await as(ana)
         .post('/puzzles/nope/attempt')

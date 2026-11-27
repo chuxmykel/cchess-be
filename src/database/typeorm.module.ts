@@ -29,6 +29,7 @@ import { PersonalPuzzle } from '../puzzles/entities/personal-puzzle.entity.js';
 import { PuzzleAttempt } from '../puzzles/entities/puzzle-attempt.entity.js';
 import { PuzzleRating } from '../puzzles/entities/puzzle-rating.entity.js';
 import { Puzzle } from '../puzzles/entities/puzzle.entity.js';
+import { UserBadge } from '../badges/entities/user-badge.entity.js';
 import { Report } from '../reports/entities/report.entity.js';
 import { Rating } from '../users/entities/rating.entity.js';
 import { User } from '../users/entities/user.entity.js';
@@ -88,6 +89,7 @@ export const typeOrmModule = TypeOrmModule.forRootAsync({
       PuzzleAttempt,
       PuzzleRating,
       PersonalPuzzle,
+      UserBadge,
     ],
     // Schema is managed by real migrations (src/database/migrations),
     // not synchronize - see CLAUDE.md for the migration workflow.

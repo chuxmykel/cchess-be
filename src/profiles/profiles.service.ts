@@ -4,7 +4,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { Game } from '../games/entities/game.entity.js';
+import { PuzzleAttempt } from '../puzzles/entities/puzzle-attempt.entity.js';
 import { PuzzleRating } from '../puzzles/entities/puzzle-rating.entity.js';
+import { summarizePuzzleStats } from '../puzzles/puzzle-stats.js';
+import type { PuzzleStatsDto } from './dto/puzzle-stats.dto.js';
 import { isProvisional } from '../users/entities/rating.entity.js';
 import { GamesService } from '../games/games.service.js';
 import type { UserFriendDto } from '../friends/dto/friend.dto.js';
@@ -38,6 +41,8 @@ export class ProfilesService {
     @InjectRepository(Game) private readonly games: Repository<Game>,
     @InjectRepository(PuzzleRating)
     private readonly puzzleRatings: Repository<PuzzleRating>,
+    @InjectRepository(PuzzleAttempt)
+    private readonly puzzleAttempts: Repository<PuzzleAttempt>,
     private readonly usersService: UsersService,
     private readonly gamesService: GamesService,
     private readonly friendsService: FriendsService,
@@ -179,6 +184,52 @@ export class ProfilesService {
       ...stats,
       bestWin,
       worstLoss,
+    };
+  }
+
+  /** A player's puzzle rating history and their tries at pool puzzles over
+   * a period - a 404 until they've tried one. */
+  async getPuzzleStats(
+    username: string,
+    period: RatingStatsPeriod,
+  ): Promise<PuzzleStatsDto> {
+    const user = await this.findUserOrThrow(username);
+    const rating = await this.puzzleRatings.findOneBy({ userId: user.id });
+    if (!rating || rating.attempts === 0) {
+      throw new NotFoundException('No puzzle rating yet');
+    }
+    const query = this.puzzleAttempts
+      .createQueryBuilder('a')
+      .innerJoin('a.puzzle', 'p')
+      .select([
+        'a.puzzleId AS "puzzleId"',
+        'p.rating AS "puzzleRating"',
+        'p.themes AS themes',
+        'a.solved AS solved',
+        'a.ratingBefore AS "ratingBefore"',
+        'a.ratingAfter AS "ratingAfter"',
+        'a.createdAt AS "createdAt"',
+      ])
+      .where('a.userId = :userId', { userId: user.id });
+    const since = periodStart(period, new Date());
+    if (since) query.andWhere('a.createdAt > :since', { since });
+    const attempts = await query.getRawMany<{
+      puzzleId: string;
+      puzzleRating: number;
+      themes: string[];
+      solved: boolean;
+      ratingBefore: number;
+      ratingAfter: number;
+      createdAt: Date;
+    }>();
+    return {
+      period,
+      rating: {
+        rating: Math.round(rating.rating),
+        attempts: rating.attempts,
+        provisional: isProvisional(rating.deviation),
+      },
+      ...summarizePuzzleStats(attempts),
     };
   }
 
