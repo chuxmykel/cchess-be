@@ -20,12 +20,7 @@ export class PatternsDto {
   @ApiProperty({
     type: [PatternGameDto],
     description:
-      "The player's last reviewed games, newest first - to the player alone",
+      "The player's reviewed games over the period, newest first - to the player alone",
   })
   games!: PatternGameDto[];
-
-  @ApiProperty({
-    description: 'How many of each badge their reviewed games earned them',
-  })
-  badges!: Record<string, number>;
 }

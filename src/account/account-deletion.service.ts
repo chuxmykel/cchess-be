@@ -15,6 +15,7 @@ import { UserBlock } from '../blocks/entities/user-block.entity.js';
 import { PersonalPuzzle } from '../puzzles/entities/personal-puzzle.entity.js';
 import { PuzzleAttempt } from '../puzzles/entities/puzzle-attempt.entity.js';
 import { PuzzleRating } from '../puzzles/entities/puzzle-rating.entity.js';
+import { UserBadge } from '../badges/entities/user-badge.entity.js';
 import { RefreshToken } from '../auth/entities/refresh-token.entity.js';
 import { Challenge } from '../challenges/entities/challenge.entity.js';
 import { DOMAIN_EVENTS } from '../common/events.js';
@@ -97,6 +98,7 @@ export class AccountDeletionService {
         [PersonalPuzzle, { userId }],
         [PuzzleAttempt, { userId }],
         [PuzzleRating, { userId }],
+        [UserBadge, { userId }],
       ];
       for (const [entity, where] of erase) {
         await manager.softDelete(entity, { ...where, deletedAt: IsNull() });

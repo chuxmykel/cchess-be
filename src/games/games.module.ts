@@ -17,6 +17,7 @@ import { Move } from './entities/move.entity.js';
 import { GameChatService } from './game-chat.service.js';
 import { GameNotesService } from './game-notes.service.js';
 import { GameReviewsService } from './game-reviews.service.js';
+import { BadgesModule } from '../badges/badges.module.js';
 import { GamesController } from './games.controller.js';
 import { GamesService } from './games.service.js';
 import { RematchService } from './rematch.service.js';
@@ -35,6 +36,7 @@ import { RematchService } from './rematch.service.js';
       Friendship,
     ]),
     UsersModule,
+    BadgesModule,
   ],
   controllers: [GamesController],
   providers: [

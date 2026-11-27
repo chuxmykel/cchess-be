@@ -31,6 +31,7 @@ import {
 } from './dto/user-search-result.dto.js';
 import { PatternsDto } from './dto/patterns.dto.js';
 import { PuzzleStatsDto } from './dto/puzzle-stats.dto.js';
+import { periodStart } from './rating-stats.js';
 import { ProfilesService } from './profiles.service.js';
 
 @ApiTags('users')
@@ -77,18 +78,22 @@ export class ProfilesController {
   @Get(':username/patterns')
   @ApiOperation({
     summary:
-      "A player's patterns from their reviewed games: their last games' digests (to themselves alone) and the badges they've earned",
+      "Your patterns over a period: your reviewed games' digests - to you alone, none for anyone else",
   })
   async patterns(
     @CurrentUser() viewer: AuthenticatedUser,
     @Param('username') username: string,
+    @Query() query: RatingStatsQuery,
   ): Promise<PatternsDto> {
     const user = await this.profilesService.findUserOrThrow(username);
-    const { games, badges } = await this.gameReviewsService.patterns(
-      user.id,
-      user.id === viewer.userId,
-    );
-    return { games, badges };
+    if (user.id !== viewer.userId) return { games: [] };
+    const period = query.period ?? DEFAULT_RATING_STATS_PERIOD;
+    return {
+      games: await this.gameReviewsService.patterns(
+        user.id,
+        periodStart(period, new Date()),
+      ),
+    };
   }
 
   @Get(':username/friends')

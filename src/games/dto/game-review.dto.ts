@@ -89,6 +89,24 @@ export class PositionEvalDto {
   depth!: number;
 }
 
+export class MoveClassificationDto {
+  @ApiProperty({ example: 'best' })
+  @IsString()
+  @Length(1, 16)
+  moveClass!: string;
+
+  @ApiProperty({
+    type: [String],
+    example: ['fork:knight'],
+    description: 'Fact kinds, a piece after a colon where it has one',
+  })
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @Length(1, 40, { each: true })
+  facts!: string[];
+}
+
 export class SaveGameReviewDto {
   @ApiProperty({ example: 'stockfish-19.0.1-lite-single' })
   @IsString()
@@ -128,18 +146,23 @@ export class SaveGameReviewDto {
 
   @ApiProperty({
     required: false,
-    description:
-      "Each side's review boiled down ({ w, b }), for patterns and badges",
+    description: "Each side's review boiled down ({ w, b }), for patterns",
   })
   @IsOptional()
   @IsObject()
   digests?: Record<string, unknown>;
-}
 
-export class SaveReviewDigestsDto {
-  @ApiProperty({ description: "Each side's review boiled down ({ w, b })" })
-  @IsObject()
-  digests!: Record<string, unknown>;
+  @ApiProperty({
+    required: false,
+    type: [MoveClassificationDto],
+    description:
+      "Each move's class and what it did, as the app classified it - one per move, for badges",
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MoveClassificationDto)
+  moveClasses?: MoveClassificationDto[];
 }
 
 export class GameReviewDto {
@@ -163,16 +186,24 @@ export class GameReviewDto {
 
   @ApiProperty({
     nullable: true,
-    description:
-      "Each side's review boiled down ({ w, b }) - none until sent, so the app knows to",
+    description: "Each side's review boiled down ({ w, b }) - none until sent",
   })
   digests!: Record<string, unknown> | null;
+
+  @ApiProperty({
+    description:
+      "The badges the game earned each side ({ w, b }) - its review's included",
+  })
+  badges!: Record<'w' | 'b', string[]>;
 
   @ApiProperty()
   createdAt!: Date;
 }
 
-export function toGameReviewDto(review: GameReview): GameReviewDto {
+export function toGameReviewDto(
+  review: GameReview,
+  badges: Record<'w' | 'b', string[]> = { w: [], b: [] },
+): GameReviewDto {
   return {
     gameId: review.gameId,
     engine: review.engine,
@@ -181,6 +212,7 @@ export function toGameReviewDto(review: GameReview): GameReviewDto {
     blackAccuracy: review.blackAccuracy,
     evals: review.evals,
     digests: review.digests,
+    badges,
     createdAt: review.createdAt,
   };
 }

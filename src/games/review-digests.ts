@@ -1,19 +1,10 @@
 import { BadRequestException } from '@nestjs/common';
 
 // A review's digests: each side's review boiled down, worked out on the
-// device with the review and kept with it - for a player's patterns and
-// badges across games. Their shape is checked here, since the server only
+// device with the review and kept with it - for a player's patterns across
+// games. Their shape is checked here, since the server only
 // keeps them: version 1, as the app's domain/review/digest.ts writes them.
-export const BADGE_KINDS = [
-  'swindle',
-  'comeback',
-  'heldDraw',
-  'clean',
-  'sacrifice',
-] as const;
-
-export type BadgeKind = (typeof BADGE_KINDS)[number];
-
+// Badges aren't in them: the server awards those itself (src/badges).
 export type SideDigest = {
   v: 1;
   accuracy: number;
@@ -29,8 +20,18 @@ export type SideDigest = {
     clockShare: number | null;
   }[];
   accuracyByClock: { plenty: number; short: number } | null;
-  badges: BadgeKind[];
+  /** Average accuracy in each phase it played in - null in one it didn't. */
+  accuracyByPhase: Record<Phase, number | null>;
+  /** How many of its moves earned each mark. */
+  marks: Record<Mark, number>;
+  /** Its highest and lowest winning chances after the book, 0 to 100. */
+  chances: { high: number; low: number };
 };
+
+type Phase = 'opening' | 'middlegame' | 'endgame';
+type Mark = '!!' | '!' | '?!' | '?' | '??';
+const PHASES: Phase[] = ['opening', 'middlegame', 'endgame'];
+const MARKS: Mark[] = ['!!', '!', '?!', '?', '??'];
 
 export type ReviewDigests = { w: SideDigest; b: SideDigest };
 
@@ -76,8 +77,20 @@ function isSideDigest(value: unknown): value is SideDigest {
     value.slips.every(isSlip) &&
     (clock === null ||
       (isObject(clock) && isPercent(clock.plenty) && isPercent(clock.short))) &&
-    Array.isArray(value.badges) &&
-    value.badges.every((b) => BADGE_KINDS.includes(b as BadgeKind))
+    isObject(value.accuracyByPhase) &&
+    PHASES.every((phase) => {
+      const accuracy = (value.accuracyByPhase as Record<string, unknown>)[
+        phase
+      ];
+      return accuracy === null || isPercent(accuracy);
+    }) &&
+    isObject(value.marks) &&
+    MARKS.every((mark) =>
+      isInt((value.marks as Record<string, unknown>)[mark], 1000),
+    ) &&
+    isObject(value.chances) &&
+    isPercent(value.chances.high) &&
+    isPercent(value.chances.low)
   );
 }
 

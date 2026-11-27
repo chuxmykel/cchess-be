@@ -60,6 +60,7 @@ import type {
 } from '../messages/messages.service.js';
 import { InFlight } from '../common/in-flight.js';
 import { SlidingWindowLimiter } from '../common/sliding-window-limiter.js';
+import type { BadgesAwardedEvent } from '../badges/badges.service.js';
 import { PresenceService, userRoom } from '../presence/presence.service.js';
 import type { SeekRequest } from '../matchmaking/seek-matching.js';
 import { UsersService } from '../users/users.service.js';
@@ -785,6 +786,11 @@ export class RealtimeGateway
       .emit(WS_EVENTS.GAME_OVER, toGameStateDto(game));
     void this.sendFriendStatus(game.whiteId);
     void this.sendFriendStatus(game.blackId);
+  }
+
+  @OnEvent(DOMAIN_EVENTS.BADGES_AWARDED)
+  onBadgesAwarded({ userId, badges }: BadgesAwardedEvent) {
+    this.server.to(userRoom(userId)).emit(WS_EVENTS.BADGE_AWARDED, { badges });
   }
 
   @OnEvent(DOMAIN_EVENTS.GAME_DRAW_OFFERED)

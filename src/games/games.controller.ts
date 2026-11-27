@@ -38,7 +38,6 @@ import {
   GameReviewDto,
   SaveGameReviewDto,
   toGameReviewDto,
-  SaveReviewDigestsDto,
 } from './dto/game-review.dto.js';
 import { GameStateDto, toGameStateDto } from './dto/game-state.dto.js';
 import { GameSummaryDto, toGameSummaryDto } from './dto/game-summary.dto.js';
@@ -47,6 +46,7 @@ import { MakeMoveDto } from './dto/make-move.dto.js';
 import { BookmarksService } from './bookmarks.service.js';
 import { ConditionalMovesService } from './conditional-moves.service.js';
 import { GameNotesService } from './game-notes.service.js';
+import { BadgesService } from '../badges/badges.service.js';
 import { GameReviewsService } from './game-reviews.service.js';
 import { GamesService } from './games.service.js';
 
@@ -65,6 +65,7 @@ export class GamesController {
     private readonly gameNotesService: GameNotesService,
     private readonly conditionalMovesService: ConditionalMovesService,
     private readonly gameReviewsService: GameReviewsService,
+    private readonly badgesService: BadgesService,
   ) {}
 
   @Get()
@@ -173,7 +174,8 @@ export class GamesController {
   async getReview(
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<GameReviewDto> {
-    return toGameReviewDto(await this.gameReviewsService.get(id));
+    const review = await this.gameReviewsService.get(id);
+    return toGameReviewDto(review, await this.badgesService.forGame(id));
   }
 
   @Put(':id/review')
@@ -186,22 +188,8 @@ export class GamesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: SaveGameReviewDto,
   ): Promise<GameReviewDto> {
-    return toGameReviewDto(
-      await this.gameReviewsService.save(user.userId, id, dto),
-    );
-  }
-
-  @Put(':id/review/digests')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({
-    summary:
-      "Keep the digests of a review kept without them: each side's review boiled down",
-  })
-  async saveReviewDigests(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: SaveReviewDigestsDto,
-  ): Promise<void> {
-    await this.gameReviewsService.saveDigests(id, dto.digests);
+    const review = await this.gameReviewsService.save(user.userId, id, dto);
+    return toGameReviewDto(review, await this.badgesService.forGame(id));
   }
 
   @Get(':id/conditional-moves')

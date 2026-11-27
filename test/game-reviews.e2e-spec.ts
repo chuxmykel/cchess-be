@@ -216,70 +216,52 @@ describe('Game reviews (e2e)', () => {
         },
       ],
       accuracyByClock: null,
-      badges: ['comeback'],
+      accuracyByPhase: { opening: 90, middlegame: null, endgame: null },
+      marks: { '!!': 0, '!': 0, '?!': 0, '?': 0, '??': 1 },
+      chances: { high: 60, low: 40 },
       ...overrides,
     });
-    const DIGESTS = { w: side(), b: side({ result: 'loss', badges: [] }) };
-    const patternsOf = (username: string, viewer = ivan) =>
+    const DIGESTS = { w: side({ result: 'loss' }), b: side() };
+    const patternsOf = (username: string, viewer = ivan, period = '') =>
       request(app.getHttpServer())
-        .get(`/users/${username}/patterns`)
+        .get(`/users/${username}/patterns${period}`)
         .set('Authorization', `Bearer ${viewer.accessToken}`)
         .expect(200);
 
-    it('keeps them with a review, for the player and their badges', async () => {
+    it("keeps them with a review, for the player's own patterns alone", async () => {
       const gameId = await playGame();
       await put(gameId, review({ digests: DIGESTS })).expect(200);
 
       const mine = await patternsOf(ivan.username);
       expect(mine.body.games).toEqual([
-        expect.objectContaining({ gameId, color: 'w', digest: DIGESTS.w }),
+        expect.objectContaining({
+          gameId,
+          color: 'w',
+          digest: expect.objectContaining({ result: 'loss' }),
+        }),
       ]);
-      expect(mine.body.badges).toEqual({ comeback: 1 });
-
-      // Another player sees the badges, never the games.
-      const theirs = await patternsOf(ivan.username, judy);
-      expect(theirs.body).toEqual({ games: [], badges: { comeback: 1 } });
-    });
-
-    it('gives a review kept without them its digests later', async () => {
-      const gameId = await playGame();
-      await put(gameId, review()).expect(200);
-      expect((await patternsOf(ivan.username)).body.games).toEqual([]);
-
-      await request(app.getHttpServer())
-        .put(`/games/${gameId}/review/digests`)
-        .set('Authorization', `Bearer ${judy.accessToken}`)
-        .send({ digests: DIGESTS })
-        .expect(204);
-      expect((await patternsOf(judy.username, judy)).body.games).toEqual([
-        expect.objectContaining({ color: 'b', digest: DIGESTS.b }),
-      ]);
-
-      // A review saved again, as deep, keeps them.
-      await put(gameId, review()).expect(200);
-      expect((await patternsOf(ivan.username)).body.games).toHaveLength(1);
+      // Within the period asked for - the game's just ended.
+      expect(
+        (await patternsOf(ivan.username, ivan, '?period=1w')).body.games,
+      ).toHaveLength(1);
+      // Nobody else's.
+      expect((await patternsOf(ivan.username, judy)).body).toEqual({
+        games: [],
+      });
     });
 
     it("refuses digests that are not a review's", async () => {
       const gameId = await playGame();
-      await put(gameId, review({ digests: { w: side(), b: { v: 2 } } })).expect(
+      await put(gameId, review({ digests: { w: side(), b: { v: 1 } } })).expect(
         400,
       );
-      await put(gameId, review()).expect(200);
-      await request(app.getHttpServer())
-        .put(`/games/${gameId}/review/digests`)
-        .set('Authorization', `Bearer ${ivan.accessToken}`)
-        .send({ digests: { w: side({ badges: ['champion'] }), b: side() } })
-        .expect(400);
+      await put(
+        gameId,
+        review({ digests: { w: side({ marks: {} }), b: side() } }),
+      ).expect(400);
     });
 
-    it('has none for a game not reviewed, nor a player who does not exist', async () => {
-      const gameId = await playGame();
-      await request(app.getHttpServer())
-        .put(`/games/${gameId}/review/digests`)
-        .set('Authorization', `Bearer ${ivan.accessToken}`)
-        .send({ digests: DIGESTS })
-        .expect(404);
+    it('has none for a player who does not exist', async () => {
       await request(app.getHttpServer())
         .get('/users/nobody_at_all/patterns')
         .set('Authorization', `Bearer ${ivan.accessToken}`)

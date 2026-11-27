@@ -21,6 +21,12 @@ export type ReviewScore =
   | { kind: 'cp'; cp: number }
   | { kind: 'mate'; moves: number; winner: 'w' | 'b' };
 
+/** A move's class (best, brilliant, book...) and the kinds of what it did. */
+export interface MoveClassification {
+  moveClass: string;
+  facts: string[];
+}
+
 /** The engine's word on one position of a game. */
 export interface PositionEval {
   score: ReviewScore;
@@ -79,9 +85,15 @@ export class GameReview {
   evals!: PositionEval[];
 
   /** Each side's review boiled down (review-digests.ts), for players'
-   * patterns and badges - none until the app has sent them. */
+   * patterns - none until the app has sent them. */
   @Column({ type: 'jsonb', nullable: true })
   digests!: ReviewDigests | null;
+
+  /** Each move's class and what it did, as the app's classifier judged it
+   * (`fork`, or `sacrifice:queen` with the piece) - the badges the server
+   * awards read them. */
+  @Column({ type: 'jsonb', nullable: true })
+  moveClasses!: MoveClassification[] | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
