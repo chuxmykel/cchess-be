@@ -172,10 +172,14 @@ export class GamesController {
     summary: "A finished game's review: the engine's evals of its positions",
   })
   async getReview(
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<GameReviewDto> {
     const review = await this.gameReviewsService.get(id);
-    return toGameReviewDto(review, await this.badgesService.forGame(id));
+    return toGameReviewDto(
+      review,
+      await this.badgesService.forGame(id, user.userId),
+    );
   }
 
   @Put(':id/review')
@@ -189,7 +193,10 @@ export class GamesController {
     @Body() dto: SaveGameReviewDto,
   ): Promise<GameReviewDto> {
     const review = await this.gameReviewsService.save(user.userId, id, dto);
-    return toGameReviewDto(review, await this.badgesService.forGame(id));
+    return toGameReviewDto(
+      review,
+      await this.badgesService.forGame(id, user.userId),
+    );
   }
 
   @Get(':id/conditional-moves')

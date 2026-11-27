@@ -130,8 +130,10 @@ Every bar is in `src/badges/thresholds.ts`.
   with its game (the opponent, the result for them, when it ended). The
   app shows the ones a game earned in a card once you've left its screen,
   from the push as it ends.
-- `GET /games/:id/review` and `PUT` give each side's badges from the game
-  (`badges: { w, b }`), its review's included.
+- `GET /games/:id/review` and `PUT` give the badges the game earned the
+  player asking, its review's included, under the side they played
+  (`badges: { w, b }`) - the other side's left out, and none in a game
+  they didn't play.
 
 ## Puzzles
 

@@ -130,24 +130,27 @@ describe('Badges (e2e)', () => {
           ],
         });
 
+    // Each player is sent only their own.
     const saved = await save(14).expect(200);
-    expect(saved.body.badges).toEqual({
-      w: ['brilliancy'],
-      b: ['miniature'],
-    });
+    expect(saved.body.badges).toEqual({ w: ['brilliancy'], b: [] });
     // A deeper review again: nothing twice.
     await save(16).expect(200);
     const ivans = await badgesOf(ivan);
     expect(ivans.map((b) => b.kind)).toEqual(['brilliancy']);
     expect(ivans[0].game?.result).toBe('loss');
 
-    const fetched = await request(app.getHttpServer())
-      .get(`/games/${gameId}/review`)
-      .set('Authorization', `Bearer ${judy.accessToken}`)
-      .expect(200);
-    expect(fetched.body.badges).toEqual({
-      w: ['brilliancy'],
-      b: ['miniature'],
+    const reviewAs = async (user: RegisteredUser) =>
+      (
+        await request(app.getHttpServer())
+          .get(`/games/${gameId}/review`)
+          .set('Authorization', `Bearer ${user.accessToken}`)
+          .expect(200)
+      ).body.badges;
+    expect(await reviewAs(judy)).toEqual({ w: [], b: ['miniature'] });
+    // Someone who didn't play it sees none.
+    expect(await reviewAs(await registerUser(app, 'kim_badges'))).toEqual({
+      w: [],
+      b: [],
     });
   });
 

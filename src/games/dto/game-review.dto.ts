@@ -192,7 +192,7 @@ export class GameReviewDto {
 
   @ApiProperty({
     description:
-      "The badges the game earned each side ({ w, b }) - its review's included",
+      "The badges the game earned you, under the side you played ({ w, b }) - its review's included; the other side's, and any in a game you didn't play, left out",
   })
   badges!: Record<'w' | 'b', string[]>;
 

@@ -134,15 +134,22 @@ export class BadgesService implements OnModuleDestroy {
     return this.toDtos(badges);
   }
 
-  /** Each side's badges from one game: those its review shows. */
-  async forGame(gameId: string): Promise<Record<Color, GameBadgeKind[]>> {
+  /** The badges one game earned the player asking, by the side they
+   * played - those its review shows them. The other side's are left out,
+   * and a game they didn't play shows none. */
+  async forGame(
+    gameId: string,
+    viewerId: string,
+  ): Promise<Record<Color, GameBadgeKind[]>> {
     const game = await this.games.findOneBy({ id: gameId });
-    const found = await this.badges.findBy({ gameId });
-    const of = (userId: string | undefined) =>
-      found
-        .filter((b) => b.userId === userId && b.value === null)
-        .map((b) => b.kind as GameBadgeKind);
-    return { w: of(game?.whiteId), b: of(game?.blackId) };
+    const found = await this.badges.findBy({ gameId, userId: viewerId });
+    const mine = found
+      .filter((b) => b.value === null)
+      .map((b) => b.kind as GameBadgeKind);
+    return {
+      w: game?.whiteId === viewerId ? mine : [],
+      b: game?.blackId === viewerId ? mine : [],
+    };
   }
 
   private async forBadges(game: Game): Promise<Omit<GameForBadges, 'side'>> {
